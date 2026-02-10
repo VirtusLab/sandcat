@@ -1,0 +1,19 @@
+{
+	"name": "Rust",
+	"dockerComposeFile": "docker-compose.yml",
+	"service": "rust",
+	"workspaceFolder": "/workspaces/sandcat",
+	"features": {
+		"ghcr.io/devcontainers-extra/features/claude-code:1": {}
+	},
+	"customizations": {
+		"vscode": {
+			"extensions": [
+				"anthropic.claude-code",
+				"github.vscode-pull-request-github",
+				"rust-lang.rust-analyzer",
+				"vadimcn.vscode-lldb"
+			]
+		}
+	}
+}

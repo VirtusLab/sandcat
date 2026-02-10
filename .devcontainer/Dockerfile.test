@@ -1,0 +1,12 @@
+FROM debian:trixie-slim
+
+#   ca-certificates - system CA store, needed for update-ca-certificates
+#   curl           - for manual testing of the proxy setup
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates curl \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY scripts/install-ca-cert.sh /usr/local/bin/install-ca-cert.sh
+RUN chmod +x /usr/local/bin/install-ca-cert.sh
+
+ENTRYPOINT ["/usr/local/bin/install-ca-cert.sh"]

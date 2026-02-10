@@ -1,0 +1,72 @@
+services:
+  rust:
+    build:
+      context: .
+      dockerfile: Dockerfile.rust
+    # Share wg-client's network namespace so all traffic goes through its
+    # WireGuard tunnel. The rust container has no NET_ADMIN capability,
+    # so processes inside cannot modify routing, iptables, or the tunnel.
+    network_mode: "service:wg-client"
+    volumes:
+      - ..:/workspaces/sandcat:cached
+      - rust-home:/home/vscode
+      - mitmproxy-config:/mitmproxy-config:ro
+    command: sleep infinity
+    depends_on:
+      wg-client:
+        condition: service_healthy
+
+  # Dedicated networking container that manages the WireGuard tunnel to
+  # mitmproxy. Only this container has NET_ADMIN — no user code runs here.
+  wg-client:
+    build:
+      context: .
+      dockerfile: Dockerfile.wg-client
+    volumes:
+      - mitmproxy-config:/mitmproxy-config:ro
+    cap_add:
+      - NET_ADMIN    # required for WireGuard interface and iptables setup
+    sysctls:
+      - net.ipv4.conf.all.src_valid_mark=1    # required by WireGuard fwmark routing; can't be set inside the container (/proc/sys is read-only)
+    command: sleep infinity
+    depends_on:
+      mitmproxy:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "test", "-f", "/tmp/wg-ready"]
+      interval: 2s
+      timeout: 2s
+      retries: 15
+
+  mitmproxy:
+    image: mitmproxy/mitmproxy:latest
+    command: mitmweb --mode wireguard --web-host 0.0.0.0 --set web_password=mitmproxy
+    ports:
+      - "8081:8081"    # mitmweb UI for inspecting intercepted traffic
+    volumes:
+      - mitmproxy-config:/home/mitmproxy/.mitmproxy
+    cap_add:
+      - NET_ADMIN
+    healthcheck:
+      test: ["CMD", "test", "-f", "/home/mitmproxy/.mitmproxy/wireguard.conf"]
+      interval: 2s
+      timeout: 2s
+      retries: 15
+
+  # Lightweight container for manually testing the proxy setup.
+  # Uses a compose profile so it doesn't start with the dev container.
+  test:
+    profiles: ["test"]
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    network_mode: "service:wg-client"
+    volumes:
+      - mitmproxy-config:/mitmproxy-config:ro
+    depends_on:
+      wg-client:
+        condition: service_healthy
+
+volumes:
+  rust-home:
+  mitmproxy-config:
