@@ -23,10 +23,19 @@ done
 cp "$CA_CERT" /usr/local/share/ca-certificates/mitmproxy.crt
 update-ca-certificates
 
+# Node.js ignores the system trust store and bundles its own CA certs.
+# Point it at the mitmproxy CA so TLS verification works for Node-based
+# tools (e.g. Anthropic SDK).
+export NODE_EXTRA_CA_CERTS="$CA_CERT"
+echo "export NODE_EXTRA_CA_CERTS=\"$CA_CERT\"" > /etc/profile.d/sandcat-node-ca.sh
+
 # Source placeholder env vars for secret substitution (if available)
 PLACEHOLDERS_ENV="/mitmproxy-config/placeholders.env"
 if [ -f "$PLACEHOLDERS_ENV" ]; then
     . "$PLACEHOLDERS_ENV"
+    # Make placeholders available to new shells (e.g. VS Code terminals in dev
+    # containers) that won't inherit the entrypoint's environment.
+    cp "$PLACEHOLDERS_ENV" /etc/profile.d/sandcat-placeholders.sh
     count=$(grep -c '^export ' "$PLACEHOLDERS_ENV" 2>/dev/null || echo 0)
     echo "Loaded $count secret placeholder(s) from $PLACEHOLDERS_ENV"
     grep '^export ' "$PLACEHOLDERS_ENV" | sed 's/=.*//' | sed 's/^export /  /'

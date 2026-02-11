@@ -74,7 +74,9 @@ substitution before handing off to the container's main command.
   },
   "network": [
     {"action": "allow", "host": "*", "method": "GET"},
-    {"action": "allow", "host": "*.github.com", "method": "POST"}
+    {"action": "allow", "host": "*.github.com", "method": "POST"},
+    {"action": "allow", "host": "*.anthropic.com"},
+    {"action": "allow", "host": "*.claude.com"}
   ]
 }
 ```
@@ -99,8 +101,9 @@ Each rule has:
 With the rules above:
 - `GET` to any host → **allowed** (rule 1)
 - `POST` to `api.github.com` → **allowed** (rule 2)
+- `POST` to `api.anthropic.com` → **allowed** (rule 3)
 - `POST` to `example.com` → **denied**
-- `PUT` to any host → **denied**
+- `PUT` to `example.com` → **denied**
 - Empty network list → all requests **denied** (default deny)
 
 ## Secret substitution
