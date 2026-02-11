@@ -25,7 +25,8 @@ that runs alongside the container, however without secret substitution.
 Moreover, the proxy is not transparent, instead relying on the more traditional
 method of setting the `PROXY` environment variable.
 
-Finally, Sandcat builds on the mitmxproxy in WireGuard mode implemented in
+Finally, Sandcat builds on the Docker+mitmxproxy in WireGuard mode integration
+implemented in
 [mitm_wg](https://github.com/Srikanth0824/side-projects/tree/main/mitm_wg).
 
 ## Quick start: try it out
