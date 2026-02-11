@@ -6,6 +6,7 @@
 	"features": {
 		"ghcr.io/devcontainers-extra/features/claude-code:1": {}
 	},
+	"postCreateCommand": "bash scripts/post-create.sh",
 	"customizations": {
 		"vscode": {
 			"extensions": [

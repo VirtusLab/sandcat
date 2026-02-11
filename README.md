@@ -161,16 +161,12 @@ placeholder env vars are set.
 
 ### Claude Code
 
-Claude Code requires onboarding before it will use an API key from the
-environment. To skip the browser-based login flow, create `~/.claude.json`
-inside the container:
-
-```json
-{"hasCompletedOnboarding": true}
-```
-
-With this in place and `ANTHROPIC_API_KEY` set (via secret substitution),
-Claude Code will use the key directly.
+Claude Code ignores `ANTHROPIC_API_KEY` until onboarding is complete.
+Without `{"hasCompletedOnboarding": true}` in `~/.claude.json`, it
+prompts for browser-based login instead of using the key. The dev
+container automatically sets this on startup (via
+`scripts/post-create.sh`) if not already present, so Claude Code picks
+up the API key from secret substitution without manual setup.
 
 ## Architecture
 
