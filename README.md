@@ -1,28 +1,84 @@
 # Sandcat
 
-Sandcat routes all dev container traffic through a transparent
-[mitmproxy](https://mitmproxy.org/) via WireGuard. It captures HTTP/S,
-DNS, and all other TCP/UDP traffic without per-tool proxy configuration.
-A network policy engine controls which requests are allowed, and a secret
-substitution system ensures dev containers never see real credentials.
+Sandcat is a [dev container](https://containers.dev) setup for running AI agents
+(or any code) in a sandboxed environment with controlled network access and
+transparent secret substitution — while retaining the convenience of working in
+an IDE like VS Code.
 
-## Quick start
+All container traffic is routed through a transparent
+[mitmproxy](https://mitmproxy.org/) via WireGuard, capturing HTTP/S, DNS, and
+all other TCP/UDP traffic without per-tool proxy configuration. A network policy
+engine controls which requests are allowed, and a secret substitution system
+injects credentials at the proxy level so the container never sees real values.
 
-Add sandcat as a git submodule:
+## Inspiration
+
+Sandcat is mainly inspired by
+[Matchlock](https://github.com/jingkaihe/matchlock), which provides similar
+network isolation and secret substitution, however in the form of a dedicated
+command line tool. While Matchlock VMs offer greater isolation and security,
+they also lack the convenience of a dev containers setup, and integration with
+an IDE.
+
+[agent-sandbox](https://github.com/mattolson/agent-sandbox) implements a proxy
+that runs alongside the container, however without secret substitution.
+Moreover, the proxy is not transparent, instead relying on the more traditional
+method of setting the `PROXY` environment variable.
+
+Finally, Sandcat builds on the mitmxproxy in WireGuard mode implemented in
+[mitm_wg](https://github.com/Srikanth0824/side-projects/tree/main/mitm_wg).
+
+## Quick start: try it out
+
+Create a settings file with your secrets and network rules:
+
+```sh
+mkdir -p ~/.config/sandcat
+cp settings.example.json ~/.config/sandcat/settings.json
+# Edit with your real values
+```
+
+Then start the built-in test container to verify everything works:
+
+```sh
+docker compose -f .devcontainer/compose.yml --profile test run --rm test bash
+```
+
+Inside the container:
+
+```sh
+# Should return 200 (mitmproxy CA is trusted)
+curl -s -o /dev/null -w '%{http_code}\n' https://example.com
+
+# Check secret substitution (if you configured a GitHub token)
+gh auth status
+```
+
+See [Testing the proxy](#testing-the-proxy) for more verification steps.
+
+## Quick start: add to your project
+
+Add sandcat as a git submodule inside `.devcontainer/`:
 
 ```sh
 git submodule add <url> .devcontainer/sandcat
 ```
 
-Create your settings file:
+Your `.devcontainer/` directory should end up looking like this:
 
-```sh
-mkdir -p ~/.config/sandcat
-cp .devcontainer/sandcat/settings.example.json ~/.config/sandcat/settings.json
-# Edit with your real values
 ```
-
-## Compose integration
+.devcontainer/
+├── sandcat/              # the submodule
+│   ├── compose.yml       # mitmproxy + wg-client services
+│   ├── scripts/
+│   │   ├── sandcat-init.sh       # entrypoint for app containers
+│   │   ├── sandcat_addon.py      # mitmproxy addon (network rules + secret substitution)
+│   │   └── start-wireguard.sh    # wg-client entrypoint
+│   └── settings.example.json
+├── compose.yml           # your project's compose file (includes sandcat)
+├── Dockerfile            # your app container image
+└── devcontainer.json
+```
 
 In your `.devcontainer/compose.yml`, include sandcat's compose file and
 add your app service:
@@ -45,6 +101,10 @@ services:
       wg-client:
         condition: service_healthy
 ```
+
+The key parts: `network_mode: "service:wg-client"` routes all traffic
+through the WireGuard tunnel, and the `mitmproxy-config` volume gives
+your container access to the CA cert and placeholder env vars.
 
 In your `.devcontainer/Dockerfile`, copy and use `sandcat-init.sh` as
 the entrypoint:
@@ -195,25 +255,8 @@ up the API key from secret substitution without manual setup.
 
 ## Testing the proxy
 
-A lightweight `test` container is included in sandcat's own dev container
-for verifying the proxy works. Start it (from the `.devcontainer/`
-directory):
-
-```sh
-docker compose --profile test run --rm test bash
-```
-
-Inside the container, verify HTTPS works through the tunnel:
-
-```sh
-# Should return 200 (mitmproxy CA is trusted)
-curl -s -o /dev/null -w '%{http_code}\n' https://example.com
-
-# Traffic should appear in the mitmproxy web UI
-curl https://httpbin.org/get
-```
-
-Then open the mitmproxy web UI to confirm the requests show up. The host
+Once inside the test container (see [Quick start: try it out](#quick-start-try-it-out)),
+you can inspect traffic in the mitmproxy web UI. The host
 port is assigned dynamically — look it up from a host terminal with:
 
 ```sh
@@ -252,6 +295,13 @@ cd scripts && pytest test_sandcat_addon.py -v
 fails in Docker because `/proc/sys` is read-only. The equivalent sysctl
 is set via the `sysctls` option in `compose.yml`, and the entrypoint
 script handles interface, routing, and firewall setup manually.
+
+### Node.js TLS
+
+Node.js bundles its own CA certificates and ignores the system trust
+store. The `sandcat-init.sh` entrypoint sets `NODE_EXTRA_CA_CERTS` to
+the mitmproxy CA automatically. If you write a custom entrypoint, make
+sure to include this or Node-based tools will fail TLS verification.
 
 ### Rust TLS
 
