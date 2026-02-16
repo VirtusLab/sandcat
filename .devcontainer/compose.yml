@@ -2,12 +2,12 @@ include:
   - path: ../compose.yml
 
 services:
-  rust:
+  app:
     build:
       context: ..
       dockerfile: .devcontainer/Dockerfile
     # Share wg-client's network namespace so all traffic goes through its
-    # WireGuard tunnel. The rust container has no NET_ADMIN capability,
+    # WireGuard tunnel. The app container has no NET_ADMIN capability,
     # so processes inside cannot modify routing, iptables, or the tunnel.
     network_mode: "service:wg-client"
     volumes:
@@ -15,7 +15,7 @@ services:
       - ..:/workspaces/sandcat:cached
       # Named volume for the home directory so Claude Code auth state,
       # shell history, and other user-level config persist across rebuilds.
-      - rust-home:/home/vscode
+      - app-home:/home/vscode
       # Shared volume from mitmproxy containing the CA cert and
       # placeholders.env for secret substitution. Read-only — app
       # containers should never write to this.
@@ -32,19 +32,5 @@ services:
       wg-client:
         condition: service_healthy
 
-  # Lightweight container for manually testing the proxy setup.
-  # Uses a compose profile so it doesn't start with the dev container.
-  test:
-    profiles: ["test"]
-    build:
-      context: ..
-      dockerfile: .devcontainer/Dockerfile.test
-    network_mode: "service:wg-client"
-    volumes:
-      - mitmproxy-config:/mitmproxy-config:ro
-    depends_on:
-      wg-client:
-        condition: service_healthy
-
 volumes:
-  rust-home:
+  app-home:

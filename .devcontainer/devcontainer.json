@@ -1,7 +1,7 @@
 {
-	"name": "Rust",
+	"name": "Sandcat",
 	"dockerComposeFile": "compose.yml",
-	"service": "rust",
+	"service": "app",
 	"workspaceFolder": "/workspaces/sandcat",
 	// VS Code forwards host credential sockets into containers by default.
 	// Clear them so container code cannot use host SSH keys, GPG signing,
@@ -15,9 +15,7 @@
 		"vscode": {
 			"extensions": [
 				"anthropic.claude-code",
-				"github.vscode-pull-request-github",
-				"rust-lang.rust-analyzer",
-				"vadimcn.vscode-lldb"
+				"github.vscode-pull-request-github"
 			],
 			"settings": {
 				// Prevent VS Code from copying host .gitconfig into the

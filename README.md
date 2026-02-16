@@ -21,10 +21,10 @@ cp settings.example.json ~/.config/sandcat/settings.json
 # Edit with your real values
 ```
 
-Then start the built-in test container to verify everything works:
+Then start the container to verify everything works:
 
 ```sh
-docker compose -f .devcontainer/compose.yml --profile test run --rm --build test bash
+docker compose -f .devcontainer/compose.yml run --rm --build app bash
 ```
 
 Inside the container:
@@ -61,7 +61,7 @@ Your `.devcontainer/` directory should end up looking like this:
 │   └── settings.example.json
 ├── compose.yml           # your project's compose file (includes sandcat)
 ├── Dockerfile            # your app container image
-└── devcontainer.json
+└── devcontainer.json     # dev container configuration
 ```
 
 In your `.devcontainer/compose.yml`, include sandcat's compose file and
@@ -133,7 +133,7 @@ substitution, and drops to the `vscode` user before running the
 container's main command.
 
 See [`.devcontainer/Dockerfile`](.devcontainer/Dockerfile) in this
-repo for a working example (Rust development).
+repo for a working example.
 
 ## Settings format
 
@@ -355,7 +355,7 @@ git remote set-url origin https://github.com/owner/repo.git
 
 ## Testing the proxy
 
-Once inside the test container (see [Quick start: try it out](#quick-start-try-it-out)),
+Once inside the container (see [Quick start: try it out](#quick-start-try-it-out)),
 you can inspect traffic in the mitmproxy web UI. The host
 port is assigned dynamically — look it up from a host terminal with:
 
