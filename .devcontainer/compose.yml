@@ -11,9 +11,22 @@ services:
     # so processes inside cannot modify routing, iptables, or the tunnel.
     network_mode: "service:wg-client"
     volumes:
+      # Mount the project's code
       - ..:/workspaces/sandcat:cached
+      # Named volume for the home directory so Claude Code auth state,
+      # shell history, and other user-level config persist across rebuilds.
       - rust-home:/home/vscode
+      # Shared volume from mitmproxy containing the CA cert and
+      # placeholders.env for secret substitution. Read-only — app
+      # containers should never write to this.
       - mitmproxy-config:/mitmproxy-config:ro
+      # Bind-mount host Claude Code customizations (read-only) so personal
+      # settings, agents, and slash commands carry into the container.
+      # Remove any mount whose source does not exist on your host —
+      # Docker will otherwise create an empty directory in its place.
+      - ~/.claude/CLAUDE.md:/home/vscode/.claude/CLAUDE.md:ro
+      - ~/.claude/agents:/home/vscode/.claude/agents:ro
+      - ~/.claude/commands:/home/vscode/.claude/commands:ro
     command: sleep infinity
     depends_on:
       wg-client:

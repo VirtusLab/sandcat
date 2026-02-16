@@ -24,6 +24,7 @@ class SandcatAddon:
     def __init__(self):
         self.secrets: dict[str, dict] = {}  # name -> {value, hosts, placeholder}
         self.network_rules: list[dict] = []
+        self.env: dict[str, str] = {}  # non-secret env vars
 
     def load(self, loader):
         if not os.path.isfile(SETTINGS_PATH):
@@ -33,6 +34,7 @@ class SandcatAddon:
         with open(SETTINGS_PATH) as f:
             raw = json.load(f)
 
+        self.env = raw.get("env", {})
         self._load_secrets(raw.get("secrets", {}))
         self._load_network_rules(raw.get("network", []))
 
@@ -57,6 +59,9 @@ class SandcatAddon:
 
     def _write_placeholders_env(self):
         lines = []
+        # Non-secret env vars (e.g. git identity) — passed through as-is.
+        for name, value in self.env.items():
+            lines.append(f'export {name}="{value}"')
         for name, entry in self.secrets.items():
             lines.append(f'export {name}="{entry["placeholder"]}"')
         with open(PLACEHOLDERS_ENV_PATH, "w") as f:

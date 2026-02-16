@@ -1,4 +1,8 @@
 {
+  "env": {
+    "GIT_USER_NAME": "Your Name",
+    "GIT_USER_EMAIL": "you@example.com"
+  },
   "secrets": {
     "ANTHROPIC_API_KEY": {
       "value": "sk-ant-your-real-key-here",

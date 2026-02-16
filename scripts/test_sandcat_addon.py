@@ -298,3 +298,44 @@ class TestConfigLoading:
         content = env_path.read_text()
         assert 'export A="SANDCAT_PLACEHOLDER_A"' in content
         assert 'export B="SANDCAT_PLACEHOLDER_B"' in content
+
+    def test_env_vars_written_to_placeholders_env(self, tmp_path):
+        settings = {
+            "env": {"GIT_USER_NAME": "Alice", "GIT_USER_EMAIL": "alice@example.com"},
+            "secrets": {"K": {"value": "v", "hosts": []}},
+        }
+        p = tmp_path / "settings.json"
+        p.write_text(json.dumps(settings))
+        env_path = tmp_path / "placeholders.env"
+        addon = SandcatAddon()
+        with patch("sandcat_addon.SETTINGS_PATH", str(p)), \
+             patch("sandcat_addon.PLACEHOLDERS_ENV_PATH", str(env_path)):
+            addon.load(MagicMock())
+        content = env_path.read_text()
+        assert 'export GIT_USER_NAME="Alice"' in content
+        assert 'export GIT_USER_EMAIL="alice@example.com"' in content
+        assert 'export K="SANDCAT_PLACEHOLDER_K"' in content
+
+    def test_env_vars_partial(self, tmp_path):
+        settings = {"env": {"EDITOR": "vim"}}
+        p = tmp_path / "settings.json"
+        p.write_text(json.dumps(settings))
+        env_path = tmp_path / "placeholders.env"
+        addon = SandcatAddon()
+        with patch("sandcat_addon.SETTINGS_PATH", str(p)), \
+             patch("sandcat_addon.PLACEHOLDERS_ENV_PATH", str(env_path)):
+            addon.load(MagicMock())
+        content = env_path.read_text()
+        assert 'export EDITOR="vim"' in content
+
+    def test_missing_env_section_omits_vars(self, tmp_path):
+        settings = {"secrets": {"K": {"value": "v", "hosts": []}}}
+        p = tmp_path / "settings.json"
+        p.write_text(json.dumps(settings))
+        env_path = tmp_path / "placeholders.env"
+        addon = SandcatAddon()
+        with patch("sandcat_addon.SETTINGS_PATH", str(p)), \
+             patch("sandcat_addon.PLACEHOLDERS_ENV_PATH", str(env_path)):
+            addon.load(MagicMock())
+        content = env_path.read_text()
+        assert content.startswith('export K=')

@@ -11,24 +11,6 @@ all other TCP/UDP traffic without per-tool proxy configuration. A network policy
 engine controls which requests are allowed, and a secret substitution system
 injects credentials at the proxy level so the container never sees real values.
 
-## Inspiration
-
-Sandcat is mainly inspired by
-[Matchlock](https://github.com/jingkaihe/matchlock), which provides similar
-network isolation and secret substitution, however in the form of a dedicated
-command line tool. While Matchlock VMs offer greater isolation and security,
-they also lack the convenience of a dev containers setup, and integration with
-an IDE.
-
-[agent-sandbox](https://github.com/mattolson/agent-sandbox) implements a proxy
-that runs alongside the container, however without secret substitution.
-Moreover, the proxy is not transparent, instead relying on the more traditional
-method of setting the `PROXY` environment variable.
-
-Finally, Sandcat builds on the Docker+mitmxproxy in WireGuard mode integration
-implemented in
-[mitm_wg](https://github.com/Srikanth0824/side-projects/tree/main/mitm_wg).
-
 ## Quick start: try it out
 
 Create a settings file with your secrets and network rules:
@@ -62,7 +44,7 @@ See [Testing the proxy](#testing-the-proxy) for more verification steps.
 Add sandcat as a git submodule inside `.devcontainer/`:
 
 ```sh
-git submodule add <url> .devcontainer/sandcat
+git submodule add https://github.com/softwaremill/sandcat.git .devcontainer/sandcat
 ```
 
 Your `.devcontainer/` directory should end up looking like this:
@@ -74,7 +56,9 @@ Your `.devcontainer/` directory should end up looking like this:
 │   ├── scripts/
 │   │   ├── sandcat-init.sh       # entrypoint for app containers
 │   │   ├── sandcat_addon.py      # mitmproxy addon (network rules + secret substitution)
-│   │   └── start-wireguard.sh    # wg-client entrypoint
+│   │   ├── start-wireguard.sh    # wg-client entrypoint
+│   │   ├── post-create.sh        # one-time setup (onboarding, git identity)
+│   │   └── post-start.sh         # runs on every start (updates Claude CLI)
 │   └── settings.example.json
 ├── compose.yml           # your project's compose file (includes sandcat)
 ├── Dockerfile            # your app container image
@@ -96,22 +80,33 @@ services:
     network_mode: "service:wg-client"
     volumes:
       - ..:/workspaces/project:cached
+      # Named volume so user-level config persists across rebuilds.
+      - app-home:/home/vscode
+      # CA cert and placeholder env vars for secret substitution.
       - mitmproxy-config:/mitmproxy-config:ro
+      # Host Claude Code customizations (remove if files don't exist).
+      - ~/.claude/CLAUDE.md:/home/vscode/.claude/CLAUDE.md:ro
+      - ~/.claude/agents:/home/vscode/.claude/agents:ro
+      - ~/.claude/commands:/home/vscode/.claude/commands:ro
     command: sleep infinity
     depends_on:
       wg-client:
         condition: service_healthy
+
+volumes:
+  app-home:
 ```
 
 The key parts: `network_mode: "service:wg-client"` routes all traffic
 through the WireGuard tunnel, and the `mitmproxy-config` volume gives
 your container access to the CA cert and placeholder env vars.
 
-In your `.devcontainer/Dockerfile`, copy and use `sandcat-init.sh` as
-the entrypoint:
+In your `.devcontainer/Dockerfile`, install whatever dev tooling your
+project needs and use `sandcat-init.sh` as the entrypoint:
 
 ```dockerfile
 FROM mcr.microsoft.com/devcontainers/javascript-node:22
+# Install your project's tooling here
 COPY sandcat/scripts/sandcat-init.sh /usr/local/bin/sandcat-init.sh
 RUN chmod +x /usr/local/bin/sandcat-init.sh
 ENTRYPOINT ["sandcat-init.sh"]
@@ -121,12 +116,19 @@ The entrypoint installs the mitmproxy CA certificate into the system
 trust store and loads placeholder environment variables for secret
 substitution before handing off to the container's main command.
 
+See [`.devcontainer/Dockerfile`](.devcontainer/Dockerfile) in this
+repo for a working example (Rust development).
+
 ## Settings format
 
 `~/.config/sandcat/settings.json`:
 
 ```json
 {
+  "env": {
+    "GIT_USER_NAME": "Your Name",
+    "GIT_USER_EMAIL": "you@example.com"
+  },
   "secrets": {
     "ANTHROPIC_API_KEY": {
       "value": "sk-ant-real-key-here",
@@ -142,9 +144,10 @@ substitution before handing off to the container's main command.
 }
 ```
 
-Warning: allowing all GET-traffic, all traffic from GitHub or in fact any not-fully-trusted/controlled site,
-leaves the possibility of a prompt injection attack. Blocking `POST`-traffic might prevent code from being
-exfiltrated, but malicious code might still be generated as part of the project.
+Warning: allowing all GET-traffic, all traffic from GitHub or in fact any
+not-fully-trusted/controlled site, leaves the possibility of a prompt injection
+attack. Blocking `POST`-traffic might prevent code from being exfiltrated, but
+malicious code might still be generated as part of the project.
 
 ## Network access rules
 
@@ -229,6 +232,24 @@ container automatically sets this on startup (via
 `scripts/post-create.sh`) if not already present, so Claude Code picks
 up the API key from secret substitution without manual setup.
 
+**Autonomous mode.** The bundled `devcontainer.json` enables
+`claudeCode.allowDangerouslySkipPermissions` and sets
+`claudeCode.initialPermissionMode` to `bypassPermissions`. This lets
+Claude Code run without interactive permission prompts inside the
+container. The trade-off: sandcat already provides the security
+boundary (network isolation, secret substitution, iptables kill-switch),
+so the in-container prompts add friction without meaningful security
+benefit. Remove these settings if you prefer interactive approval.
+See [Secure & Dangerous Claude Code + VS Code Setup](https://warski.org/blog/secure-dangerous-claude-code-vs-code-setup/)
+for background on this approach.
+
+**Host customizations.** The example `compose.yml` bind-mounts
+`~/.claude/CLAUDE.md`, `~/.claude/agents`, and `~/.claude/commands`
+from the host (read-only) so your personal instructions, custom agents,
+and slash commands are available inside the container. Remove any mount
+whose source does not exist on your host — Docker will otherwise create
+an empty directory in its place.
+
 ## Architecture
 
 ```
@@ -253,6 +274,68 @@ up the API key from secret substitution without manual setup.
 - The mitmproxy web UI is exposed on a dynamic host port (see below)
   to avoid conflicts when multiple projects include sandcat. Password:
   `mitmproxy`.
+
+## Hardening the VS Code setup
+
+Sandcat secures the **network path** out of the container, but VS Code's
+dev container integration introduces a separate trust boundary. The VS
+Code remote architecture gives container-side extensions access to host
+resources (terminals, credentials, clipboard) through the IDE channel,
+bypassing network-level controls entirely.
+
+For background on these attack vectors see
+[Leveraging VS Code Internals to Escape Containers](https://blog.theredguild.org/leveraging-vscode-internals-to-escape-containers/).
+
+### What the bundled devcontainer.json already does
+
+The included `devcontainer.json` applies the following mitigations out of
+the box:
+
+- **Clears forwarded credential sockets** (`SSH_AUTH_SOCK`,
+  `GPG_AGENT_INFO`, `GIT_ASKPASS`) via `remoteEnv` so container code
+  cannot piggyback on host SSH keys, GPG signing, or VS Code's git
+  credential helpers.
+- **Disables git config copying** (`dev.containers.copyGitConfig:
+  false`) to prevent leaking host credential helpers and signing key
+  references into the container.
+- **Enables workspace trust** (`security.workspace.trust.enabled: true`)
+  so VS Code prompts before applying workspace settings that container
+  code could have modified via the bind-mounted project folder.
+- **Blocks local terminal creation**
+  (`terminal.integrated.allowLocalTerminal: false`) so container
+  extensions cannot call `workbench.action.terminal.newLocal` to open a
+  shell on the host, which would bypass the WireGuard tunnel entirely.
+  For maximum protection, also set this in your **host** user settings
+  (workspace settings could theoretically override it).
+
+### Consequences of hardening
+
+Disabling credential forwarding and git config copying improves
+isolation but requires a few adjustments.
+
+**Git identity.** With `dev.containers.copyGitConfig` set to `false`,
+git inside the container has no `user.name` or `user.email`. Add them
+to the `env` section of your `settings.json`:
+
+```json
+"env": {
+    "GIT_USER_NAME": "Your Name",
+    "GIT_USER_EMAIL": "you@example.com"
+}
+```
+
+The mitmproxy addon writes `env` entries to the shared env file
+(alongside secret placeholders), and `post-create.sh` applies
+`GIT_USER_NAME`/`GIT_USER_EMAIL` via `git config --global`.
+
+**HTTPS remotes only.** With `SSH_AUTH_SOCK` cleared, SSH-based git
+remotes will not work. Use HTTPS URLs instead — sandcat's secret
+substitution handles GitHub token authentication over HTTPS
+transparently. Convert existing remotes with:
+
+```sh
+git remote set-url origin https://github.com/owner/repo.git
+```
 
 ## Testing the proxy
 
@@ -288,6 +371,24 @@ gh auth status
 cd scripts && pytest test_sandcat_addon.py -v
 ```
 
+## Inspiration
+
+Sandcat is mainly inspired by
+[Matchlock](https://github.com/jingkaihe/matchlock), which provides similar
+network isolation and secret substitution, however in the form of a dedicated
+command line tool. While Matchlock VMs offer greater isolation and security,
+they also lack the convenience of a dev containers setup, and integration with
+an IDE.
+
+[agent-sandbox](https://github.com/mattolson/agent-sandbox) implements a proxy
+that runs alongside the container, however without secret substitution.
+Moreover, the proxy is not transparent, instead relying on the more traditional
+method of setting the `PROXY` environment variable.
+
+Finally, Sandcat builds on the Docker+mitmxproxy in WireGuard mode integration
+implemented in
+[mitm_wg](https://github.com/Srikanth0824/side-projects/tree/main/mitm_wg).
+
 ## Notes
 
 ### Why not wg-quick?
@@ -310,3 +411,12 @@ Rust programs using `rustls` with the `webpki-roots` crate bundle CA
 certificates at compile time and will not trust the mitmproxy CA. Use
 `rustls-tls-native-roots` in reqwest so it reads the system CA store at
 runtime instead.
+
+## Commercial Support
+
+We offer commercial services around AI-assisted software development.
+[Contact us](https://softwaremill.com) to learn more about our offer!
+
+## Copyright
+
+Copyright (C) 2026 SoftwareMill [https://softwaremill.com](https://softwaremill.com).
