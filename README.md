@@ -78,18 +78,18 @@ All three methods produce the same target directory layout:
 ### Option 1: Claude Code prompt
 
 Copy the prompt below into Claude Code (or any LLM-based coding agent). It will
-read the sandcat repository and this project's codebase, then generate tailored
-dev container files:
+run the install script, then inspect your project to customize the generated
+files:
 
 ````text
-Set up a Sandcat dev container for this project. Read the instructions and
-template files at https://github.com/softwaremill/sandcat — download shared
-infrastructure files into .devcontainer/sandcat/ and generate compose-all.yml,
-Dockerfile.app, and devcontainer.json in .devcontainer/, adjusting paths and the
-project name. Inspect the project's codebase to determine which language
-toolchains and runtimes to install via mise in Dockerfile.app, and add any
-runtime-specific CA trust configuration needed for mitmproxy TLS interception
-(see the TLS section in the sandcat README).
+Set up a Sandcat dev container for this project:
+1. Run: curl -fsSL https://raw.githubusercontent.com/softwaremill/sandcat/master/install.sh | bash
+2. Read https://raw.githubusercontent.com/softwaremill/sandcat/master/README.md
+   for the TLS/CA trust section.
+3. Inspect this project's codebase to determine the language toolchains and
+   runtimes needed. Edit .devcontainer/Dockerfile.app: add the appropriate
+   `mise use -g` lines and any runtime-specific CA trust configuration
+   (e.g. Java keytool import, Rust native-roots).
 ````
 
 ### Option 2: Install script
