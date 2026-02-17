@@ -332,7 +332,12 @@ the box:
 - **Clears forwarded credential sockets** (`SSH_AUTH_SOCK`,
   `GPG_AGENT_INFO`, `GIT_ASKPASS`) via `remoteEnv` so container code
   cannot piggyback on host SSH keys, GPG signing, or VS Code's git
-  credential helpers.
+  credential helpers. Clearing env vars alone only hides the path —
+  the socket file in `/tmp` can still be discovered by scanning.
+- **Removes the SSH agent socket** via a `postStartCommand` script
+  that deletes `vscode-ssh-auth-*.sock` from `/tmp` after VS Code
+  connects. This is a best-effort measure — the socket path pattern
+  could change in future VS Code versions.
 - **Disables git config copying** (`dev.containers.copyGitConfig:
   false`) to prevent leaking host credential helpers and signing key
   references into the container.
