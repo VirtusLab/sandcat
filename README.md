@@ -283,6 +283,8 @@ an empty directory in its place.
 
 ## Architecture
 
+### Containers and network
+
 ```mermaid
 flowchart LR
     app["<b>app</b><br/><i>no NET_ADMIN</i><br/>your code runs here"]
@@ -312,6 +314,83 @@ flowchart LR
 - The mitmproxy web UI is exposed on a dynamic host port (see below)
   to avoid conflicts when multiple projects include sandcat. Password:
   `mitmproxy`.
+
+### Volumes
+
+The containers communicate through two shared volumes and several
+bind-mounts from the host:
+
+```mermaid
+flowchart TB
+    subgraph volumes["Shared volumes"]
+        mc["<b>mitmproxy-config</b><br/><i>wireguard.conf</i><br/><i>mitmproxy-ca-cert.pem</i><br/><i>placeholders.env</i>"]
+        ah["<b>app-home</b><br/><i>/home/vscode</i><br/>persists Claude Code state,<br/>shell history across rebuilds"]
+    end
+
+    subgraph host["Host bind-mounts (read-only)"]
+        settings["~/.config/sandcat/<br/>settings.json"]
+        claude["~/.claude/<br/>CLAUDE.md, agents/, commands/"]
+    end
+
+    mitm["mitmproxy"] -- "read-write" --> mc
+    wg["wg-client"] -- "read-only" --> mc
+    app["app"] -- "read-only" --> mc
+    app -- "read-write" --> ah
+    settings -. "bind-mount" .-> mitm
+    claude -. "bind-mount" .-> app
+
+    style mc fill:#f0e8fd,stroke:#904ad9
+    style ah fill:#f0e8fd,stroke:#904ad9
+    style settings fill:#fde8e8,stroke:#d94a4a
+    style claude fill:#fde8e8,stroke:#d94a4a
+```
+
+- **`mitmproxy-config`** is the key shared volume. Mitmproxy writes to
+  it (WireGuard keys, CA cert, `placeholders.env`); all other
+  containers mount it read-only.
+- **`app-home`** persists the vscode user's home directory across
+  container rebuilds (Claude Code auth, shell history, git config).
+- **`settings.json`** is bind-mounted from the host into mitmproxy
+  only — app containers never see real secrets.
+- **Claude Code customizations** (`CLAUDE.md`, `agents/`, `commands/`)
+  are bind-mounted from the host into the app container read-only.
+
+### Startup sequence
+
+The containers start in dependency order. Each step writes data to the
+shared `mitmproxy-config` volume that the next step reads:
+
+```mermaid
+sequenceDiagram
+    participant M as mitmproxy
+    participant W as wg-client
+    participant A as app
+
+    Note over M: starts first (no dependencies)
+    M->>M: Start WireGuard server
+    M->>M: Generate wireguard.conf (key pairs)
+    M->>M: Read settings.json
+    M->>M: Write placeholders.env
+    M->>M: Write mitmproxy-ca-cert.pem
+    Note over M: healthcheck passes<br/>(wireguard.conf exists)
+
+    Note over W: starts after mitmproxy is healthy
+    W->>W: Read wireguard.conf from shared volume
+    W->>W: Derive WireGuard client keys
+    W->>W: Create wg0 interface + routing
+    W->>W: Set up iptables kill switch
+    W->>W: Configure DNS via tunnel
+    Note over W: healthcheck passes<br/>(/tmp/wg-ready exists)
+
+    Note over A: starts after wg-client is healthy
+    A->>A: Read CA cert from shared volume
+    A->>A: Install CA into system trust store
+    A->>A: Set NODE_EXTRA_CA_CERTS
+    A->>A: Source placeholders.env (secret placeholders)
+    A->>A: Run sandcat-user-init.sh (git identity, etc.)
+    A->>A: Drop to vscode user, exec main command
+    Note over A: ready for use
+```
 
 ## Hardening the VS Code setup
 
