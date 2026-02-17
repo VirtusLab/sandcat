@@ -23,12 +23,12 @@ services:
 
   mitmproxy:
     image: mitmproxy/mitmproxy:latest
-    command: mitmweb --mode wireguard --web-host 0.0.0.0 --set web_password=mitmproxy -s /scripts/sandcat_addon.py
+    command: mitmweb --mode wireguard --web-host 0.0.0.0 --set web_password=mitmproxy -s /scripts/mitmproxy_addon.py
     ports:
       - "8081" # mitmweb UI; host port assigned dynamically to avoid conflicts
     volumes:
       - mitmproxy-config:/home/mitmproxy/.mitmproxy
-      - ./scripts/sandcat_addon.py:/scripts/sandcat_addon.py:ro
+      - ./scripts/mitmproxy_addon.py:/scripts/mitmproxy_addon.py:ro
       - ~/.config/sandcat/settings.json:/config/settings.json:ro
     cap_add:
       - NET_ADMIN

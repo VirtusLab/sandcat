@@ -54,10 +54,10 @@ Your `.devcontainer/` directory should end up looking like this:
 ├── sandcat/              # the submodule
 │   ├── compose.yml       # mitmproxy + wg-client services
 │   ├── scripts/
-│   │   ├── sandcat-init.sh       # entrypoint for app containers (root)
-│   │   ├── sandcat-user-init.sh  # vscode-user tasks (git identity, CLI update)
-│   │   ├── sandcat_addon.py      # mitmproxy addon (network rules + secret substitution)
-│   │   └── start-wireguard.sh    # wg-client entrypoint
+│   │   ├── app-init.sh            # entrypoint for app containers (root)
+│   │   ├── app-user-init.sh      # vscode-user tasks (git identity, CLI update)
+│   │   ├── mitmproxy_addon.py    # mitmproxy addon (network rules + secret substitution)
+│   │   └── wg-client-init.sh     # wg-client entrypoint
 │   └── settings.example.json
 ├── compose.yml           # your project's compose file (includes sandcat)
 ├── Dockerfile            # your app container image
@@ -101,7 +101,7 @@ through the WireGuard tunnel, and the `mitmproxy-config` volume gives
 your container access to the CA cert and placeholder env vars.
 
 In your `.devcontainer/Dockerfile`, install whatever dev tooling your
-project needs and use `sandcat-init.sh` as the entrypoint:
+project needs and use `app-init.sh` as the entrypoint:
 
 ```dockerfile
 FROM mcr.microsoft.com/devcontainers/javascript-node:22
@@ -112,8 +112,8 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends gosu \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --chmod=755 sandcat/scripts/sandcat-init.sh /usr/local/bin/sandcat-init.sh
-COPY --chmod=755 sandcat/scripts/sandcat-user-init.sh /usr/local/bin/sandcat-user-init.sh
+COPY --chmod=755 sandcat/scripts/app-init.sh /usr/local/bin/app-init.sh
+COPY --chmod=755 sandcat/scripts/app-user-init.sh /usr/local/bin/app-user-init.sh
 
 USER vscode
 
@@ -124,7 +124,7 @@ RUN mkdir -p /home/vscode/.claude \
     && echo '{"hasCompletedOnboarding":true}' > /home/vscode/.claude.json
 
 USER root
-ENTRYPOINT ["/usr/local/bin/sandcat-init.sh"]
+ENTRYPOINT ["/usr/local/bin/app-init.sh"]
 ```
 
 The entrypoint installs the mitmproxy CA certificate into the system
@@ -231,13 +231,13 @@ prevents accidental secret leakage to unintended services.
 ### How it works internally
 
 1. The mitmproxy container mounts `~/.config/sandcat/settings.json`
-   (read-only) and the `sandcat_addon.py` addon script.
+   (read-only) and the `mitmproxy_addon.py` addon script.
 2. On startup, the addon reads `settings.json` and writes
    `placeholders.env` to the `mitmproxy-config` shared volume
    (`/home/mitmproxy/.mitmproxy/placeholders.env`). This file contains
    lines like `export ANTHROPIC_API_KEY="SANDCAT_PLACEHOLDER_ANTHROPIC_API_KEY"`.
 3. App containers mount `mitmproxy-config` read-only at
-   `/mitmproxy-config/`. The shared entrypoint (`sandcat-init.sh`)
+   `/mitmproxy-config/`. The shared entrypoint (`app-init.sh`)
    sources `placeholders.env` after installing the CA cert, so every
    process gets the placeholder values as env vars.
 4. On each request, the addon first checks network access rules. If
@@ -387,7 +387,7 @@ sequenceDiagram
     A->>A: Install CA into system trust store
     A->>A: Set NODE_EXTRA_CA_CERTS
     A->>A: Source placeholders.env (secret placeholders)
-    A->>A: Run sandcat-user-init.sh (git identity, etc.)
+    A->>A: Run app-user-init.sh (git identity, etc.)
     A->>A: Drop to vscode user, exec main command
     Note over A: ready for use
 ```
@@ -447,7 +447,7 @@ to the `env` section of your `settings.json`:
 ```
 
 The mitmproxy addon writes `env` entries to the shared env file
-(alongside secret placeholders), and `sandcat-user-init.sh` applies
+(alongside secret placeholders), and `app-user-init.sh` applies
 `GIT_USER_NAME`/`GIT_USER_EMAIL` via `git config --global` at container
 startup.
 
@@ -491,7 +491,7 @@ gh auth status
 ## Unit tests
 
 ```sh
-cd scripts && pytest test_sandcat_addon.py -v
+cd scripts && pytest test_mitmproxy_addon.py -v
 ```
 
 ## Inspiration
@@ -524,12 +524,12 @@ script handles interface, routing, and firewall setup manually.
 ### TLS and CA certificates
 
 Sandcat's mitmproxy intercepts TLS traffic, so the app container must
-trust the mitmproxy CA. `sandcat-init.sh` installs it into the system
+trust the mitmproxy CA. `app-init.sh` installs it into the system
 trust store, which is enough for most tools — but some runtimes bring
 their own CA handling:
 
 - **Node.js** bundles its own CA certificates and ignores the system
-  store. `sandcat-init.sh` sets `NODE_EXTRA_CA_CERTS` automatically. If
+  store. `app-init.sh` sets `NODE_EXTRA_CA_CERTS` automatically. If
   you write a custom entrypoint, make sure to include this or Node-based
   tools will fail TLS verification.
 - **Rust** programs using `rustls` with the `webpki-roots` crate bundle
@@ -537,7 +537,7 @@ their own CA handling:
   Use `rustls-tls-native-roots` in reqwest so it reads the system CA
   store at runtime instead.
 - **Java** uses its own trust store (`cacerts`). Import the mitmproxy CA
-  at runtime by adding this to `sandcat-init.sh` or a wrapper script
+  at runtime by adding this to `app-init.sh` or a wrapper script
   before the `exec` line:
   ```sh
   keytool -importcert -trustcacerts -noprompt \

@@ -15,4 +15,4 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install pytest
-      - run: pytest scripts/test_sandcat_addon.py -v
+      - run: pytest scripts/test_mitmproxy_addon.py -v

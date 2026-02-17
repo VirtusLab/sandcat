@@ -9,8 +9,8 @@ RUN apt-get update \
 # Devcontainer base images include a vscode user; plain images do not.
 RUN useradd -m -s /bin/bash vscode
 
-COPY --chmod=755 scripts/sandcat-init.sh /usr/local/bin/sandcat-init.sh
-COPY --chmod=755 scripts/sandcat-user-init.sh /usr/local/bin/sandcat-user-init.sh
+COPY --chmod=755 scripts/app-init.sh /usr/local/bin/app-init.sh
+COPY --chmod=755 scripts/app-user-init.sh /usr/local/bin/app-user-init.sh
 
 USER vscode
 
@@ -35,4 +35,4 @@ RUN mkdir -p /home/vscode/.claude \
 RUN echo 'alias claude-yolo="claude --dangerously-skip-permissions"' >> /home/vscode/.bashrc
 
 USER root
-ENTRYPOINT ["/usr/local/bin/sandcat-init.sh"]
+ENTRYPOINT ["/usr/local/bin/app-init.sh"]

@@ -11,7 +11,7 @@ RUN apt-get update \
         wireguard-tools iproute2 iptables jq openresolv \
     && rm -rf /var/lib/apt/lists/*
 
-COPY scripts/start-wireguard.sh /usr/local/bin/start-wireguard.sh
-RUN chmod +x /usr/local/bin/start-wireguard.sh
+COPY scripts/wg-client-init.sh /usr/local/bin/wg-client-init.sh
+RUN chmod +x /usr/local/bin/wg-client-init.sh
 
-ENTRYPOINT ["/usr/local/bin/start-wireguard.sh"]
+ENTRYPOINT ["/usr/local/bin/wg-client-init.sh"]

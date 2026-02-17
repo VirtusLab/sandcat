@@ -1,7 +1,7 @@
 """
 mitmproxy addon: network access rules and secret substitution.
 
-Loaded via: mitmweb -s /scripts/sandcat_addon.py
+Loaded via: mitmweb -s /scripts/mitmproxy-addon.py
 
 On startup, reads /config/settings.json. Network rules (evaluated
 top-to-bottom, first match wins, default deny) gate every request.

@@ -44,6 +44,6 @@ else
 fi
 
 # Run vscode-user tasks: git identity and Claude Code update.
-su - vscode -c /usr/local/bin/sandcat-user-init.sh
+su - vscode -c /usr/local/bin/app-user-init.sh
 
 exec gosu vscode "$@"

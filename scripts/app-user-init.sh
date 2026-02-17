@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# vscode-user tasks run via su from sandcat-init.sh.
+# vscode-user tasks run via su from app-init.sh.
 # /etc/profile.d/ is sourced by the login shell, providing
 # GIT_USER_NAME, GIT_USER_EMAIL, and NODE_EXTRA_CA_CERTS.
 #
