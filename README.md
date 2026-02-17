@@ -83,7 +83,8 @@ files:
 
 ````text
 Set up a Sandcat dev container for this project:
-1. Run: curl -fsSL https://raw.githubusercontent.com/softwaremill/sandcat/master/install.sh | bash
+1. Determine the project name from the repository/directory name.
+   Run: curl -fsSL https://raw.githubusercontent.com/softwaremill/sandcat/master/install.sh | bash -s -- --name <project-name>
 2. Read https://raw.githubusercontent.com/softwaremill/sandcat/master/README.md
 3. Inspect the project's codebase to determine the language toolchains
    and runtimes needed. Modify .devcontainer/Dockerfile.app: add
