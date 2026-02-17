@@ -18,8 +18,12 @@ found=0
 for sock in /tmp/vscode-ssh-auth-*.sock; do
     # Guard against the unexpanded glob (no matches).
     [ -e "$sock" ] || continue
-    rm -f "$sock"
-    echo "sandcat: removed forwarded SSH agent socket: $sock"
+    if rm -f "$sock" 2>/dev/null; then
+        echo "sandcat: removed forwarded SSH agent socket: $sock"
+    else
+        echo "sandcat: warning: could not remove $sock (owned by root?)" >&2
+        echo "sandcat: SSH_AUTH_SOCK is cleared, but the socket file remains" >&2
+    fi
     found=1
 done
 

@@ -1,7 +1,7 @@
 """
 mitmproxy addon: network access rules and secret substitution.
 
-Loaded via: mitmweb -s /scripts/mitmproxy-addon.py
+Loaded via: mitmweb -s /scripts/mitmproxy_addon.py
 
 On startup, reads /config/settings.json. Network rules (evaluated
 top-to-bottom, first match wins, default deny) gate every request.
@@ -57,13 +57,18 @@ class SandcatAddon:
         self.network_rules = raw_rules
         ctx.log.info(f"Loaded {len(self.network_rules)} network rule(s)")
 
+    @staticmethod
+    def _shell_escape(value: str) -> str:
+        """Escape a string for safe inclusion inside double quotes in shell."""
+        return value.replace("\\", "\\\\").replace('"', '\\"').replace("$", "\\$").replace("`", "\\`")
+
     def _write_placeholders_env(self):
         lines = []
         # Non-secret env vars (e.g. git identity) — passed through as-is.
         for name, value in self.env.items():
-            lines.append(f'export {name}="{value}"')
+            lines.append(f'export {name}="{self._shell_escape(value)}"')
         for name, entry in self.secrets.items():
-            lines.append(f'export {name}="{entry["placeholder"]}"')
+            lines.append(f'export {name}="{self._shell_escape(entry["placeholder"])}"')
         with open(SANDCAT_ENV_PATH, "w") as f:
             f.write("\n".join(lines) + "\n")
 

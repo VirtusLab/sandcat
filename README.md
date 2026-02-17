@@ -55,6 +55,7 @@ Your `.devcontainer/` directory should end up looking like this:
 │   ├── compose-proxy.yml  # mitmproxy + wg-client services
 │   ├── scripts/
 │   │   ├── app-init.sh            # entrypoint for app containers (root)
+│   │   ├── app-post-start.sh     # VS Code post-start hook (SSH socket cleanup)
 │   │   ├── app-user-init.sh      # vscode-user tasks (git identity, CLI update)
 │   │   ├── mitmproxy_addon.py    # mitmproxy addon (network rules + secret substitution)
 │   │   └── wg-client-init.sh     # wg-client entrypoint
@@ -104,10 +105,10 @@ In your `.devcontainer/Dockerfile`, install whatever dev tooling your
 project needs and use `app-init.sh` as the entrypoint:
 
 ```dockerfile
-FROM mcr.microsoft.com/devcontainers/javascript-node:22
+FROM mcr.microsoft.com/devcontainers/base:debian
 
 # gosu is used by the entrypoint to drop privileges.
-# ca-certificates, curl, git are already in devcontainer base images.
+# ca-certificates, curl, git are already in the devcontainers base image.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends gosu \
     && rm -rf /var/lib/apt/lists/*
@@ -117,9 +118,18 @@ COPY --chmod=755 sandcat/scripts/app-user-init.sh /usr/local/bin/app-user-init.s
 
 USER vscode
 
-# Install Claude Code and seed onboarding so it uses the API key
-# from secret substitution without interactive setup.
-RUN npm install -g @anthropic-ai/claude-code
+# Install mise (SDK manager), then use it to install Node.js and Claude Code.
+RUN curl https://mise.run | sh
+RUN echo 'export PATH="/home/vscode/.local/bin:/home/vscode/.local/share/mise/shims:$PATH"' >> /home/vscode/.profile
+ENV PATH="/home/vscode/.local/bin:/home/vscode/.local/share/mise/shims:$PATH"
+RUN mise use -g node@lts \
+    && npm install -g @anthropic-ai/claude-code
+
+# Add your language toolchain here, e.g.:
+#   RUN mise use -g python@3.13
+
+# Seed onboarding so Claude Code uses the API key from secret
+# substitution without interactive setup.
 RUN mkdir -p /home/vscode/.claude \
     && echo '{"hasCompletedOnboarding":true}' > /home/vscode/.claude.json
 
@@ -134,6 +144,32 @@ container's main command.
 
 See [`Dockerfile.app`](Dockerfile.app) in this repo for a working
 example.
+
+Finally, create `.devcontainer/devcontainer.json` to tell VS Code which
+compose file and service to use:
+
+```jsonc
+{
+    "name": "My Project",
+    "dockerComposeFile": "compose.yml",
+    "service": "app",
+    "workspaceFolder": "/workspaces/project",
+    // Remove the SSH agent socket that VS Code forwards into the container.
+    "postStartCommand": "bash /workspaces/project/.devcontainer/sandcat/scripts/app-post-start.sh",
+    // Clear forwarded credential sockets for isolation.
+    "remoteEnv": {
+        "SSH_AUTH_SOCK": "",
+        "GPG_AGENT_INFO": "",
+        "GIT_ASKPASS": ""
+    }
+}
+```
+
+Adjust `workspaceFolder` and the `postStartCommand` path to match your
+project layout. See the bundled
+[`devcontainer.json`](.devcontainer/devcontainer.json) for the full set
+of recommended VS Code settings (workspace trust, Claude Code
+permissions, etc.).
 
 ### Adapting the Dockerfile for your stack
 

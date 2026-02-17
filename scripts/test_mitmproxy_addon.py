@@ -339,3 +339,49 @@ class TestConfigLoading:
             addon.load(MagicMock())
         content = env_path.read_text()
         assert content.startswith('export K=')
+
+
+# ---------------------------------------------------------------------------
+# Shell escaping
+# ---------------------------------------------------------------------------
+
+class TestShellEscaping:
+    def test_double_quotes_escaped(self, tmp_path):
+        settings = {"env": {"X": 'val"ue'}}
+        p = tmp_path / "settings.json"
+        p.write_text(json.dumps(settings))
+        env_path = tmp_path / "sandcat.env"
+        addon = SandcatAddon()
+        with patch("mitmproxy_addon.SETTINGS_PATH", str(p)), \
+             patch("mitmproxy_addon.SANDCAT_ENV_PATH", str(env_path)):
+            addon.load(MagicMock())
+        content = env_path.read_text()
+        assert 'export X="val\\"ue"' in content
+
+    def test_backslashes_escaped(self, tmp_path):
+        settings = {"env": {"X": "a\\b"}}
+        p = tmp_path / "settings.json"
+        p.write_text(json.dumps(settings))
+        env_path = tmp_path / "sandcat.env"
+        addon = SandcatAddon()
+        with patch("mitmproxy_addon.SETTINGS_PATH", str(p)), \
+             patch("mitmproxy_addon.SANDCAT_ENV_PATH", str(env_path)):
+            addon.load(MagicMock())
+        content = env_path.read_text()
+        assert 'export X="a\\\\b"' in content
+
+    def test_dollar_and_backtick_escaped(self, tmp_path):
+        settings = {"env": {"X": "$(rm -rf /)`cmd`"}}
+        p = tmp_path / "settings.json"
+        p.write_text(json.dumps(settings))
+        env_path = tmp_path / "sandcat.env"
+        addon = SandcatAddon()
+        with patch("mitmproxy_addon.SETTINGS_PATH", str(p)), \
+             patch("mitmproxy_addon.SANDCAT_ENV_PATH", str(env_path)):
+            addon.load(MagicMock())
+        content = env_path.read_text()
+        assert 'export X="\\$(rm -rf /)\\`cmd\\`"' in content
+
+    def test_plain_values_unchanged(self):
+        assert SandcatAddon._shell_escape("hello world") == "hello world"
+        assert SandcatAddon._shell_escape("sk-ant-abc123") == "sk-ant-abc123"
