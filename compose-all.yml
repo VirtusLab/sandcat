@@ -1,18 +1,18 @@
 include:
-  - path: ../compose.yml
+  - path: compose-proxy.yml
 
 services:
   app:
     build:
-      context: ..
-      dockerfile: .devcontainer/Dockerfile
+      context: .
+      dockerfile: Dockerfile.app
     # Share wg-client's network namespace so all traffic goes through its
     # WireGuard tunnel. The app container has no NET_ADMIN capability,
     # so processes inside cannot modify routing, iptables, or the tunnel.
     network_mode: "service:wg-client"
     volumes:
       # Mount the project's code
-      - ..:/workspaces/sandcat:cached
+      - .:/workspaces/sandcat:cached
       # Named volume for the home directory so Claude Code auth state,
       # shell history, and other user-level config persist across rebuilds.
       - app-home:/home/vscode

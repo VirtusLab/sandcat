@@ -24,7 +24,7 @@ cp settings.example.json ~/.config/sandcat/settings.json
 Then start the container to verify everything works:
 
 ```sh
-docker compose -f .devcontainer/compose.yml run --rm --build app bash
+docker compose -f compose-all.yml run --rm --build app bash
 ```
 
 Inside the container:
@@ -52,7 +52,7 @@ Your `.devcontainer/` directory should end up looking like this:
 ```
 .devcontainer/
 ├── sandcat/              # the submodule
-│   ├── compose.yml       # mitmproxy + wg-client services
+│   ├── compose-proxy.yml  # mitmproxy + wg-client services
 │   ├── scripts/
 │   │   ├── app-init.sh            # entrypoint for app containers (root)
 │   │   ├── app-user-init.sh      # vscode-user tasks (git identity, CLI update)
@@ -69,7 +69,7 @@ add your app service:
 
 ```yaml
 include:
-  - path: sandcat/compose.yml
+  - path: sandcat/compose-proxy.yml
 
 services:
   app:
@@ -132,8 +132,8 @@ trust store, loads environment variables and secret placeholders from
 `sandcat.env`, and drops to the `vscode` user before running the
 container's main command.
 
-See [`.devcontainer/Dockerfile`](.devcontainer/Dockerfile) in this
-repo for a working example.
+See [`Dockerfile.app`](Dockerfile.app) in this repo for a working
+example.
 
 ### Adapting the Dockerfile for your stack
 
@@ -275,7 +275,7 @@ benefit. Remove these settings if you prefer interactive approval.
 See [Secure & Dangerous Claude Code + VS Code Setup](https://warski.org/blog/secure-dangerous-claude-code-vs-code-setup/)
 for background on this approach.
 
-**Host customizations.** The example `compose.yml` bind-mounts
+**Host customizations.** The example `compose-all.yml` bind-mounts
 `~/.claude/CLAUDE.md`, `~/.claude/agents`, and `~/.claude/commands`
 from the host (read-only) so your personal instructions, custom agents,
 and slash commands are available inside the container. Remove any mount
@@ -468,7 +468,7 @@ you can inspect traffic in the mitmproxy web UI. The host
 port is assigned dynamically — look it up from a host terminal with:
 
 ```sh
-docker compose -f .devcontainer/compose.yml port mitmproxy 8081
+docker compose -f compose-all.yml port mitmproxy 8081
 ```
 
 Or using Docker's UI. Log in with password `mitmproxy`.
@@ -519,7 +519,7 @@ implemented in
 
 `wg-quick` calls `sysctl -w net.ipv4.conf.all.src_valid_mark=1`, which
 fails in Docker because `/proc/sys` is read-only. The equivalent sysctl
-is set via the `sysctls` option in `compose.yml`, and the entrypoint
+is set via the `sysctls` option in `compose-proxy.yml`, and the entrypoint
 script handles interface, routing, and firewall setup manually.
 
 ### TLS and CA certificates
@@ -552,13 +552,13 @@ their own CA handling:
 Start the container from the command line:
 
 ```sh
-docker compose -f .devcontainer/compose.yml run --rm --build app bash
+docker compose -f compose-all.yml run --rm --build app bash
 ```
 
 Tear down all containers and volumes (resets persisted home directory):
 
 ```sh
-docker compose -f .devcontainer/compose.yml down -v
+docker compose -f compose-all.yml down -v
 ```
 
 ## Commercial Support

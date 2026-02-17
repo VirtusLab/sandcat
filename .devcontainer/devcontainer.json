@@ -1,6 +1,6 @@
 {
 	"name": "Sandcat",
-	"dockerComposeFile": "compose.yml",
+	"dockerComposeFile": "../compose-all.yml",
 	"service": "app",
 	"workspaceFolder": "/workspaces/sandcat",
 	// Remove the SSH agent socket that VS Code forwards into the container.
