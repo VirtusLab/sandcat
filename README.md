@@ -89,7 +89,9 @@ Set up a Sandcat dev container for this project:
 3. Inspect the project's codebase to determine the language toolchains
    and runtimes needed. Modify .devcontainer/Dockerfile.app: add
    `mise use -g` lines in the `USER vscode` section.
-4. Check the TLS/CA trust section in the README for any runtime-specific
+4. Add ecosystem-specific VS Code extensions to the extensions list in
+   .devcontainer/devcontainer.json (e.g. Scala Metals, Python, ESLint).
+5. Check the TLS/CA trust section in the README for any runtime-specific
    configuration needed (e.g. Rust requires using native-roots).
 ````
 
