@@ -85,11 +85,14 @@ files:
 Set up a Sandcat dev container for this project:
 1. Run: curl -fsSL https://raw.githubusercontent.com/softwaremill/sandcat/master/install.sh | bash
 2. Read https://raw.githubusercontent.com/softwaremill/sandcat/master/README.md
-   for the TLS/CA trust section.
-3. Inspect this project's codebase to determine the language toolchains and
-   runtimes needed. Edit .devcontainer/Dockerfile.app: add the appropriate
-   `mise use -g` lines and any runtime-specific CA trust configuration
-   (e.g. Java keytool import, Rust native-roots).
+3. Inspect the project's codebase to determine the language toolchains and
+   runtimes needed. Modify .devcontainer/Dockerfile.app (prefer editing the
+   file directly over shell commands): add `mise use -g` lines in the USER
+   vscode section.
+4. Check if any of the installed runtimes need CA trust configuration (see
+   the TLS/CA trust section in the README). Mise toolchains are installed
+   under the vscode user, so runtime CA imports (e.g. Java keytool) must
+   also run as vscode, not root.
 ````
 
 ### Option 2: Install script
@@ -134,12 +137,12 @@ source does not exist on your host.
 toolchains. Look for the `CUSTOMIZE` marker and add `mise use -g` lines for
 your stack:
 
-| Stack | mise command |
-|-------|-------------|
-| TypeScript / Node.js | `mise use -g node@lts` (already installed) |
-| Python | `mise use -g python@3.13` |
-| Rust | `mise use -g rust@latest` |
-| Java | `mise use -g java@21` |
+| Stack | mise command | CA trust notes |
+|-------|-------------|----------------|
+| TypeScript / Node.js | `mise use -g node@lts` (already installed) | Handled automatically by `app-init.sh` |
+| Python | `mise use -g python@3.13` | Uses system store — works out of the box |
+| Rust | `mise use -g rust@latest` | Use `rustls-tls-native-roots` in reqwest |
+| Java | `mise use -g java@21` | Requires keytool import — [see below](#tls-and-ca-certificates) |
 
 Some runtimes need extra configuration to trust the mitmproxy CA — see [TLS and
 CA certificates](#tls-and-ca-certificates).
@@ -529,14 +532,30 @@ enough for most tools — but some runtimes bring their own CA handling:
   certificates at compile time and will not trust the mitmproxy CA. Use
   `rustls-tls-native-roots` in reqwest so it reads the system CA store at
   runtime instead.
-- **Java** uses its own trust store (`cacerts`). Import the mitmproxy CA at
-  runtime by adding this to `app-init.sh` or a wrapper script before the `exec`
-  line:
-  ```sh
-  keytool -importcert -trustcacerts -noprompt \
-    -alias mitmproxy -file /mitmproxy-config/mitmproxy-ca-cert.pem \
-    -keystore "$JAVA_HOME/lib/security/cacerts" -storepass changeit
+- **Java** uses its own trust store (`cacerts`) and ignores the system CA.
+  Since mise installs Java under the `vscode` user, the keytool import must run
+  as `vscode` at container startup (the CA cert comes from a shared volume, so
+  it's not available at build time). Create a wrapper entrypoint in your
+  `Dockerfile.app`:
+  ```dockerfile
+  COPY --chmod=755 <<'EOF' /usr/local/bin/entrypoint.sh
+  #!/bin/bash
+  # Import mitmproxy CA into Java's trust store (runs as root, but
+  # uses the vscode user's mise-installed Java via su).
+  if [ -f /mitmproxy-config/mitmproxy-ca-cert.pem ]; then
+      su - vscode -c '
+          keytool -importcert -trustcacerts -noprompt \
+              -alias mitmproxy \
+              -file /mitmproxy-config/mitmproxy-ca-cert.pem \
+              -keystore "$JAVA_HOME/lib/security/cacerts" \
+              -storepass changeit 2>/dev/null || true
+      '
+  fi
+  exec /usr/local/bin/app-init.sh "$@"
+  EOF
+  ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
   ```
+  This replaces the default `ENTRYPOINT` at the bottom of `Dockerfile.app`.
 - **Python** uses the system CA store — works out of the box.
 
 ## Development
