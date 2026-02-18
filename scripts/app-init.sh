@@ -61,4 +61,19 @@ if [ -f /tmp/sandcat-java-cacerts-path ]; then
     rm -f /tmp/sandcat-java-cacerts-path
 fi
 
+# Source all sandcat profile.d scripts from /etc/bash.bashrc so env vars
+# are available in non-login shells (e.g. VS Code integrated terminals).
+# Guard with a marker to avoid duplicating on container restart.
+BASHRC_MARKER="# sandcat-profile-source"
+if ! grep -q "$BASHRC_MARKER" /etc/bash.bashrc 2>/dev/null; then
+    cat >> /etc/bash.bashrc << 'BASHRC_EOF'
+
+# sandcat-profile-source
+for _f in /etc/profile.d/sandcat-*.sh; do
+    [ -r "$_f" ] && . "$_f"
+done
+unset _f
+BASHRC_EOF
+fi
+
 exec gosu vscode "$@"
