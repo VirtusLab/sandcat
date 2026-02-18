@@ -14,7 +14,9 @@ if [ -n "${GIT_USER_EMAIL:-}" ]; then
 fi
 
 # GPG keys are not forwarded into the container (credential isolation),
-# so commit signing would always fail. Disable it.
+# so commit signing would always fail. Disable it via global config as a
+# baseline; app-init.sh also sets GIT_CONFIG env vars which override even
+# repo-level config.
 git config --global commit.gpgsign false
 
 # If Java is installed (via mise), import the mitmproxy CA into Java's trust

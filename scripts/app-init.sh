@@ -29,6 +29,18 @@ update-ca-certificates
 export NODE_EXTRA_CA_CERTS="$CA_CERT"
 echo "export NODE_EXTRA_CA_CERTS=\"$CA_CERT\"" > /etc/profile.d/sandcat-node-ca.sh
 
+# GPG keys are not forwarded into the container (credential isolation),
+# so commit signing would always fail.  Git env vars have the highest
+# precedence, overriding system/global/local/worktree config files.
+export GIT_CONFIG_COUNT=1
+export GIT_CONFIG_KEY_0="commit.gpgsign"
+export GIT_CONFIG_VALUE_0="false"
+cat > /etc/profile.d/sandcat-git.sh << 'GITEOF'
+export GIT_CONFIG_COUNT=1
+export GIT_CONFIG_KEY_0="commit.gpgsign"
+export GIT_CONFIG_VALUE_0="false"
+GITEOF
+
 # Source env vars and secret placeholders (if available)
 SANDCAT_ENV="/mitmproxy-config/sandcat.env"
 if [ -f "$SANDCAT_ENV" ]; then
