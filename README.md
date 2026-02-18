@@ -534,8 +534,17 @@ enough for most tools — but some runtimes bring their own CA handling:
   runtime instead.
 - **Java** uses its own trust store (`cacerts`) and ignores the system CA.
   `app-user-init.sh` detects `keytool` on the PATH and automatically imports
-  the mitmproxy CA into Java's trust store at container startup. No manual
-  configuration needed.
+  the mitmproxy CA into Java's trust store at container startup. It also
+  creates a standalone copy of the modified trust store at a fixed path
+  (`~/.local/share/sandcat/cacerts`), sets `JAVA_HOME` to a symlink
+  pointing at the real JVM (so tools find it instead of the mise shim), and
+  sets `JAVA_TOOL_OPTIONS` with `-Djavax.net.ssl.trustStore`. Both are
+  exported via `/etc/profile.d/` and picked up by shells and VS Code
+  extensions alike. **GraalVM native binaries** (e.g. `scala-cli`) ignore
+  `JAVA_TOOL_OPTIONS` and `JAVA_HOME` for trust store resolution.
+  `app-user-init.sh` pre-creates the `scala-cli` config file with the trust
+  store path so it works even before scala-cli is installed. Other native
+  tools may need similar tool-specific configuration.
 - **Python** uses the system CA store — works out of the box.
 
 ## Development

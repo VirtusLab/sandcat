@@ -46,4 +46,19 @@ fi
 # Run vscode-user tasks: git identity and Claude Code update.
 su - vscode -c /usr/local/bin/app-user-init.sh
 
+# If app-user-init.sh set up Java (symlink + trust store), export JAVA_HOME
+# and JAVA_TOOL_OPTIONS for shells and child processes of PID 1.
+SANDCAT_JAVA_HOME="/home/vscode/.local/share/sandcat/java-home"
+if [ -L "$SANDCAT_JAVA_HOME" ]; then
+    export JAVA_HOME="$SANDCAT_JAVA_HOME"
+    echo "export JAVA_HOME=\"$SANDCAT_JAVA_HOME\"" > /etc/profile.d/sandcat-java.sh
+fi
+if [ -f /tmp/sandcat-java-cacerts-path ]; then
+    SANDCAT_CACERTS=$(cat /tmp/sandcat-java-cacerts-path)
+    JAVA_TRUST_OPTS="-Djavax.net.ssl.trustStore=$SANDCAT_CACERTS -Djavax.net.ssl.trustStorePassword=changeit"
+    export JAVA_TOOL_OPTIONS="$JAVA_TRUST_OPTS"
+    echo "export JAVA_TOOL_OPTIONS=\"$JAVA_TRUST_OPTS\"" >> /etc/profile.d/sandcat-java.sh
+    rm -f /tmp/sandcat-java-cacerts-path
+fi
+
 exec gosu vscode "$@"
