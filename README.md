@@ -428,6 +428,11 @@ box:
   bypass the WireGuard tunnel entirely. For maximum protection, also set this in
   your **host** user settings (workspace settings could theoretically override
   it).
+- **Read-only `.devcontainer` overlay** — `compose-all.yml` mounts the
+  `.devcontainer` directory as a separate read-only bind mount on top of the
+  writable project mount. This prevents the agent from modifying its own
+  sandbox configuration (entrypoint scripts, Dockerfile, compose files,
+  devcontainer.json).
 
 ### Consequences of hardening
 

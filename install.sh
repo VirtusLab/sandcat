@@ -91,6 +91,7 @@ curl -fsSL "$REPO_URL/compose-all.yml" \
     -e "s|^name: sandcat|name: $PROJECT_NAME|" \
     -e "s|^  - path: compose-proxy.yml|  - path: sandcat/compose-proxy.yml|" \
     -e "s|\.:/workspaces/sandcat:cached|..:/workspaces/$PROJECT_NAME:cached|" \
+    -e "s|\./.devcontainer:/workspaces/sandcat/.devcontainer:ro|../.devcontainer:/workspaces/$PROJECT_NAME/.devcontainer:ro|" \
   > .devcontainer/compose-all.yml
 
 # Dockerfile.app: adjust COPY paths, add CUSTOMIZE marker
@@ -122,6 +123,7 @@ verify() {
 verify "^name: $PROJECT_NAME" .devcontainer/compose-all.yml
 verify "path: sandcat/compose-proxy.yml" .devcontainer/compose-all.yml
 verify "/workspaces/$PROJECT_NAME:cached" .devcontainer/compose-all.yml
+verify "/workspaces/$PROJECT_NAME/.devcontainer:ro" .devcontainer/compose-all.yml
 verify "sandcat/scripts/app-init.sh" .devcontainer/Dockerfile.app
 verify "\"compose-all.yml\"" .devcontainer/devcontainer.json
 verify "/workspaces/$PROJECT_NAME\"" .devcontainer/devcontainer.json

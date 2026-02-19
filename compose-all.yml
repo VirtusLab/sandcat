@@ -15,6 +15,9 @@ services:
     volumes:
       # Mount the project's code
       - .:/workspaces/sandcat:cached
+      # Overlay .devcontainer as read-only so the agent cannot modify its
+      # own sandbox (scripts, compose files, Dockerfile, devcontainer.json).
+      - ./.devcontainer:/workspaces/sandcat/.devcontainer:ro
       # Named volume for the home directory so Claude Code auth state,
       # shell history, and other user-level config persist across rebuilds.
       - app-home:/home/vscode
