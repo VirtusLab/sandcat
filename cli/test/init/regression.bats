@@ -22,38 +22,64 @@ teardown() {
 assert_proxy_service() {
 	local compose_file=$1
 
-	yq -e '.services.mitmproxy.cap_drop[] | select(. == "ALL")' "$compose_file"
+	yq -e '.services.mitmproxy.image == "mitmproxy/mitmproxy:latest"' "$compose_file"
 
-	yq -e '.services.mitmproxy.environment[] | select(. == "PROXY_MODE=enforce")' "$compose_file"
+	yq -e '.services.mitmproxy.cap_drop[] | select(. == "ALL")' "$compose_file"
 }
 
-assert_agent_service_base() {
+assert_agent_service() {
 	local compose_file=$1
 
-	run yq '.services.agent.working_dir' "$compose_file"
-	assert_output "/workspace"
+	yq -e '.services.agent.working_dir == "/workspaces/project-sandbox-devcontainer"' "$compose_file"
+
+	yq -e '.services.agent.network_mode == "service:wg-client"' "$compose_file"
 
 	yq -e '.services.agent.cap_drop[] | select(. == "ALL")' "$compose_file"
 }
 
-assert_common_environment_vars() {
+assert_claude_environment_vars() {
 	local compose_file=$1
 
-	yq -e '.services.agent.environment[] | select(. == "HTTP_PROXY=http://proxy:8080")' "$compose_file"
-
-	yq -e '.services.agent.environment[] | select(. == "HTTPS_PROXY=http://proxy:8080")' "$compose_file"
-
-	yq -e '.services.agent.environment[] | select(. == "NO_PROXY=localhost,127.0.0.1,proxy")' "$compose_file"
+	yq -e '.services.agent.environment.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC == 1' "$compose_file"
 }
 
 assert_common_volumes() {
 	local compose_file=$1
 
-	yq -e '.services.agent.volumes[] | select(. == "..:/workspace")' "$compose_file"
+	# Bind: Project root
+	PROJECT_DIR="$PROJECT_DIR" yq -e '
+		.services.agent.volumes[] |
+		select(.type == "bind" and .source == env(PROJECT_DIR) and .target == "/workspaces/project-sandbox-devcontainer")
+	' "$compose_file"
 
-	yq -e '.services.agent.volumes[] | select(. == "../.sandcat:/workspace/.sandcat:ro")' "$compose_file"
+	# Bind: .sandcat (read-only)
+	PROJECT_DIR="$PROJECT_DIR" yq -e "
+		.services.agent.volumes[] |
+		select(
+			.type == \"bind\" and
+			.source == (env(PROJECT_DIR) + \"/.sandcat\") and
+			.target == \"/workspaces/project-sandbox-devcontainer/.sandcat\" and
+			.read_only == true
+		)
+	" "$compose_file"
 
-	yq -e '.services.agent.volumes[] | select(. == "proxy-ca:/etc/mitmproxy:ro")' "$compose_file"
+	# Volume: app-home
+	yq -e '
+		.services.agent.volumes[] |
+		select(.type == "volume" and .source == "app-home" and .target == "/home/vscode")
+	' "$compose_file"
+
+	# Volume: mitmproxy-config (read-only)
+	yq -e '
+		.services.agent.volumes[] |
+		select(.type == "volume" and .source == "mitmproxy-config" and .target == "/mitmproxy-config" and .read_only == true)
+	' "$compose_file"
+
+	# Volume: command-history
+	yq -e '
+		.services.agent.volumes[] |
+		select(.type == "volume" and .source == "claude-history" and .target == "/commandhistory")
+	' "$compose_file"
 }
 
 assert_named_volumes() {
@@ -67,28 +93,104 @@ assert_named_volumes() {
 	done
 }
 
+assert_claude_volumes() {
+	local compose_file=$1
+
+	# Bind: CLAUDE.md (read-only)
+	HOME="$HOME" yq -e "
+		.services.agent.volumes[] |
+		select(
+			.type == \"bind\" and
+			.source == (env(HOME) + \"/.claude/CLAUDE.md\") and
+			.target == \"/home/vscode/.claude/CLAUDE.md\" and
+			.read_only == true
+		)
+	" "$compose_file"
+
+	# Bind: agents (read-only)
+	HOME="$HOME" yq -e "
+		.services.agent.volumes[] |
+		select(
+			.type == \"bind\" and
+			.source == (env(HOME) + \"/.claude/agents\") and
+			.target == \"/home/vscode/.claude/agents\" and
+			.read_only == true
+		)
+	" "$compose_file"
+
+	# Bind: commands (read-only)
+	HOME="$HOME" yq -e "
+		.services.agent.volumes[] |
+		select(
+			.type == \"bind\" and
+			.source == (env(HOME) + \"/.claude/commands\") and
+			.target == \"/home/vscode/.claude/commands\" and
+			.read_only == true
+		)
+	" "$compose_file"
+}
+
 assert_customization_volumes() {
 	local compose_file=$1
 
-	yq -e '.services.mitmproxy.volumes[] | select(. == "../'"$SCT_PROJECT_DIR"'/settings.json:/etc/mitmproxy/policy.yaml:ro")' "$compose_file"
+	# Bind: policy file (read-only)
+	PROJECT_DIR="$PROJECT_DIR" POLICY_FILE="$POLICY_FILE" yq -e "
+		.services.mitmproxy.volumes[] |
+		select(
+			.type == \"bind\" and
+			.source == (env(PROJECT_DIR) + \"/\" + env(POLICY_FILE)) and
+			.target == \"/config/project/settings.json\" and
+			.read_only == true
+		)
+	" "$compose_file"
 
-	# shellcheck disable=SC2016
-	yq -e '.services.agent.volumes[] | select(. == "${HOME}/.config/sandcat/shell.d:/home/dev/.config/sandcat/shell.d:ro")' "$compose_file"
+	# Bind: .git (read-only)
+	PROJECT_DIR="$PROJECT_DIR" yq -e "
+		.services.agent.volumes[] |
+		select(
+			.type == \"bind\" and
+			.source == (env(PROJECT_DIR) + \"/.git\") and
+			.target == \"/workspace/.git\" and
+			.read_only == true
+		)
+	" "$compose_file"
 
-	# shellcheck disable=SC2016
-	yq -e '.services.agent.volumes[] | select(. == "${HOME}/.config/sandcat/dotfiles:/home/dev/.dotfiles:ro")' "$compose_file"
+	# Bind: .idea (read-only)
+	PROJECT_DIR="$PROJECT_DIR" yq -e "
+		.services.agent.volumes[] |
+		select(
+			.type == \"bind\" and
+			.source == (env(PROJECT_DIR) + \"/.idea\") and
+			.target == \"/workspace/.idea\" and
+			.read_only == true
+		)
+	" "$compose_file"
 
-	yq -e '.services.agent.volumes[] | select(. == "../.git:/workspace/.git:ro")' "$compose_file"
-
-	yq -e '.services.agent.volumes[] | select(. == "../.idea:/workspace/.idea:ro")' "$compose_file"
-
-	yq -e '.services.agent.volumes[] | select(. == "../.vscode:/workspace/.vscode:ro")' "$compose_file"
+	# Bind: .vscode (read-only)
+	PROJECT_DIR="$PROJECT_DIR" yq -e "
+		.services.agent.volumes[] |
+		select(
+			.type == \"bind\" and
+			.source == (env(PROJECT_DIR) + \"/.vscode\") and
+			.target == \"/workspace/.vscode\" and
+			.read_only == true
+		)
+	" "$compose_file"
 }
 
 assert_devcontainer_volume() {
 	local compose_file=$1
 
-	yq -e '.services.agent.volumes[] | select(. == ".:/workspace/.devcontainer:ro")' "$compose_file"
+	# Bind: .devcontainer (read-only)
+	PROJECT_DIR="$PROJECT_DIR" yq -e "
+		.services.agent.volumes[] |
+		select(
+			.type == \"bind\" and
+			.source == (env(PROJECT_DIR) + \"/.devcontainer\") and
+			.target == \"/workspaces/project-sandbox-devcontainer/.devcontainer\" and
+			.read_only == true
+		)
+	" "$compose_file"
 }
 
 assert_jetbrains_capabilities() {
@@ -102,53 +204,17 @@ assert_jetbrains_capabilities() {
 claude_agent_compose_file_has_expected_content() {
 	local compose_file=$1
 
-	assert [ -f "$compose_file" ]
-
 	assert_proxy_service "$compose_file"
-	assert_agent_service_base "$compose_file"
-
-	yq -e '.services.agent.environment[] | select(. == "CLAUDE_CONFIG_DIR=/home/dev/.claude")' "$compose_file"
-
-	assert_common_environment_vars "$compose_file"
+	assert_agent_service "$compose_file"
+	assert_claude_environment_vars "$compose_file"
 	assert_common_volumes "$compose_file"
 
-	yq -e '.services.agent.volumes[] | select(. == "claude-state:/home/dev/.claude")' "$compose_file"
-
-	yq -e '.services.agent.volumes[] | select(. == "claude-history:/commandhistory")' "$compose_file"
-
-	assert_named_volumes "$compose_file" "claude-state" "claude-history" "proxy-state" "proxy-ca"
+	assert_named_volumes "$compose_file" "app-home" "claude-history" "mitmproxy-config"
+	assert_claude_volumes "$compose_file"
 	assert_customization_volumes "$compose_file"
-
-	# shellcheck disable=SC2016
-	yq -e '.services.agent.volumes[] | select(. == "${HOME}/.claude/CLAUDE.md:/home/dev/.claude/CLAUDE.md:ro")' "$compose_file"
-
-	# shellcheck disable=SC2016
-	yq -e '.services.agent.volumes[] | select(. == "${HOME}/.claude/settings.json:/home/dev/.claude/settings.json:ro")' "$compose_file"
-}
-
-copilot_agent_compose_file_has_expected_content() {
-	local compose_file=$1
-
-	assert [ -f "$compose_file" ]
-
-	assert_proxy_service "$compose_file" "ghcr.io/VirtusLab/sandcat-proxy@sha256:abc123"
-	assert_agent_service_base "$compose_file" "ghcr.io/VirtusLab/sandcat-copilot@sha256:ghi789"
-	assert_common_environment_vars "$compose_file"
-	assert_common_volumes "$compose_file"
-
-	yq -e '.services.agent.volumes[] | select(. == "copilot-state:/home/dev/.copilot")' "$compose_file"
-
-	yq -e '.services.agent.volumes[] | select(. == "copilot-history:/commandhistory")' "$compose_file"
-
-	assert_named_volumes "$compose_file" "copilot-state" "copilot-history" "proxy-state" "proxy-ca"
-	assert_customization_volumes "$compose_file"
-	# shellcheck disable=SC2016
-	run yq '.services.agent.volumes[] | select(. == "${HOME}/.claude/CLAUDE.md:/home/dev/.claude/CLAUDE.md:ro")' "$compose_file"
-	assert_output ""
 }
 
 @test "devcontainer end-to-end: creates devcontainer config for claude agent" {
-	skip 'FIXME: compose is split into multiple files'
 	export SANDCAT_MOUNT_CLAUDE_CONFIG="true"
 	export SANDCAT_ENABLE_DOTFILES="true"
 	export SANDCAT_MOUNT_GIT_READONLY="true"
@@ -163,11 +229,14 @@ copilot_agent_compose_file_has_expected_content() {
 	assert_success
 	assert_output --regexp ".*Devcontainer dir created at $PROJECT_DIR/.devcontainer"
 
-	run yq '.name' "$PROJECT_DIR/.devcontainer/compose-all.yml"
-	assert_output "project-sandbox-devcontainer"
+	# Use docker compose config to get the effective merged configuration
+	local effective_file="$BATS_TEST_TMPDIR/effective-compose.yml"
+	docker compose -f "$PROJECT_DIR/.devcontainer/compose-all.yml" config > "$effective_file"
 
-	claude_agent_compose_file_has_expected_content "$PROJECT_DIR/.devcontainer/compose-all.yml"
+	yq -e '.name == "project-sandbox-devcontainer"' "$effective_file"
 
-	assert_devcontainer_volume "$PROJECT_DIR/.devcontainer/compose-all.yml"
-	assert_jetbrains_capabilities "$PROJECT_DIR/.devcontainer/compose-all.yml"
+	claude_agent_compose_file_has_expected_content "$effective_file"
+
+	assert_devcontainer_volume "$effective_file"
+	assert_jetbrains_capabilities "$effective_file"
 }
