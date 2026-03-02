@@ -1,14 +1,17 @@
 {
-	"name": "Sandcat",
+	"name": "__PROJECT_NAME__",
 	"dockerComposeFile": "compose-all.yml",
 	"service": "app",
-	"workspaceFolder": "/workspaces/sandcat",
+	// FIXME: can we just set Docker working dir and remove this?
+	"workspaceFolder": "/workspaces/__PROJECT_NAME__",
 	// Remove credential sockets that VS Code forwards into the container
 	// (SSH agent, git credential helper).  Clearing env vars alone only
 	// hides the paths — the socket files in /tmp can still be discovered
 	// by scanning.  The post-start script deletes them as best-effort
 	// hardening.
-	"postStartCommand": "bash /workspaces/sandcat/scripts/app-post-start.sh",
+	// FIXME: can we just set Docker working dir use relative path?
+	// TODO: explicit `bash` shold not be needed, there is the hashbang already
+	"postStartCommand": "bash /workspaces/__PROJECT_NAME__/.devcontainer/sandcat/scripts/app-post-start.sh",
 	// VS Code forwards host credential sockets into containers by default.
 	// Clear them so container code cannot use host SSH keys, GPG signing,
 	// or VS Code's git credential helpers to authenticate as the host user.

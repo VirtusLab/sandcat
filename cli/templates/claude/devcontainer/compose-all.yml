@@ -11,12 +11,6 @@ services:
     # so processes inside cannot modify routing, iptables, or the tunnel.
     network_mode: "service:wg-client"
     volumes:
-      # Mount the project's code
-      - ..:/workspaces/sandcat:cached
-      # Read-only devcontainer directory
-      - ../.devcontainer:/workspaces/sandcat/.devcontainer:ro
-      # Read-only policy directory
-      - ../.sandcat:/workspaces/sandcat/.sandcat:ro
       # Named volume for the home directory so Claude Code auth state,
       # shell history, and other user-level config persist across rebuilds.
       - app-home:/home/vscode
@@ -26,7 +20,6 @@ services:
       - mitmproxy-config:/mitmproxy-config:ro
       # Persist shell history
       - claude-history:/commandhistory
-    working_dir: /workspaces/sandcat
     command: sleep infinity
     environment:
       - CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1

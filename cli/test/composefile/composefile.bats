@@ -85,9 +85,9 @@ assert_customize_compose_file_common() {
 	# Verify policy volume on proxy
 	yq -e '.services.mitmproxy.volumes[] | select(. == "policy.yaml:/config/project/settings.json:ro")' "$compose_file"
 
-	# Verify all agent volumes count (initial + 3 Claude + .git + IDE-specific = 6)
+	# Verify all agent volumes count (initial + 3 workspace + 3 Claude + .git + IDE-specific = 9)
 	run yq '.services.agent.volumes | length' "$compose_file"
-	assert_output 6
+	assert_output 9
 
 	# shellcheck disable=SC2016
 	yq -e '.services.agent.volumes[] | select(. == "${HOME}/.claude/CLAUDE.md:/home/vscode/.claude/CLAUDE.md:ro")' "$compose_file"
@@ -165,12 +165,23 @@ EOF
 EOF
 }
 
+@test "set_workspace adds working_dir and workspace volumes" {
+	set_workspace "$COMPOSE_FILE" "my-project"
+
+	run yq '.services.agent.working_dir' "$COMPOSE_FILE"
+	assert_output "/workspaces/my-project"
+
+	yq -e '.services.agent.volumes[] | select(. == "..:/workspaces/my-project:cached")' "$COMPOSE_FILE"
+	yq -e '.services.agent.volumes[] | select(. == "../.devcontainer:/workspaces/my-project/.devcontainer:ro")' "$COMPOSE_FILE"
+	yq -e '.services.agent.volumes[] | select(. == "../.sandcat:/workspaces/my-project/.sandcat:ro")' "$COMPOSE_FILE"
+}
+
 # shellcheck disable=SC2016
 @test "customize_compose_file defaults all optional volumes to commented-out entries" {
 	POLICY_FILE="policy.yaml"
 	touch "$BATS_TEST_TMPDIR/$POLICY_FILE"
 
-	customize_compose_file "$POLICY_FILE" "$COMPOSE_FILE" "claude" "jetbrains"
+	customize_compose_file "$POLICY_FILE" "$COMPOSE_FILE" "claude" "jetbrains" "test-project"
 
 	# Verify policy volume on proxy
 	yq -e '.services.mitmproxy.volumes[] | select(. == "policy.yaml:/config/project/settings.json:ro")' "$COMPOSE_FILE"
@@ -178,9 +189,10 @@ EOF
 	# Verify .idea volume
 	yq -e '.services.agent.volumes[] | select(. == "../.idea:/workspace/.idea:ro")' "$COMPOSE_FILE"
 
-	# With JetBrains IDE, the .idea mount is active by default, so there should be two active volumes
+	# With JetBrains IDE, the .idea mount is active by default
+	# 1 initial + 3 workspace + 1 .idea = 5 active volumes
 	run yq '.services.agent.volumes | length' "$COMPOSE_FILE"
-	assert_output "2"
+	assert_output "5"
 
 	# Optional inactive mounts should be present as foot comments on the initial workspace volume entry
 	# Note: sed on line 92 of composefile.bash merges foot comments into the next sibling as head comments
@@ -206,7 +218,7 @@ EOF
 	export SANDCAT_MOUNT_GIT_READONLY="true"
 	export SANDCAT_MOUNT_IDEA_READONLY="true"
 
-	customize_compose_file "$POLICY_FILE" "$COMPOSE_FILE" "claude" "jetbrains"
+	customize_compose_file "$POLICY_FILE" "$COMPOSE_FILE" "claude" "jetbrains" "test-project"
 
 	assert_customize_compose_file_common "$COMPOSE_FILE"
 	yq -e '.services.agent.volumes[] | select(. == "../.idea:/workspace/.idea:ro")' "$COMPOSE_FILE"
@@ -221,7 +233,7 @@ EOF
 	export SANDCAT_MOUNT_GIT_READONLY="true"
 	export SANDCAT_MOUNT_VSCODE_READONLY="true"
 
-	customize_compose_file "$POLICY_FILE" "$COMPOSE_FILE" "claude" "vscode"
+	customize_compose_file "$POLICY_FILE" "$COMPOSE_FILE" "claude" "vscode" "test-project"
 
 	assert_customize_compose_file_common "$COMPOSE_FILE"
 	yq -e '.services.agent.volumes[] | select(. == "../.vscode:/workspace/.vscode:ro")' "$COMPOSE_FILE"

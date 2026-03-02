@@ -19,12 +19,14 @@ source "$SCT_LIBDIR/constants.bash"
 #   $2 - Path to the Docker Compose file to modify
 #   $3 - The agent name (e.g., "claude")
 #   $4 - The IDE name (e.g., "vscode", "jetbrains", "none") (optional)
+#   $5 - The project name (used to construct workspace paths) (required)
 #
 customize_compose_file() {
 	local policy_file=$1
 	local compose_file=$2
 	local agent=$3
 	local ide=${4:-none}
+	local project_name=$5
 
 	require yq
 
@@ -42,6 +44,8 @@ customize_compose_file() {
 	then
 		: "${SANDCAT_MOUNT_VSCODE_READONLY:=true}"
 	fi
+
+	set_workspace "$compose_file" "$project_name"
 
 	add_policy_volume "$compose_file" "$policy_file"
 
@@ -209,6 +213,25 @@ add_vscode_readonly_volume() {
 	local active=${2:-true}
 
 	add_volume_entry "$compose_file" '../.vscode:/workspace/.vscode:ro' "$active" 'Read-only VS Code project directory'
+}
+
+# Sets the working directory and adds workspace volume mounts for the agent service.
+# Args:
+#   $1 - Path to the Docker Compose file
+#   $2 - Project name (used to construct /workspaces/<project_name>)
+set_workspace() {
+	require yq
+	local compose_file=$1
+	local project_name=$2
+
+	local workspace="/workspaces/$project_name"
+
+	project_name="$project_name" yq -i \
+		'.services.agent.working_dir = "/workspaces/" + env(project_name)' "$compose_file"
+
+	add_volume_entry "$compose_file" "..:${workspace}:cached" "true" "Mount the project's code"
+	add_volume_entry "$compose_file" "../.devcontainer:${workspace}/.devcontainer:ro" "true" "Read-only devcontainer directory"
+	add_volume_entry "$compose_file" "../.sandcat:${workspace}/.sandcat:ro" "true" "Read-only policy directory"
 }
 
 # Adds JetBrains-specific capabilities to the agent service.
