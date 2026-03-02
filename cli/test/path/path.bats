@@ -39,11 +39,6 @@ teardown() {
 
 # derive_project_name tests
 
-@test "derive_project_name cli mode produces {dir}-sandbox" {
-	run derive_project_name "/home/user/myproject" "cli"
-	assert_success
-	assert_output "myproject-sandbox"
-}
 
 @test "derive_project_name devcontainer mode produces {dir}-sandbox-devcontainer" {
 	run derive_project_name "/home/user/myproject" "devcontainer"
@@ -51,11 +46,6 @@ teardown() {
 	assert_output "myproject-sandbox-devcontainer"
 }
 
-@test "derive_project_name uses basename of path" {
-	run derive_project_name "/deeply/nested/path/coolproject" "cli"
-	assert_success
-	assert_output "coolproject-sandbox"
-}
 
 # get_file_mtime tests
 

@@ -24,21 +24,10 @@ Fully non-interactive example:
 agentbox init --agent claude --mode cli --name myproject --path /some/dir
 ```
 
-#### `agentbox init cli`
-
-Sets up CLI mode docker-compose configuration for an agent. Copies the docker-compose.yml template and customizes it
-based on the selected agent.
-
-Options:
-- `--policy-file` - Path to the policy file (relative to project directory)
-- `--project-path` - Path to the project directory
-- `--agent` - The agent name (e.g., `claude`)
-- `--name` - Project name for Docker Compose (default: `{dir}-sandbox`)
-
 #### `agentbox init devcontainer`
 
 Sets up a devcontainer configuration for an agent. Copies devcontainer template files and customizes the
-docker-compose.yml.
+compose-all.yml.
 
 Options:
 - `--policy-file` - Path to the policy file (relative to project directory)
@@ -79,7 +68,7 @@ Options:
 ### `agentbox edit policy`
 
 Opens the network policy file in your editor. If you save changes, the proxy service will automatically restart to apply
-the new policy. Use `--mode` and `--agent` to select specific policy files.
+the new policy.
 
 ### `agentbox run`
 

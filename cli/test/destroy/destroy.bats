@@ -12,8 +12,8 @@ teardown() {
 
 @test "destroy removes project directory from repo root" {
 	local test_root="$BATS_TEST_TMPDIR/repo"
-	local compose_file="$test_root/$SCT_PROJECT_DIR/docker-compose.yml"
-	mkdir -p "$test_root/$SCT_PROJECT_DIR"
+	local compose_file="$test_root/.devcontainer/compose-all.yml"
+	mkdir -p "$test_root/.devcontainer"
 	touch "$compose_file"
 
 	stub docker \
@@ -22,14 +22,14 @@ teardown() {
 	cd "$test_root"
 	destroy -f
 
-	[[ ! -d "$test_root/$SCT_PROJECT_DIR" ]]
+	[[ ! -d "$test_root/.devcontainer" ]]
 }
 
-@test "destroy removes devcontainer directory if present" {
+@test "destroy removes project-specific directory if present" {
 	local test_root="$BATS_TEST_TMPDIR/repo"
-	local compose_file="$test_root/$SCT_PROJECT_DIR/docker-compose.yml"
-	mkdir -p "$test_root/$SCT_PROJECT_DIR"
+	local compose_file="$test_root/.devcontainer/compose-all.yml"
 	mkdir -p "$test_root/.devcontainer"
+	mkdir -p "$test_root/$SCT_PROJECT_DIR"
 	touch "$compose_file"
 
 	stub docker \
@@ -59,8 +59,8 @@ teardown() {
 
 @test "destroy works from nested directory" {
 	local test_root="$BATS_TEST_TMPDIR/repo"
-	local compose_file="$test_root/$SCT_PROJECT_DIR/docker-compose.yml"
-	mkdir -p "$test_root/$SCT_PROJECT_DIR"
+	local compose_file="$test_root/.devcontainer/compose-all.yml"
+	mkdir -p "$test_root/.devcontainer"
 	mkdir -p "$test_root/nested/deep"
 	touch "$compose_file"
 
@@ -70,18 +70,18 @@ teardown() {
 	cd "$test_root/nested/deep"
 	destroy -f
 
-	[[ ! -d "$test_root/$SCT_PROJECT_DIR" ]]
+	[[ ! -d "$test_root/.devcontainer" ]]
 }
 
 @test "destroy aborts when user answers no" {
 	local test_root="$BATS_TEST_TMPDIR/repo"
-	local compose_file="$test_root/$SCT_PROJECT_DIR/docker-compose.yml"
-	mkdir -p "$test_root/$SCT_PROJECT_DIR"
+	local compose_file="$test_root/.devcontainer/compose-all.yml"
+	mkdir -p "$test_root/.devcontainer"
 	touch "$compose_file"
 
 	cd "$test_root"
 	run destroy <<<"n"
 
 	assert_output --partial "Aborting"
-	[[ -d "$test_root/$SCT_PROJECT_DIR" ]]
+	[[ -d "$test_root/.devcontainer" ]]
 }

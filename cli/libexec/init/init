@@ -16,7 +16,6 @@ source "$SCT_LIBDIR/path.bash"
 # Prompts for any options not provided via flags.
 # Args:
 #   --agent - Agent type (claude, copilot, codex)
-#   --mode - Setup mode (cli, devcontainer)
 #   --ide - IDE for devcontainer mode (vscode, jetbrains, none)
 #   --name - Project name for Docker Compose
 #   --path - Project directory path
@@ -26,7 +25,6 @@ init() {
 	local name=""
 	local project_path=""
 	local agent=""
-	local mode=""
 	local ide=""
 
 	while [[ $# -gt 0 ]]
@@ -42,10 +40,6 @@ init() {
 			;;
 		--agent)
 			agent="$2"
-			shift 2
-			;;
-		--mode)
-			mode="$2"
 			shift 2
 			;;
 		--ide)
@@ -88,16 +82,6 @@ init() {
 		return 1
 	fi
 
-	local available_modes=(devcontainer cli)
-	if [[ -z "$mode" ]]
-	then
-		mode=$(select_option "Select mode:" "${available_modes[@]}")
-	elif [[ ! " ${available_modes[*]} " =~ [[:space:]]${mode}[[:space:]] ]]
-	then
-		echo "Invalid mode: $mode (expected: ${available_modes[*]})" | error
-		return 1
-	fi
-
 	if [[ -z "$name" ]]
 	then
 		name="$(derive_project_name "$project_path" "$mode")"
@@ -105,45 +89,29 @@ init() {
 
 	local policy_file="$SCT_PROJECT_DIR/settings.json"
 
-	case "$mode" in
-	cli)
-		policy "$project_path/$policy_file" "$agent"
-		cli \
-			--policy-file "$policy_file" \
-			--project-path "$project_path" \
-			--agent "$agent" \
-			--name "$name"
-		;;
-	devcontainer)
-		local available_ides=(vscode jetbrains none)
-		if [[ -z "$ide" ]]
-		then
-			ide=$(select_option "Select IDE:" "${available_ides[@]}")
-		elif [[ ! " ${available_ides[*]} " =~ [[:space:]]${ide}[[:space:]] ]]
-		then
-			echo "Invalid IDE: $ide (expected: ${available_ides[*]})" | error
-			return 1
-		fi
-
-		local services=("$agent")
-		if [[ "$ide" != "none" ]]
-		then
-			services+=("$ide")
-		fi
-
-		policy "$project_path/$policy_file" "${services[@]}"
-		devcontainer \
-			--policy-file "$policy_file" \
-			--project-path "$project_path" \
-			--agent "$agent" \
-			--ide "$ide" \
-			--name "$name"
-		;;
-	*)
-		echo "Invalid mode selected: $mode" | error
+	local available_ides=(vscode jetbrains none)
+	if [[ -z "$ide" ]]
+	then
+		ide=$(select_option "Select IDE:" "${available_ides[@]}")
+	elif [[ ! " ${available_ides[*]} " =~ [[:space:]]${ide}[[:space:]] ]]
+	then
+		echo "Invalid IDE: $ide (expected: ${available_ides[*]})" | error
 		return 1
-		;;
-	esac
+	fi
+
+	local services=("$agent")
+	if [[ "$ide" != "none" ]]
+	then
+		services+=("$ide")
+	fi
+
+	policy "$project_path/$policy_file" "${services[@]}"
+	devcontainer \
+		--policy-file "$policy_file" \
+		--project-path "$project_path" \
+		--agent "$agent" \
+		--ide "$ide" \
+		--name "$name"
 }
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]

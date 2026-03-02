@@ -70,30 +70,6 @@ customize_compose_file() {
 	sed '/^$/{ N; /^\n[[:space:]]/{ s/^\n//; }; }' "$compose_file" > "$compose_file.tmp" && mv "$compose_file.tmp" "$compose_file"
 }
 
-# Sets the proxy service image in a Docker Compose file.
-# Args:
-#   $1 - Path to the Docker Compose file
-#   $2 - Image reference (can be tag or digest)
-set_proxy_image() {
-	require yq
-	local compose_file=$1
-	local image=$2
-
-	image="$image" yq -i '.services.mitmproxy.image = env(image)' "$compose_file"
-}
-
-# Sets the agent service image in a Docker Compose file.
-# Args:
-#   $1 - Path to the Docker Compose file
-#   $2 - Image reference (can be tag or digest)
-set_agent_image() {
-	require yq
-	local compose_file=$1
-	local image=$2
-
-	image="$image" yq -i '.services.agent.image = env(image)' "$compose_file"
-}
-
 # Sets the project name in a Docker Compose file.
 # Args:
 #   $1 - Path to the Docker Compose file
@@ -272,28 +248,4 @@ add_jetbrains_capabilities() {
 	yq -i '(.services.agent.cap_add[] | select(. == "DAC_OVERRIDE")) head_comment = "JetBrains IDE: bypass file permission checks on mounted volumes"' "$compose_file"
 	yq -i '(.services.agent.cap_add[] | select(. == "CHOWN")) head_comment = "JetBrains IDE: change ownership of IDE cache and state files"' "$compose_file"
 	yq -i '(.services.agent.cap_add[] | select(. == "FOWNER")) head_comment = "JetBrains IDE: bypass ownership checks on IDE-managed files"' "$compose_file"
-}
-
-# Pulls an image and returns its digest.
-# Args:
-#   $1 - Image reference (can be tag or digest)
-pull_and_pin_image() {
-	local image=$1
-
-	if [[ $image == *:local ]] || [[ $image != */* ]]
-	then
-		echo "$image"
-		return 0
-	fi
-
-	require docker
-
-	# Pull remote image
-	docker pull "$image" >&2
-
-	# Get the digest
-	local digest
-	digest=$(docker inspect --format='{{index .RepoDigests 0}}' "$image")
-
-	echo "$digest"
 }

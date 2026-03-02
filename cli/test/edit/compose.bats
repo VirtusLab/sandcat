@@ -79,7 +79,7 @@ teardown() {
 	run edit --no-restart
 	assert_success
 	assert_output --partial "Compose file was modified, and you have containers running."
-	assert_output --partial "agentbox up -d"
+	assert_output --partial "sandcat compose up -d"
 }
 
 @test "edit respects SANDCAT_NO_RESTART env var when modified and containers running" {
@@ -95,6 +95,6 @@ teardown() {
 	run edit
 	assert_success
 	assert_output --partial "Compose file was modified, and you have containers running."
-	assert_output --partial "agentbox up -d"
+	assert_output --partial "sandcat compose up -d"
 	unset SANDCAT_NO_RESTART
 }

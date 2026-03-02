@@ -9,16 +9,6 @@ then
 	tput() { :; }
 fi
 
-debug() {
-	# shellcheck disable=SC2312
-	date +%T | tr '\n' ' '
-	tput setaf 6
-	tput bold
-	echo -n '[DEBUG] '
-	tput sgr0
-	cat -
-} >&2
-
 info() {
 	# shellcheck disable=SC2312
 	date +%T | tr '\n' ' '

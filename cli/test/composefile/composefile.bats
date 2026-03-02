@@ -7,7 +7,7 @@ setup() {
 	# shellcheck source=../../lib/composefile.bash
 	source "$SCT_LIBDIR/composefile.bash"
 
-	COMPOSE_FILE="$BATS_TEST_TMPDIR/docker-compose.yml"
+	COMPOSE_FILE="$BATS_TEST_TMPDIR/compose-all.yml"
 
 	cat >"$COMPOSE_FILE" <<'YAML'
 services:
@@ -25,40 +25,6 @@ YAML
 
 teardown() {
 	unstub_all
-}
-
-@test "pull_and_pin_image returns local images unchanged" {
-	run pull_and_pin_image "my-image:local"
-	assert_success
-	assert_output "my-image:local"
-}
-
-@test "pull_and_pin_image returns unqualified images unchanged" {
-	run pull_and_pin_image "alpine"
-	assert_success
-	assert_output "alpine"
-}
-
-@test "pull_and_pin_image pulls and returns digest for remote images" {
-	stub docker \
-		"pull ghcr.io/example/test:latest : :" \
-		"inspect --format='{{index .RepoDigests 0}}' ghcr.io/example/test:latest : echo 'ghcr.io/example/test@sha256:abc123'"
-
-	run pull_and_pin_image "ghcr.io/example/test:latest"
-
-	assert_success
-	assert_output "ghcr.io/example/test@sha256:abc123"
-}
-
-@test "pull_and_pin_image handles remote images with digests" {
-	stub docker \
-		"pull ghcr.io/example/test@sha256:abc123 : :" \
-		"inspect --format='{{index .RepoDigests 0}}' ghcr.io/example/test@sha256:abc123 : echo 'ghcr.io/example/test@sha256:abc123'"
-
-	run pull_and_pin_image "ghcr.io/example/test@sha256:abc123"
-
-	assert_success
-	assert_output "ghcr.io/example/test@sha256:abc123"
 }
 
 @test "add_policy_volume adds policy mount to proxy service" {

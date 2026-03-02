@@ -7,7 +7,7 @@ source "$SCT_LIBDIR/logging.bash"
 source "$SCT_LIBDIR/composefile.bash"
 
 # Sets up a Devcontainer configuration for an agent.
-# Copies devcontainer template files and customizes the docker-compose.yml.
+# Copies devcontainer template files and customizes the compose-all.yml.
 # Args:
 #   --policy-file - Path to the policy file (relative to project directory)
 #   --project-path - Path to the project directory

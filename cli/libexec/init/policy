@@ -11,13 +11,10 @@ source "$SCT_LIBDIR/require.bash"
 #   $1 - Path to the policy file
 #   $@ - Service names to include (e.g., claude, copilot, vscode, jetbrains, github)
 # Outputs:
-#   Creates a YAML policy file with services list
+#   Creates a JSON policy file from template
 policy() {
 	local policy_file=$1
 	shift
-
-	local services
-	services=$(printf '%s\n' "$@")
 
 	require yq
 
@@ -25,9 +22,6 @@ policy() {
 	cp \
 		"$SCT_TEMPLATEDIR/settings.json" \
 		"$policy_file"
-
-# FIXME add back when #2 is implemented
-#	services="$services" yq -i '.services = (strenv(services) | split("\n") )' "$policy_file"
 
 	echo "Policy file created at: $policy_file" | info
 }

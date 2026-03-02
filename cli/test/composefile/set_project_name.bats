@@ -5,7 +5,7 @@ setup() {
 	# shellcheck source=../../lib/composefile.bash
 	source "$SCT_LIBDIR/composefile.bash"
 
-	COMPOSE_FILE="$BATS_TEST_TMPDIR/docker-compose.yml"
+	COMPOSE_FILE="$BATS_TEST_TMPDIR/compose-all.yml"
 
 	cat >"$COMPOSE_FILE" <<'YAML'
 services:
@@ -41,21 +41,4 @@ teardown() {
 
 	run yq '.services.agent.image' "$COMPOSE_FILE"
 	assert_output "placeholder"
-}
-
-@test "pull_and_pin_image propagates docker pull failure" {
-	stub docker \
-		"pull ghcr.io/example/fail:latest : exit 1"
-
-	run pull_and_pin_image "ghcr.io/example/fail:latest"
-	assert_failure
-}
-
-@test "pull_and_pin_image propagates docker inspect failure" {
-	stub docker \
-		"pull ghcr.io/example/test:latest : :" \
-		"inspect --format='{{index .RepoDigests 0}}' ghcr.io/example/test:latest : exit 1"
-
-	run pull_and_pin_image "ghcr.io/example/test:latest"
-	assert_failure
 }
