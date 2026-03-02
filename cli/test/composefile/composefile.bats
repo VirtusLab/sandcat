@@ -49,19 +49,6 @@ teardown() {
 	yq -e '.services.agent.volumes[] | select(. == "${HOME}/.claude/commands:/home/vscode/.claude/commands:ro")' "$COMPOSE_FILE"
 }
 
-@test "add_shell_customizations_volume adds shell.d mount" {
-	add_shell_customizations_volume "$COMPOSE_FILE"
-
-	# shellcheck disable=SC2016
-	yq -e '.services.agent.volumes[] | select(. == "${HOME}/.config/sandcat/shell.d:/home/dev/.config/sandcat/shell.d:ro")' "$COMPOSE_FILE"
-}
-
-@test "add_dotfiles_volume adds dotfiles mount" {
-	add_dotfiles_volume "$COMPOSE_FILE"
-
-	# shellcheck disable=SC2016
-	yq -e '.services.agent.volumes[] | select(. == "${HOME}/.config/sandcat/dotfiles:/home/dev/.dotfiles:ro")' "$COMPOSE_FILE"
-}
 
 @test "add_git_readonly_volume adds .git mount as read-only" {
 	add_git_readonly_volume "$COMPOSE_FILE"
@@ -98,9 +85,9 @@ assert_customize_compose_file_common() {
 	# Verify policy volume on proxy
 	yq -e '.services.mitmproxy.volumes[] | select(. == "policy.yaml:/config/project/settings.json:ro")' "$compose_file"
 
-	# Verify all agent volumes count (initial + 2 Claude + shell.d + dotfiles + .git + IDE-specific = 7)
+	# Verify all agent volumes count (initial + 3 Claude + .git + IDE-specific = 6)
 	run yq '.services.agent.volumes | length' "$compose_file"
-	assert_output 8
+	assert_output 6
 
 	# shellcheck disable=SC2016
 	yq -e '.services.agent.volumes[] | select(. == "${HOME}/.claude/CLAUDE.md:/home/vscode/.claude/CLAUDE.md:ro")' "$compose_file"
@@ -110,12 +97,6 @@ assert_customize_compose_file_common() {
 
 	# shellcheck disable=SC2016
 	yq -e '.services.agent.volumes[] | select(. == "${HOME}/.claude/commands:/home/vscode/.claude/commands:ro")' "$compose_file"
-
-	# shellcheck disable=SC2016
-	yq -e '.services.agent.volumes[] | select(. == "${HOME}/.config/sandcat/shell.d:/home/dev/.config/sandcat/shell.d:ro")' "$compose_file"
-
-	# shellcheck disable=SC2016
-	yq -e '.services.agent.volumes[] | select(. == "${HOME}/.config/sandcat/dotfiles:/home/dev/.dotfiles:ro")' "$compose_file"
 
 	yq -e '.services.agent.volumes[] | select(. == "../.git:/workspace/.git:ro")' "$compose_file"
 }
@@ -208,8 +189,6 @@ EOF
 	assert_line '# - ${HOME}/.claude/CLAUDE.md:/home/vscode/.claude/CLAUDE.md:ro'
 	assert_line '# - ${HOME}/.claude/agents:/home/vscode/.claude/agents:ro'
 	assert_line '# - ${HOME}/.claude/commands:/home/vscode/.claude/commands:ro'
-	assert_line '# - ${HOME}/.config/sandcat/shell.d:/home/dev/.config/sandcat/shell.d:ro'
-	assert_line '# - ${HOME}/.config/sandcat/dotfiles:/home/dev/.dotfiles:ro'
 	assert_line '# - ../.git:/workspace/.git:ro'
 	assert_line '# - ../.vscode:/workspace/.vscode:ro'
 
@@ -224,8 +203,6 @@ EOF
 	touch "$BATS_TEST_TMPDIR/$POLICY_FILE"
 
 	export SANDCAT_MOUNT_CLAUDE_CONFIG="true"
-	export SANDCAT_ENABLE_SHELL_CUSTOMIZATIONS="true"
-	export SANDCAT_ENABLE_DOTFILES="true"
 	export SANDCAT_MOUNT_GIT_READONLY="true"
 	export SANDCAT_MOUNT_IDEA_READONLY="true"
 
@@ -241,8 +218,6 @@ EOF
 	touch "$BATS_TEST_TMPDIR/$POLICY_FILE"
 
 	export SANDCAT_MOUNT_CLAUDE_CONFIG="true"
-	export SANDCAT_ENABLE_SHELL_CUSTOMIZATIONS="true"
-	export SANDCAT_ENABLE_DOTFILES="true"
 	export SANDCAT_MOUNT_GIT_READONLY="true"
 	export SANDCAT_MOUNT_VSCODE_READONLY="true"
 

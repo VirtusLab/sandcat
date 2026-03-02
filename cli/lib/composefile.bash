@@ -11,8 +11,6 @@ source "$SCT_LIBDIR/constants.bash"
 # Optional volumes are added as commented-out entries by default. Set environment
 # variables to "true" before calling this function to add them as active mounts:
 #   - SANDCAT_MOUNT_CLAUDE_CONFIG: "true" to mount host Claude config (~/.claude)
-#   - SANDCAT_ENABLE_SHELL_CUSTOMIZATIONS: "true" to enable shell customizations
-#   - SANDCAT_ENABLE_DOTFILES: "true" to mount dotfiles
 #   - SANDCAT_MOUNT_GIT_READONLY: "true" to mount .git directory as read-only
 #   - SANDCAT_MOUNT_IDEA_READONLY: "true" to mount .idea directory as read-only
 #   - SANDCAT_MOUNT_VSCODE_READONLY: "true" to mount .vscode directory as read-only
@@ -52,8 +50,6 @@ customize_compose_file() {
 		add_claude_config_volumes "$compose_file" "${SANDCAT_MOUNT_CLAUDE_CONFIG:=false}"
 	fi
 
-	add_shell_customizations_volume "$compose_file" "${SANDCAT_ENABLE_SHELL_CUSTOMIZATIONS:=false}"
-	add_dotfiles_volume "$compose_file" "${SANDCAT_ENABLE_DOTFILES:=false}"
 	add_git_readonly_volume "$compose_file" "${SANDCAT_MOUNT_GIT_READONLY:=false}"
 	add_idea_readonly_volume "$compose_file" "${SANDCAT_MOUNT_IDEA_READONLY:-false}"
 	add_vscode_readonly_volume "$compose_file" "${SANDCAT_MOUNT_VSCODE_READONLY:-false}"
@@ -181,28 +177,6 @@ add_claude_config_volumes() {
 	add_volume_entry "$compose_file" '${HOME}/.claude/commands:/home/vscode/.claude/commands:ro' "$active"
 }
 
-# Adds shell customizations volume mount to the agent service.
-# Args:
-#   $1 - Path to the Docker Compose file
-#   $2 - true to add as active, false to add as comment
-add_shell_customizations_volume() {
-	local compose_file=$1
-	local active=${2:-true}
-
-	add_volume_entry "$compose_file" "$SCT_HOME_PATTERN/shell.d:/home/dev/.config/sandcat/shell.d:ro" "$active" 'Shell customizations (optional - scripts sourced at shell startup)'
-}
-
-# Adds dotfiles volume mount to the agent service.
-# Args:
-#   $1 - Path to the Docker Compose file
-#   $2 - true to add as active, false to add as comment
-add_dotfiles_volume() {
-	local compose_file=$1
-	local active=${2:-true}
-
-	# shellcheck disable=SC2016
-	add_volume_entry "$compose_file" '${HOME}/.config/sandcat/dotfiles:/home/dev/.dotfiles:ro' "$active" 'Dotfiles (optional - auto-linked into $HOME at startup)'
-}
 
 # Adds .git directory mount as read-only to the agent service.
 # Args:

@@ -150,7 +150,6 @@ copilot_agent_compose_file_has_expected_content() {
 @test "devcontainer creates compose-all.yml for claude agent with all options enabled" {
 	skip 'FIXME: compose is split into multiple files'
 	export SANDCAT_MOUNT_CLAUDE_CONFIG="true"
-	export SANDCAT_ENABLE_SHELL_CUSTOMIZATIONS="true"
 	export SANDCAT_ENABLE_DOTFILES="true"
 	export SANDCAT_MOUNT_GIT_READONLY="true"
 	export SANDCAT_MOUNT_IDEA_READONLY="true"
