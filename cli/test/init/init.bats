@@ -22,16 +22,16 @@ teardown() {
 
 
 @test "init rejects invalid --ide value" {
-	run init --agent claude --mode devcontainer --ide "invalid" --name test --path "$PROJECT_DIR"
+	run init --agent claude --ide "invalid" --name test --path "$PROJECT_DIR"
 	assert_failure
 	assert_output --partial "Invalid IDE: invalid (expected: vscode jetbrains none)"
 }
 
-@test "init accepts valid --ide value for devcontainer mode" {
+@test "init accepts valid --ide value" {
 	stub policy "$PROJECT_DIR/.sandcat/settings.json claude jetbrains : :"
 	stub devcontainer "--policy-file .sandcat/settings.json --project-path $PROJECT_DIR --agent claude --ide jetbrains --name test : :"
 
-	run init --agent claude --mode devcontainer --ide jetbrains --name test --path "$PROJECT_DIR"
+	run init --agent claude --ide jetbrains --name test --path "$PROJECT_DIR"
 	assert_success
 }
 

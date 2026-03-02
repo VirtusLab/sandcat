@@ -47,10 +47,6 @@ init() {
 			ide="$2"
 			shift 2
 			;;
-		--mode)
-			# ignore mode flag as it is hardcoded to devcontainer
-			shift 2
-			;;
 		*)
 			echo "Unknown option: $1" | error
 			return 1

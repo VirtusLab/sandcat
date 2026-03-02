@@ -14,14 +14,13 @@ configuration files and network policy. Optional volume mounts (Claude config, s
 
 Options:
 - `--agent` - Agent type: `claude`, `copilot` (skips prompt)
-- `--mode` - Setup mode: `cli`, `devcontainer` (skips prompt)
 - `--ide` - IDE for devcontainer mode: `vscode`, `jetbrains`, `none` (skips prompt)
 - `--name` - Project name for Docker Compose (default: derived from directory name)
 - `--path` - Project directory (default: current directory)
 
 Fully non-interactive example:
 ```bash
-agentbox init --agent claude --mode cli --name myproject --path /some/dir
+agentbox init --agent claude --ide vscode --name myproject --path /some/dir
 ```
 
 #### `agentbox init devcontainer`
