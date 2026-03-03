@@ -6,7 +6,7 @@ Requires `docker` (and `docker compose`) and [`yq`](https://github.com/mikefarah
 
 ## Modules and Commands
 
-### `agentbox init`
+### `sandcat init`
 
 Initializes sandcat for a project. Prompts for any options not provided via flags, then sets up the necessary
 configuration files and network settings. Optional volume mounts (Claude config, shell customizations, dotfiles, .git,
@@ -20,10 +20,10 @@ Options:
 
 Fully non-interactive example:
 ```bash
-agentbox init --agent claude --ide vscode --name myproject --path /some/dir
+sandcat init --agent claude --ide vscode --name myproject --path /some/dir
 ```
 
-#### `agentbox init devcontainer`
+#### `sandcat init devcontainer`
 
 Sets up a devcontainer configuration for an agent. Copies devcontainer template files and customizes the
 compose-all.yml.
@@ -35,7 +35,7 @@ Options:
 - `--ide` - The IDE name (e.g., `vscode`, `jetbrains`, `none`) (optional)
 - `--name` - Project name for Docker Compose (default: `{dir}-sandbox-devcontainer`)
 
-#### `agentbox init settings`
+#### `sandcat init settings`
 
 Creates a network settings file for the proxy.
 
@@ -43,36 +43,36 @@ Arguments:
 - First argument: Path to the settings file
 - Remaining arguments: Service names to include (e.g., `claude`, `copilot`, `vscode`, `jetbrains`)
 
-### `agentbox destroy`
+### `sandcat destroy`
 
 Removes all sandcat configuration and containers from a project. Stops running containers, removes volumes, and
 deletes configuration directories.
 
-### `agentbox version`
+### `sandcat version`
 
 Displays the current version of sandcat.
 
-### `agentbox compose`
+### `sandcat compose`
 
 Runs docker compose commands with the correct compose file automatically detected. Pass any docker compose arguments
-(e.g., `agentbox compose up -d` or `agentbox compose logs`).
+(e.g., `sandcat compose up -d` or `sandcat compose logs`).
 
-### `agentbox edit compose`
+### `sandcat edit compose`
 
 Opens the Docker Compose file in your editor. If you save changes and containers are running, it will restart containers by default to apply the changes.
 
 Options:
-- `--no-restart` — Do not automatically restart containers after changes. When set (or when `SANDCAT_NO_RESTART=true`), a warning is shown instead with instructions to run `agentbox up -d` manually.
+- `--no-restart` — Do not automatically restart containers after changes. When set (or when `SANDCAT_NO_RESTART=true`), a warning is shown instead with instructions to run `sandcat up -d` manually.
 
-### `agentbox edit settings`
+### `sandcat edit settings`
 
 Opens the network settings file in your editor. If you save changes, the proxy service will automatically restart to apply
 the new settings.
 
-### `agentbox run`
+### `sandcat run`
 
-Runs a command inside the agent container. If no command is specified, opens a shell. Example: `agentbox run` opens a
-shell, `agentbox run npm install` runs npm inside the container.
+Runs a command inside the agent container. If no command is specified, opens a shell. Example: `sandcat run` opens a
+shell, `sandcat run npm install` runs npm inside the container.
 
 ## Directory Structure
 
@@ -85,7 +85,7 @@ same module by their name.
 ```
 cli/
 ├── bin/
-│   └── agentbox           # Main CLI entry point
+│   └── sandcat           # Main CLI entry point
 ├── lib/                   # Shared library functions
 ├── libexec/               # Module implementations
 │   ├── destroy/           #    Each module can contain multiple commands
@@ -105,7 +105,7 @@ cli/
 - `SCT_LIBEXECDIR` - Directory for module implementations (default: `$SCT_ROOT/libexec`)
 - `SCT_TEMPLATEDIR` - Directory for templates (default: `$SCT_ROOT/templates`)
 
-### Configuration (set before running `agentbox init`)
+### Configuration (set before running `sandcat init`)
 
 These override defaults during compose file generation. Optional volumes default to `false` (commented out).
 

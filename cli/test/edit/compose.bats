@@ -38,7 +38,7 @@ teardown() {
 	run edit
 	assert_success
 	assert_output --partial "Compose file was modified. Restarting containers..."
-	refute_output --partial "agentbox up -d"
+	refute_output --partial "sandcat up -d"
 }
 
 @test "edit confirms save when file modified and no containers running" {
@@ -53,7 +53,7 @@ teardown() {
 	run edit
 	assert_success
 	assert_output --partial "Compose file was modified."
-	refute_output --partial "agentbox up -d"
+	refute_output --partial "sandcat up -d"
 }
 
 @test "edit reports no changes when file unchanged" {
