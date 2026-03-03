@@ -6,27 +6,27 @@ source "$SCT_LIBDIR/logging.bash"
 # shellcheck source=../../lib/require.bash
 source "$SCT_LIBDIR/require.bash"
 
-# Creates a network policy file for the proxy.
+# Creates a network settings file for the proxy.
 # Args:
-#   $1 - Path to the policy file
+#   $1 - Path to the settings file
 #   $@ - Service names to include (e.g., claude, copilot, vscode, jetbrains, github)
 # Outputs:
-#   Creates a JSON policy file from template
-policy() {
-	local policy_file=$1
+#   Creates a JSON settings file from template
+settings() {
+	local settings_file=$1
 	shift
 
 	require yq
 
-	mkdir -p "$(dirname -- "$policy_file")"
+	mkdir -p "$(dirname -- "$settings_file")"
 	cp \
 		"$SCT_TEMPLATEDIR/settings.json" \
-		"$policy_file"
+		"$settings_file"
 
-	echo "Policy file created at: $policy_file" | info
+	echo "Settings file created at: $settings_file" | info
 }
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]
 then
-	policy "$@"
+	settings "$@"
 fi

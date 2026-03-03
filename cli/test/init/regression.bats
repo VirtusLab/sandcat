@@ -11,8 +11,8 @@ setup() {
 	PROJECT_DIR="$BATS_TEST_TMPDIR/project"
 	mkdir -p "$PROJECT_DIR/$SCT_PROJECT_DIR"
 
-	POLICY_FILE="$SCT_PROJECT_DIR/settings.json"
-	touch "$PROJECT_DIR/$POLICY_FILE"
+	SETTINGS_FILE="$SCT_PROJECT_DIR/settings.json"
+	touch "$PROJECT_DIR/$SETTINGS_FILE"
 }
 
 teardown() {
@@ -133,7 +133,7 @@ assert_claude_volumes() {
 assert_customization_volumes() {
 	local compose_file=$1
 
-	# Bind: policy directory (read-only)
+	# Bind: settings directory (read-only)
 	PROJECT_DIR="$PROJECT_DIR" yq -e "
 		.services.mitmproxy.volumes[] |
 		select(
@@ -222,7 +222,7 @@ claude_agent_compose_file_has_expected_content() {
 	export SANDCAT_MOUNT_VSCODE_READONLY="true"
 
 	run devcontainer \
-		--policy-file "$POLICY_FILE" \
+		--settings-file "$SETTINGS_FILE" \
 		--project-path "$PROJECT_DIR" \
 		--agent "claude" \
 		--ide "jetbrains"

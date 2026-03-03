@@ -11,12 +11,12 @@ source "$SCT_LIBDIR/devcontainer.bash"
 # Sets up a Devcontainer configuration for an agent.
 # Copies devcontainer template files and customizes the compose-all.yml.
 # Args:
-#   --policy-file - Path to the policy file (relative to project directory)
+#   --settings-file - Path to the settings file (relative to project directory)
 #   --project-path - Path to the project directory
 #   --agent - The agent name (e.g., "claude")
 #   --ide - The IDE name (e.g., "vscode", "jetbrains", "none") (optional)
 devcontainer() {
-	local policy_file=""
+	local settings_file=""
 	local project_path=""
 	local agent=""
 	local ide=""
@@ -25,8 +25,8 @@ devcontainer() {
 	while [[ $# -gt 0 ]]
 	do
 		case $1 in
-		--policy-file)
-			policy_file="$2"
+		--settings-file)
+			settings_file="$2"
 			shift 2
 			;;
 		--project-path)
@@ -52,7 +52,7 @@ devcontainer() {
 		esac
 	done
 
-	: "${policy_file?Missing required parameter: --policy-file}"
+	: "${settings_file?Missing required parameter: --settings-file}"
 	: "${project_path?Missing required parameter: --project-path}"
 	: "${agent?Missing required parameter: --agent}"
 
@@ -64,12 +64,12 @@ devcontainer() {
 		"$SCT_TEMPLATEDIR/$agent/devcontainer/"* \
 		"$devcontainer_dir"
 
-	local rel_policy_file="../$policy_file"
+	local rel_settings_file="../$settings_file"
 
 	local project_name
 	project_name="${name:-$(derive_project_name "$project_path" "devcontainer")}"
 
-	customize_compose_file "$rel_policy_file" "$compose_file" "$agent" "$ide" "$project_name"
+	customize_compose_file "$rel_settings_file" "$compose_file" "$agent" "$ide" "$project_name"
 	set_project_name "$compose_file" "$project_name"
 
 	customize_devcontainer_json "$devcontainer_dir/devcontainer.json" "$project_name"

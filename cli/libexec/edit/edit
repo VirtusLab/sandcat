@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-echo "Usage: agentbox edit <compose|policy>" >&2
+echo "Usage: agentbox edit <compose|settings>" >&2
 exit 1

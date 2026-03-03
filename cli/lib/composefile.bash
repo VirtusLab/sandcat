@@ -7,7 +7,7 @@ source "$SCT_LIBDIR/path.bash"
 # shellcheck source=constants.bash
 source "$SCT_LIBDIR/constants.bash"
 
-# Customizes a Docker Compose file with policy and optional user configurations.
+# Customizes a Docker Compose file with settings and optional user configurations.
 # Optional volumes are added as commented-out entries by default. Set environment
 # variables to "true" before calling this function to add them as active mounts:
 #   - SANDCAT_MOUNT_CLAUDE_CONFIG: "true" to mount host Claude config (~/.claude)
@@ -15,14 +15,14 @@ source "$SCT_LIBDIR/constants.bash"
 #   - SANDCAT_MOUNT_IDEA_READONLY: "true" to mount .idea directory as read-only
 #   - SANDCAT_MOUNT_VSCODE_READONLY: "true" to mount .vscode directory as read-only
 # Args:
-#   $1 - Path to the policy file to mount, relative to the Docker Compose file directory
+#   $1 - Path to the settings file to mount, relative to the Docker Compose file directory
 #   $2 - Path to the Docker Compose file to modify
 #   $3 - The agent name (e.g., "claude")
 #   $4 - The IDE name (e.g., "vscode", "jetbrains", "none") (optional)
 #   $5 - The project name (used to construct workspace paths) (required)
 #
 customize_compose_file() {
-	local policy_file=$1
+	local settings_file=$1
 	local compose_file=$2
 	local agent=$3
 	local ide=${4:-none}
@@ -33,7 +33,7 @@ customize_compose_file() {
 	local compose_dir
 	compose_dir=$(dirname "$compose_file")
 
-	verify_relative_path "$compose_dir" "$policy_file"
+	verify_relative_path "$compose_dir" "$settings_file"
 
 	if [[ $ide == "jetbrains" ]]
 	then
@@ -47,7 +47,7 @@ customize_compose_file() {
 
 	set_workspace "$compose_file" "$project_name"
 
-	add_policy_volume "$compose_file" "$policy_file"
+	add_settings_volume "$compose_file" "$settings_file"
 
 	if [[ $agent == "claude" ]]
 	then
@@ -82,20 +82,20 @@ set_project_name() {
 	project_name="$project_name" yq -i '. = {"name": env(project_name)} * .' "$compose_file"
 }
 
-# Adds policy volume mount to the proxy service.
+# Adds settings volume mount to the proxy service.
 # Args:
 #   $1 - Path to the Docker Compose file
-#   $2 - Path to the policy file (relative to compose file)
-add_policy_volume() {
+#   $2 - Path to the settings file (relative to compose file)
+add_settings_volume() {
 	require yq
 	local compose_file=$1
-	local policy_file=$2
+	local settings_file=$2
 
-	local policy_dir
-	policy_dir=$(dirname "$policy_file")
+	local settings_dir
+	settings_dir=$(dirname "$settings_file")
 
-	policy_dir="$policy_dir" yq -i \
-		'.services.mitmproxy.volumes += [env(policy_dir) + ":/config/project:ro"]' "$compose_file"
+	settings_dir="$settings_dir" yq -i \
+		'.services.mitmproxy.volumes += [env(settings_dir) + ":/config/project:ro"]' "$compose_file"
 
 	add_foot_comment "$compose_file" ".services.mitmproxy.volumes" \
 		'Project-level settings (.sandcat/ directory). If the directory does
@@ -238,7 +238,7 @@ set_workspace() {
 
 	add_volume_entry "$compose_file" "..:${workspace}:cached" "true" "Mount the project's code"
 	add_volume_entry "$compose_file" "../.devcontainer:${workspace}/.devcontainer:ro" "true" "Read-only devcontainer directory"
-	add_volume_entry "$compose_file" "../.sandcat:${workspace}/.sandcat:ro" "true" "Read-only policy directory"
+	add_volume_entry "$compose_file" "../.sandcat:${workspace}/.sandcat:ro" "true" "Read-only settings directory"
 }
 
 # Adds JetBrains-specific capabilities to the agent service.

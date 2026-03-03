@@ -12,29 +12,29 @@ source "$SCT_LIBDIR/select.bash"
 # shellcheck source=../../lib/path.bash
 source "$SCT_LIBDIR/path.bash"
 
-# Opens the network policy file in the default editor. If the file is modified,
+# Opens the network settings file in the default editor. If the file is modified,
 # automatically restarts the proxy service (only if docker compose is running).
 #
-# Policy file: $SCT_PROJECT_DIR/settings.json
-policy() {
+# Settings file: $SCT_PROJECT_DIR/settings.json
+settings() {
 	local repo_root
 	repo_root="$(find_repo_root)"
 
-	local policy_file="$repo_root/$SCT_PROJECT_DIR/settings.json"
+	local settings_file="$repo_root/$SCT_PROJECT_DIR/settings.json"
 
-	if [[ ! -f "$policy_file" ]]
+	if [[ ! -f "$settings_file" ]]
 	then
-		echo "No policy file found: $policy_file" | error
+		echo "No settings file found: $settings_file" | error
 		return 1
 	fi
 
 	local mtime_before
-	mtime_before=$(get_file_mtime "$policy_file")
+	mtime_before=$(get_file_mtime "$settings_file")
 
-	open_editor "$policy_file"
+	open_editor "$settings_file"
 
 	local mtime_after
-	mtime_after=$(get_file_mtime "$policy_file")
+	mtime_after=$(get_file_mtime "$settings_file")
 
 	if [[ "$mtime_after" != "$mtime_before" ]]
 	then
@@ -42,19 +42,19 @@ policy() {
 		proxy_status=$("$SCT_LIBEXECDIR/compose/compose" ps mitmproxy --status running --quiet 2>/dev/null) || true
 		if [[ -n "$proxy_status" ]]
 		then
-			echo "Policy file was modified. Restarting proxy service..." | info
+			echo "Settings file was modified. Restarting proxy service..." | info
 			"$SCT_LIBEXECDIR/compose/compose" restart mitmproxy
 			"$SCT_LIBEXECDIR/compose/compose" restart wg-client
 		else
-			echo "Policy file was modified, but proxy service is not running. Skipping restart." | warning
+			echo "Settings file was modified, but proxy service is not running. Skipping restart." | warning
 		fi
 	else
-		echo "Policy file unchanged. Skipping restart." | warning
+		echo "Settings file unchanged. Skipping restart." | warning
 	fi
 
 }
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]
 then
-	policy "$@"
+	settings "$@"
 fi

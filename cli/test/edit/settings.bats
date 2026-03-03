@@ -3,36 +3,36 @@
 setup() {
 	load test_helper
 
-	# shellcheck source=../../libexec/edit/policy
-	source "$SCT_LIBEXECDIR/edit/policy"
+	# shellcheck source=../../libexec/edit/settings
+	source "$SCT_LIBEXECDIR/edit/settings"
 
 	mkdir -p "$BATS_TEST_TMPDIR/$SCT_PROJECT_DIR"
-	POLICY_FILE="$BATS_TEST_TMPDIR/$SCT_PROJECT_DIR/settings.json"
-	touch "$POLICY_FILE"
+	SETTINGS_FILE="$BATS_TEST_TMPDIR/$SCT_PROJECT_DIR/settings.json"
+	touch "$SETTINGS_FILE"
 }
 
 teardown() {
 	unstub_all
 }
 
-@test "policy opens editor for default pattern" {
+@test "settings opens editor for default pattern" {
 	unset -f open_editor
 	stub open_editor \
-		"$POLICY_FILE : :"
+		"$SETTINGS_FILE : :"
 
 	cd "$BATS_TEST_TMPDIR"
-	run policy
+	run settings
 	assert_success
 }
 
-@test "policy restarts proxy when file modified and proxy running" {
+@test "settings restarts proxy when file modified and proxy running" {
 	mkdir -p "$BATS_TEST_TMPDIR/.devcontainer"
 	COMPOSE_FILE="$BATS_TEST_TMPDIR/.devcontainer/compose-all.yml"
 	touch "$COMPOSE_FILE"
 
 	unset -f open_editor
 	stub open_editor \
-		"$POLICY_FILE : sleep 1 && touch '$POLICY_FILE'"
+		"$SETTINGS_FILE : sleep 1 && touch '$SETTINGS_FILE'"
 
 	stub docker \
 		"compose -f $COMPOSE_FILE ps mitmproxy --status running --quiet : echo 'proxy-container-id'" \
@@ -40,35 +40,35 @@ teardown() {
 		"compose -f $COMPOSE_FILE restart wg-client : :"
 
 	cd "$BATS_TEST_TMPDIR"
-	run policy
+	run settings
 	assert_output --partial "Restarting proxy"
 }
 
-@test "policy skips restart when file unchanged" {
+@test "settings skips restart when file unchanged" {
 	unset -f open_editor
 	stub open_editor \
-		"$POLICY_FILE : true"
+		"$SETTINGS_FILE : true"
 
 	cd "$BATS_TEST_TMPDIR"
-	run policy
+	run settings
 	assert_success
-	assert_output --partial "Policy file unchanged. Skipping restart."
+	assert_output --partial "Settings file unchanged. Skipping restart."
 }
 
-@test "policy skips restart when proxy not running" {
+@test "settings skips restart when proxy not running" {
 	mkdir -p "$BATS_TEST_TMPDIR/.devcontainer"
 	COMPOSE_FILE="$BATS_TEST_TMPDIR/.devcontainer/compose-all.yml"
 	touch "$COMPOSE_FILE"
 
 	unset -f open_editor
 	stub open_editor \
-		"$POLICY_FILE : sleep 1 && touch '$POLICY_FILE'"
+		"$SETTINGS_FILE : sleep 1 && touch '$SETTINGS_FILE'"
 
 	stub docker \
 		"compose -f $COMPOSE_FILE ps mitmproxy --status running --quiet : :"
 
 	cd "$BATS_TEST_TMPDIR"
-	run policy
+	run settings
 	assert_success
 	assert_output --partial "proxy service is not running. Skipping restart."
 }

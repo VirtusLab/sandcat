@@ -28,8 +28,8 @@ teardown() {
 }
 
 @test "init accepts valid --ide value" {
-	stub policy "$PROJECT_DIR/.sandcat/settings.json claude jetbrains : :"
-	stub devcontainer "--policy-file .sandcat/settings.json --project-path $PROJECT_DIR --agent claude --ide jetbrains --name test : :"
+	stub settings "$PROJECT_DIR/.sandcat/settings.json claude jetbrains : :"
+	stub devcontainer "--settings-file .sandcat/settings.json --project-path $PROJECT_DIR --agent claude --ide jetbrains --name test : :"
 
 	run init --agent claude --ide jetbrains --name test --path "$PROJECT_DIR"
 	assert_success
@@ -46,10 +46,10 @@ teardown() {
 
 	local expected_name
 	expected_name=$(basename "$PROJECT_DIR")-sandbox-devcontainer
-	local policy_file=".sandcat/settings.json"
+	local settings_file=".sandcat/settings.json"
 
-	stub policy "$PROJECT_DIR/$policy_file claude vscode : :"
-	stub devcontainer "--policy-file $policy_file --project-path $PROJECT_DIR --agent claude --ide vscode --name $expected_name : :"
+	stub settings "$PROJECT_DIR/$settings_file claude vscode : :"
+	stub devcontainer "--settings-file $settings_file --project-path $PROJECT_DIR --agent claude --ide vscode --name $expected_name : :"
 
 	run init --path "$PROJECT_DIR"
 

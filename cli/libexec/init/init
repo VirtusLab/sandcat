@@ -88,7 +88,7 @@ init() {
 		name="$(derive_project_name "$project_path" "$mode")"
 	fi
 
-	local policy_file="$SCT_PROJECT_DIR/settings.json"
+	local settings_file="$SCT_PROJECT_DIR/settings.json"
 
 	local available_ides=(vscode jetbrains none)
 	if [[ -z "$ide" ]]
@@ -106,9 +106,9 @@ init() {
 		services+=("$ide")
 	fi
 
-	policy "$project_path/$policy_file" "${services[@]}"
+	settings "$project_path/$settings_file" "${services[@]}"
 	devcontainer \
-		--policy-file "$policy_file" \
+		--settings-file "$settings_file" \
 		--project-path "$project_path" \
 		--agent "$agent" \
 		--ide "$ide" \

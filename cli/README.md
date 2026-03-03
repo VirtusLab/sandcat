@@ -9,7 +9,7 @@ Requires `docker` (and `docker compose`) and [`yq`](https://github.com/mikefarah
 ### `agentbox init`
 
 Initializes sandcat for a project. Prompts for any options not provided via flags, then sets up the necessary
-configuration files and network policy. Optional volume mounts (Claude config, shell customizations, dotfiles, .git,
+configuration files and network settings. Optional volume mounts (Claude config, shell customizations, dotfiles, .git,
 .idea, .vscode) are included as commented-out entries in the generated compose file.
 
 Options:
@@ -29,18 +29,18 @@ Sets up a devcontainer configuration for an agent. Copies devcontainer template 
 compose-all.yml.
 
 Options:
-- `--policy-file` - Path to the policy file (relative to project directory)
+- `--settings-file` - Path to the settings file (relative to project directory)
 - `--project-path` - Path to the project directory
 - `--agent` - The agent name (e.g., `claude`)
 - `--ide` - The IDE name (e.g., `vscode`, `jetbrains`, `none`) (optional)
 - `--name` - Project name for Docker Compose (default: `{dir}-sandbox-devcontainer`)
 
-#### `agentbox init policy`
+#### `agentbox init settings`
 
-Creates a network policy file for the proxy.
+Creates a network settings file for the proxy.
 
 Arguments:
-- First argument: Path to the policy file
+- First argument: Path to the settings file
 - Remaining arguments: Service names to include (e.g., `claude`, `copilot`, `vscode`, `jetbrains`)
 
 ### `agentbox destroy`
@@ -64,10 +64,10 @@ Opens the Docker Compose file in your editor. If you save changes and containers
 Options:
 - `--no-restart` — Do not automatically restart containers after changes. When set (or when `SANDCAT_NO_RESTART=true`), a warning is shown instead with instructions to run `agentbox up -d` manually.
 
-### `agentbox edit policy`
+### `agentbox edit settings`
 
-Opens the network policy file in your editor. If you save changes, the proxy service will automatically restart to apply
-the new policy.
+Opens the network settings file in your editor. If you save changes, the proxy service will automatically restart to apply
+the new settings.
 
 ### `agentbox run`
 

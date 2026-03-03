@@ -27,8 +27,8 @@ teardown() {
 	unstub_all
 }
 
-@test "add_policy_volume adds policy mount to proxy service" {
-	add_policy_volume "$COMPOSE_FILE" ".sandcat/settings.json"
+@test "add_settings_volume adds settings mount to proxy service" {
+	add_settings_volume "$COMPOSE_FILE" ".sandcat/settings.json"
 
 	yq -e '.services.mitmproxy.volumes[] | select(. == ".sandcat:/config/project:ro")' "$COMPOSE_FILE"
 }
@@ -82,7 +82,7 @@ assert_jetbrains_capabilities() {
 assert_customize_compose_file_common() {
 	local compose_file=$1
 
-	# Verify policy volume on proxy
+	# Verify settings volume on proxy
 	yq -e '.services.mitmproxy.volumes[] | select(. == ".sandcat:/config/project:ro")' "$compose_file"
 
 	# Verify all agent volumes count (initial + 3 workspace + 3 Claude + .git + IDE-specific = 9)
@@ -178,13 +178,13 @@ EOF
 
 # shellcheck disable=SC2016
 @test "customize_compose_file defaults all optional volumes to commented-out entries" {
-	POLICY_FILE=".sandcat/settings.json"
+	SETTINGS_FILE=".sandcat/settings.json"
 	mkdir -p "$BATS_TEST_TMPDIR/.sandcat"
-	touch "$BATS_TEST_TMPDIR/$POLICY_FILE"
+	touch "$BATS_TEST_TMPDIR/$SETTINGS_FILE"
 
-	customize_compose_file "$POLICY_FILE" "$COMPOSE_FILE" "claude" "jetbrains" "test-project"
+	customize_compose_file "$SETTINGS_FILE" "$COMPOSE_FILE" "claude" "jetbrains" "test-project"
 
-	# Verify policy volume on proxy
+	# Verify settings volume on proxy
 	yq -e '.services.mitmproxy.volumes[] | select(. == ".sandcat:/config/project:ro")' "$COMPOSE_FILE"
 
 	# Verify .idea volume
@@ -212,15 +212,15 @@ EOF
 }
 
 @test "customize_compose_file handles full workflow with all options enabled and jetbrains ide" {
-	POLICY_FILE=".sandcat/settings.json"
+	SETTINGS_FILE=".sandcat/settings.json"
 	mkdir -p "$BATS_TEST_TMPDIR/.sandcat"
-	touch "$BATS_TEST_TMPDIR/$POLICY_FILE"
+	touch "$BATS_TEST_TMPDIR/$SETTINGS_FILE"
 
 	export SANDCAT_MOUNT_CLAUDE_CONFIG="true"
 	export SANDCAT_MOUNT_GIT_READONLY="true"
 	export SANDCAT_MOUNT_IDEA_READONLY="true"
 
-	customize_compose_file "$POLICY_FILE" "$COMPOSE_FILE" "claude" "jetbrains" "test-project"
+	customize_compose_file "$SETTINGS_FILE" "$COMPOSE_FILE" "claude" "jetbrains" "test-project"
 
 	assert_customize_compose_file_common "$COMPOSE_FILE"
 	yq -e '.services.agent.volumes[] | select(. == "../.idea:/workspace/.idea:ro")' "$COMPOSE_FILE"
@@ -228,15 +228,15 @@ EOF
 }
 
 @test "customize_compose_file handles full workflow with all options enabled and vscode ide" {
-	POLICY_FILE=".sandcat/settings.json"
+	SETTINGS_FILE=".sandcat/settings.json"
 	mkdir -p "$BATS_TEST_TMPDIR/.sandcat"
-	touch "$BATS_TEST_TMPDIR/$POLICY_FILE"
+	touch "$BATS_TEST_TMPDIR/$SETTINGS_FILE"
 
 	export SANDCAT_MOUNT_CLAUDE_CONFIG="true"
 	export SANDCAT_MOUNT_GIT_READONLY="true"
 	export SANDCAT_MOUNT_VSCODE_READONLY="true"
 
-	customize_compose_file "$POLICY_FILE" "$COMPOSE_FILE" "claude" "vscode" "test-project"
+	customize_compose_file "$SETTINGS_FILE" "$COMPOSE_FILE" "claude" "vscode" "test-project"
 
 	assert_customize_compose_file_common "$COMPOSE_FILE"
 	yq -e '.services.agent.volumes[] | select(. == "../.vscode:/workspace/.vscode:ro")' "$COMPOSE_FILE"
