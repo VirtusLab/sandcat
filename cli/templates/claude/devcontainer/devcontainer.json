@@ -1,7 +1,7 @@
 {
 	"name": "__PROJECT_NAME__",
 	"dockerComposeFile": "compose-all.yml",
-	"service": "app",
+	"service": "agent",
 	// FIXME: can we just set Docker working dir and remove this?
 	"workspaceFolder": "/workspaces/__PROJECT_NAME__",
 	// Remove credential sockets that VS Code forwards into the container
