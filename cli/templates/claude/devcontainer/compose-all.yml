@@ -18,8 +18,6 @@ services:
       # sandcat.env (env vars + secret placeholders). Read-only — app
       # containers should never write to this.
       - mitmproxy-config:/mitmproxy-config:ro
-      # Persist shell history
-      - claude-history:/commandhistory
     command: sleep infinity
     environment:
       - CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
@@ -29,4 +27,3 @@ services:
 
 volumes:
   app-home:
-  claude-history:

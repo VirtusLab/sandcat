@@ -76,12 +76,6 @@ assert_common_volumes() {
 		.services.agent.volumes[] |
 		select(.type == "volume" and .source == "mitmproxy-config" and .target == "/mitmproxy-config" and .read_only == true)
 	' "$compose_file"
-
-	# Volume: command-history
-	yq -e '
-		.services.agent.volumes[] |
-		select(.type == "volume" and .source == "claude-history" and .target == "/commandhistory")
-	' "$compose_file"
 }
 
 assert_named_volumes() {
@@ -211,7 +205,7 @@ claude_agent_compose_file_has_expected_content() {
 	assert_claude_environment_vars "$compose_file"
 	assert_common_volumes "$compose_file"
 
-	assert_named_volumes "$compose_file" "app-home" "claude-history" "mitmproxy-config"
+	assert_named_volumes "$compose_file" "app-home" "mitmproxy-config"
 	assert_claude_volumes "$compose_file"
 	assert_customization_volumes "$compose_file"
 }
