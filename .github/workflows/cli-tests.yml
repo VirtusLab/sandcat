@@ -2,7 +2,7 @@ name: CLI Tests
 
 on:
   push:
-    branches: [main]
+    branches: [master]
     paths:
       - 'cli/**'
       - '.github/workflows/cli-tests.yml'
