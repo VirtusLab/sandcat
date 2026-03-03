@@ -22,6 +22,11 @@ jobs:
         with:
           submodules: recursive  # bats is a submodule
 
+      - name: Set up Docker Compose
+        uses: docker/setup-compose-action@v1
+        with:
+          version: latest  # Avoid buggy 2.24.x versions
+
       - name: Run tests
         run: |
           cd cli
