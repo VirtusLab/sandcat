@@ -23,8 +23,6 @@ services:
 
   mitmproxy:
     image: mitmproxy/mitmproxy:latest
-    cap_drop:
-      - ALL
     command: mitmweb --mode wireguard --web-host 0.0.0.0 --set web_password=mitmproxy -s /scripts/mitmproxy_addon.py
     ports:
       - "8081" # mitmweb UI; host port assigned dynamically to avoid conflicts

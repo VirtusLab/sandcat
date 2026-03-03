@@ -10,8 +10,6 @@ services:
     # WireGuard tunnel. The app container has no NET_ADMIN capability,
     # so processes inside cannot modify routing, iptables, or the tunnel.
     network_mode: "service:wg-client"
-    cap_drop:
-      - ALL
     volumes:
       # Named volume for the home directory so Claude Code auth state,
       # shell history, and other user-level config persist across rebuilds.
