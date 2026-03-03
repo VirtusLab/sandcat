@@ -133,13 +133,13 @@ assert_claude_volumes() {
 assert_customization_volumes() {
 	local compose_file=$1
 
-	# Bind: policy file (read-only)
-	PROJECT_DIR="$PROJECT_DIR" POLICY_FILE="$POLICY_FILE" yq -e "
+	# Bind: policy directory (read-only)
+	PROJECT_DIR="$PROJECT_DIR" yq -e "
 		.services.mitmproxy.volumes[] |
 		select(
 			.type == \"bind\" and
-			.source == (env(PROJECT_DIR) + \"/\" + env(POLICY_FILE)) and
-			.target == \"/config/project/settings.json\" and
+			.source == (env(PROJECT_DIR) + \"/.sandcat\") and
+			.target == \"/config/project\" and
 			.read_only == true
 		)
 	" "$compose_file"

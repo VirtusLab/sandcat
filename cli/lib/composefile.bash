@@ -91,9 +91,16 @@ add_policy_volume() {
 	local compose_file=$1
 	local policy_file=$2
 
-	# FIXME add .local file
-	policy_file="$policy_file" yq -i \
-		'.services.mitmproxy.volumes += [env(policy_file) + ":/config/project/settings.json:ro"]' "$compose_file"
+	local policy_dir
+	policy_dir=$(dirname "$policy_file")
+
+	policy_dir="$policy_dir" yq -i \
+		'.services.mitmproxy.volumes += [env(policy_dir) + ":/config/project:ro"]' "$compose_file"
+
+	add_foot_comment "$compose_file" ".services.mitmproxy.volumes" \
+		'Project-level settings (.sandcat/ directory). If the directory does
+not exist on the host, Docker creates an empty one and the addon
+simply finds no files — no error.'
 }
 
 # Adds a foot comment to the last item in a YAML array.

@@ -28,9 +28,9 @@ teardown() {
 }
 
 @test "add_policy_volume adds policy mount to proxy service" {
-	add_policy_volume "$COMPOSE_FILE" "policy.yaml"
+	add_policy_volume "$COMPOSE_FILE" ".sandcat/settings.json"
 
-	yq -e '.services.mitmproxy.volumes[] | select(. == "policy.yaml:/config/project/settings.json:ro")' "$COMPOSE_FILE"
+	yq -e '.services.mitmproxy.volumes[] | select(. == ".sandcat:/config/project:ro")' "$COMPOSE_FILE"
 }
 
 @test "add_claude_config_volumes adds CLAUDE.md and settings.json" {
@@ -83,7 +83,7 @@ assert_customize_compose_file_common() {
 	local compose_file=$1
 
 	# Verify policy volume on proxy
-	yq -e '.services.mitmproxy.volumes[] | select(. == "policy.yaml:/config/project/settings.json:ro")' "$compose_file"
+	yq -e '.services.mitmproxy.volumes[] | select(. == ".sandcat:/config/project:ro")' "$compose_file"
 
 	# Verify all agent volumes count (initial + 3 workspace + 3 Claude + .git + IDE-specific = 9)
 	run yq '.services.agent.volumes | length' "$compose_file"
@@ -178,13 +178,14 @@ EOF
 
 # shellcheck disable=SC2016
 @test "customize_compose_file defaults all optional volumes to commented-out entries" {
-	POLICY_FILE="policy.yaml"
+	POLICY_FILE=".sandcat/settings.json"
+	mkdir -p "$BATS_TEST_TMPDIR/.sandcat"
 	touch "$BATS_TEST_TMPDIR/$POLICY_FILE"
 
 	customize_compose_file "$POLICY_FILE" "$COMPOSE_FILE" "claude" "jetbrains" "test-project"
 
 	# Verify policy volume on proxy
-	yq -e '.services.mitmproxy.volumes[] | select(. == "policy.yaml:/config/project/settings.json:ro")' "$COMPOSE_FILE"
+	yq -e '.services.mitmproxy.volumes[] | select(. == ".sandcat:/config/project:ro")' "$COMPOSE_FILE"
 
 	# Verify .idea volume
 	yq -e '.services.agent.volumes[] | select(. == "../.idea:/workspace/.idea:ro")' "$COMPOSE_FILE"
@@ -211,7 +212,8 @@ EOF
 }
 
 @test "customize_compose_file handles full workflow with all options enabled and jetbrains ide" {
-	POLICY_FILE="policy.yaml"
+	POLICY_FILE=".sandcat/settings.json"
+	mkdir -p "$BATS_TEST_TMPDIR/.sandcat"
 	touch "$BATS_TEST_TMPDIR/$POLICY_FILE"
 
 	export SANDCAT_MOUNT_CLAUDE_CONFIG="true"
@@ -226,7 +228,8 @@ EOF
 }
 
 @test "customize_compose_file handles full workflow with all options enabled and vscode ide" {
-	POLICY_FILE="policy.yaml"
+	POLICY_FILE=".sandcat/settings.json"
+	mkdir -p "$BATS_TEST_TMPDIR/.sandcat"
 	touch "$BATS_TEST_TMPDIR/$POLICY_FILE"
 
 	export SANDCAT_MOUNT_CLAUDE_CONFIG="true"
