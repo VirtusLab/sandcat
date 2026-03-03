@@ -6,7 +6,6 @@ set -euo pipefail
 run() {
 	"$SCT_LIBEXECDIR/compose/compose" up -d
 
-	# FIXME run vs exec
 	exec "$SCT_LIBEXECDIR/compose/compose" run agent "${1-bash}" "${@:2}"
 }
 

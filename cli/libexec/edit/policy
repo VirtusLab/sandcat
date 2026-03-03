@@ -42,7 +42,6 @@ policy() {
 		proxy_status=$("$SCT_LIBEXECDIR/compose/compose" ps mitmproxy --status running --quiet 2>/dev/null) || true
 		if [[ -n "$proxy_status" ]]
 		then
-			# FIXME: do we need to restart agent too?
 			echo "Policy file was modified. Restarting proxy service..." | info
 			"$SCT_LIBEXECDIR/compose/compose" restart mitmproxy
 			"$SCT_LIBEXECDIR/compose/compose" restart wg-client
