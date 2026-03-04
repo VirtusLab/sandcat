@@ -177,7 +177,26 @@ EOF
 }
 
 # shellcheck disable=SC2016
-@test "customize_compose_file defaults all optional volumes to commented-out entries" {
+@test "customize_compose_file defaults Claude config volumes to active entries" {
+	SETTINGS_FILE=".sandcat/settings.json"
+	mkdir -p "$BATS_TEST_TMPDIR/.sandcat"
+	touch "$BATS_TEST_TMPDIR/$SETTINGS_FILE"
+
+	customize_compose_file "$SETTINGS_FILE" "$COMPOSE_FILE" "claude" "jetbrains" "test-project"
+
+	# Verify Claude config volumes are active
+	yq -e '.services.agent.volumes[] | select(. == "${HOME}/.claude/CLAUDE.md:/home/vscode/.claude/CLAUDE.md:ro")' "$COMPOSE_FILE"
+	yq -e '.services.agent.volumes[] | select(. == "${HOME}/.claude/agents:/home/vscode/.claude/agents:ro")' "$COMPOSE_FILE"
+	yq -e '.services.agent.volumes[] | select(. == "${HOME}/.claude/commands:/home/vscode/.claude/commands:ro")' "$COMPOSE_FILE"
+
+	# With JetBrains IDE, the .idea mount is also active by default
+	# 1 initial + 3 workspace + 3 Claude + 1 .idea = 8 active volumes
+	run yq '.services.agent.volumes | length' "$COMPOSE_FILE"
+	assert_output "8"
+}
+
+# shellcheck disable=SC2016
+@test "customize_compose_file defaults non-Claude optional volumes to commented-out entries" {
 	SETTINGS_FILE=".sandcat/settings.json"
 	mkdir -p "$BATS_TEST_TMPDIR/.sandcat"
 	touch "$BATS_TEST_TMPDIR/$SETTINGS_FILE"
@@ -187,25 +206,15 @@ EOF
 	# Verify settings volume on proxy
 	yq -e '.services.mitmproxy.volumes[] | select(. == ".sandcat:/config/project:ro")' "$COMPOSE_FILE"
 
-	# Verify .idea volume
+	# Verify .idea volume is active
 	yq -e '.services.agent.volumes[] | select(. == "../.idea:/workspace/.idea:ro")' "$COMPOSE_FILE"
-
-	# With JetBrains IDE, the .idea mount is active by default
-	# 1 initial + 3 workspace + 1 .idea = 5 active volumes
-	run yq '.services.agent.volumes | length' "$COMPOSE_FILE"
-	assert_output "5"
 
 	# Optional inactive mounts should be present as foot comments on the initial workspace volume entry
 	# Note: sed on line 92 of composefile.bash merges foot comments into the next sibling as head comments
 	# so the yq's foot_comment is empty.
 	run yq -P '.services.agent.volumes' "$COMPOSE_FILE"
-	assert_line '# - ${HOME}/.claude/CLAUDE.md:/home/vscode/.claude/CLAUDE.md:ro'
-	assert_line '# - ${HOME}/.claude/agents:/home/vscode/.claude/agents:ro'
-	assert_line '# - ${HOME}/.claude/commands:/home/vscode/.claude/commands:ro'
 	assert_line '# - ../.git:/workspace/.git:ro'
 	assert_line '# - ../.vscode:/workspace/.vscode:ro'
-
-
 
 	# JetBrains capabilities should still be added
 	assert_jetbrains_capabilities "$COMPOSE_FILE"
