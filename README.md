@@ -21,111 +21,71 @@ This repository contains:
   project and specific development stack, to install required tools and
   dependencies.
 
-Sandcat can be used as a devcontainer setup, or standalone through `docker`,
-providing a shell for secure development. The repository itself is a runnable
-devcontainer setup, so you can clone and explore how things work right away.
+Sandcat can be used as a devcontainer setup, or standalone,
+providing a shell for secure development.
 
-## Quick start: try it out
+## Quick start
 
-Create a user settings file with your secrets:
+### 1. Install sandcat CLI
 
-```sh
-mkdir -p ~/.config/sandcat
-# Choose a template: liberal (allows all GET) or strict (explicit hosts only)
-cp settings.liberal.example.json ~/.config/sandcat/settings.json
-# Edit with your real values
+The [CLI](cli/README.md) is a helper script and thin wrapper around docker-compose that simplifies the process of initializing and starting the sandbox.
+
+#### Run as docker image (recommended)
+
+```bash
+# Pull the image to local docker
+docker pull ghcr.io/VirtusLab/sandcat
+
+# Add to your .bashrc or .zshrc
+alias sandcat='docker run --rm -it -v "/var/run/docker.sock:/var/run/docker.sock" -v"$PWD:$PWD" -w"$PWD" -e TERM -e HOME --network none ghcr.io/VirtusLab/sandcat'
 ```
 
-Then start the container to verify everything works:
+Using the Docker image disables the editor integration (`vi` installed in the image will be used instead of your host editor).
 
-```sh
-docker compose -f compose-all.yml run --rm --build app bash
+The host environment variables will not be available inside the container unless you forward them explicitly. 
+This is important because Docker Compose runs, and resolves placeholders inside the container. 
+`HOME` is already forwarded to handle common use cases.
+
+The image runs as root, to avoid permission issues with the host Docker socket. On Colima file ownership is mapped
+automatically, on Linux you should add `--user` parameter accordingly.
+
+#### Local install
+
+```bash
+# Clone the repo
+git clone https://github.com/VirtusLab/sandcat.git
+
+# Add the sandcat bin directory to your path (add this to your .bashrc or .zshrc)
+export PATH="$PWD/sandcat/cli/bin:$PATH"
 ```
 
-Inside the container:
+`yq` is required to edit compose files.
 
-```sh
-# Should return 200 (mitmproxy CA is trusted)
-curl -s -o /dev/null -w '%{http_code}\n' https://example.com
+### 2. Initialize the sandbox for your project
 
-# Check secret substitution (if you configured a GitHub token)
-gh auth status
+```bash
+sandcat init
 ```
 
-See [Testing the proxy](#testing-the-proxy) for more verification steps.
+This prompts you to select the agent type and IDE (for devcontainer mode), then sets up the necessary configuration files and network settings. You can also pass flags to skip prompts:
 
-## Add to your project
-
-Sandcat can be installed using one of three methods — a Claude Code prompt, an install script, or a git submodule.
-All three methods produce the same target directory layout:
-
-```
-.devcontainer/
-├── sandcat/                # shared infrastructure (do not edit)
-│   ├── compose-proxy.yml
-│   ├── Dockerfile.wg-client
-│   ├── scripts/
-│   │   ├── app-init.sh
-│   │   ├── app-post-start.sh
-│   │   ├── app-user-init.sh
-│   │   ├── mitmproxy_addon.py
-│   │   └── wg-client-init.sh
-│   ├── settings.liberal.example.json
-│   └── settings.strict.example.json
-├── compose-all.yml         # project-specific (customize)
-├── Dockerfile.app          # project-specific (customize)
-└── devcontainer.json       # project-specific (customize)
+```bash
+sandcat init --agent claude --ide vscode
 ```
 
-### Option 1: Claude Code prompt
+Optional volume mounts (Claude config, shell customizations, dotfiles, .git, .idea, .vscode) are included as commented-out entries in the generated compose file. Uncomment them as needed, or set `SANDCAT_*` environment variables for scripted usage. See the [CLI README](cli/README.md) for the full list of flags and environment variables.
 
-Copy the prompt below into Claude Code (or any LLM-based coding agent). It will
-run the install script, then inspect your project to customize the generated
-files:
+### 3. Start the sandbox
 
-````text
-Set up a Sandcat dev container for this project:
-1. Determine the project name from the repository/directory name.
-   Run: curl -fsSL https://raw.githubusercontent.com/softwaremill/sandcat/master/install.sh | bash -s -- --name <project-name>
-2. Read https://raw.githubusercontent.com/softwaremill/sandcat/master/README.md
-3. Inspect the project's codebase to determine the language toolchains
-   and runtimes needed. Modify .devcontainer/Dockerfile.app: add
-   `mise use -g` lines in the `USER vscode` section.
-4. Add ecosystem-specific VS Code extensions to the extensions list in
-   .devcontainer/devcontainer.json (e.g. Scala Metals, Python, ESLint).
-5. Check the TLS/CA trust section in the README for any runtime-specific
-   configuration needed (e.g. Rust requires using native-roots).
-````
+**CLI mode:**
 
-### Option 2: Install script
+```bash
+# Open a shell in the agent container
+sandcat run
 
-```sh
-curl -fsSL https://raw.githubusercontent.com/softwaremill/sandcat/master/install.sh | bash
+# Start your agent cli (e.g. claude). Because you're in a sandbox, you can use yolo mode!
+yolo-claude
 ```
-
-By default the project name is taken from the current directory. To override:
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/softwaremill/sandcat/master/install.sh | bash -s -- --name my-project
-```
-
-### Option 3: Git submodule
-
-```sh
-git submodule add https://github.com/softwaremill/sandcat.git .devcontainer/sandcat
-```
-
-Then create the three project-specific files in `.devcontainer/`. You can use
-the repo's own files as templates — copy `compose-all.yml`, `Dockerfile.app`,
-and `devcontainer.json` from the submodule and make these adjustments:
-
-- **`compose-all.yml`**: change the include path to `sandcat/compose-proxy.yml`
-  and the project volume to `..:/workspaces/<your-project>:cached`.
-- **`Dockerfile.app`**: change COPY paths to `sandcat/scripts/app-init.sh` and
-  `sandcat/scripts/app-user-init.sh`.
-- **`devcontainer.json`**: change `dockerComposeFile` to `compose-all.yml`
-  (not `../compose-all.yml`), and update `name`, `workspaceFolder`, and
-  `postStartCommand` to use your project name.
 
 ### Customizing the generated files
 
@@ -234,23 +194,15 @@ Mitmproxy reads settings files only at startup (no hot-reload), and the app
 container sources `sandcat.env` only during its entrypoint. After editing any
 settings file, you need to restart services for changes to take effect.
 
-**From a host terminal** (not the VS Code terminal inside the container, which
-will die mid-restart):
+You can use the CLI helper command:
 
 ```sh
-# 1. Restart mitmproxy (re-reads settings, regenerates sandcat.env),
-#    then wg-client (needs mitmproxy healthy before starting)
-docker compose -f compose-all.yml restart mitmproxy && \
-docker compose -f compose-all.yml restart wg-client
-
-# 2. Restart the app container — use "Rebuild Container" from VS Code's
-#    command palette so it reconnects cleanly, or from the host terminal:
-docker compose -f compose-all.yml restart app
+sandcat edit settings
 ```
 
-`docker compose restart` does not enforce `depends_on` healthcheck ordering, so
-mitmproxy and wg-client are restarted sequentially with `&&` to ensure mitmproxy
-is ready before wg-client comes up. VS Code's **Rebuild Container** only
+This opens the network settings file in your editor. If you save changes, the proxy service will automatically restart to apply the new settings.
+
+Note that VS Code's **Rebuild Container** only
 rebuilds the `app` service — it does not restart `mitmproxy` or `wg-client`.
 
 ## Network access rules
@@ -592,12 +544,11 @@ HTTPS transparently.
 
 ## Testing the proxy
 
-Once inside the container (see [Quick start: try it
-out](#quick-start-try-it-out)), you can inspect traffic in the mitmproxy web UI.
+Once inside the container, you can inspect traffic in the mitmproxy web UI.
 The host port is assigned dynamically — look it up from a host terminal with:
 
 ```sh
-docker compose -f compose-all.yml port mitmproxy 8081
+sandcat compose port mitmproxy 8081
 ```
 
 Or using Docker's UI. Log in with password `mitmproxy`.
@@ -644,8 +595,16 @@ gh auth status
 
 ## Unit tests
 
+**Python tests** (mitmproxy addon):
+
 ```sh
-cd scripts && pytest test_mitmproxy_addon.py -v
+cd cli/templates/claude/devcontainer/sandcat/scripts && pytest test_mitmproxy_addon.py -v
+```
+
+**BATS tests** (CLI):
+
+```sh
+cd cli && ./test/run.sh
 ```
 
 ## Inspiration
@@ -708,13 +667,13 @@ enough for most tools — but some runtimes bring their own CA handling:
 Start the container from the command line:
 
 ```sh
-docker compose -f compose-all.yml run --rm --build app bash
+sandcat compose run
 ```
 
 Tear down all containers and volumes (resets persisted home directory):
 
 ```sh
-docker compose -f compose-all.yml down -v
+sandcat compose down -v
 ```
 
 ## Commercial Support
