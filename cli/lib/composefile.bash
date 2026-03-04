@@ -51,7 +51,7 @@ customize_compose_file() {
 
 	if [[ $agent == "claude" ]]
 	then
-		add_claude_config_volumes "$compose_file" "${SANDCAT_MOUNT_CLAUDE_CONFIG:=false}"
+		add_claude_config_volumes "$compose_file" "${SANDCAT_MOUNT_CLAUDE_CONFIG:=true}"
 	fi
 
 	add_git_readonly_volume "$compose_file" "${SANDCAT_MOUNT_GIT_READONLY:=false}"
