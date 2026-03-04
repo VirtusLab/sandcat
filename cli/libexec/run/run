@@ -6,7 +6,7 @@ set -euo pipefail
 run() {
 	"$SCT_LIBEXECDIR/compose/compose" up -d
 
-	exec "$SCT_LIBEXECDIR/compose/compose" run agent "${1-bash}" "${@:2}"
+	exec "$SCT_LIBEXECDIR/compose/compose" run --rm agent "${1-bash}" "${@:2}"
 }
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]
