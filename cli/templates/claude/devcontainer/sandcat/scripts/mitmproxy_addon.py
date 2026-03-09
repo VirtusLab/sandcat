@@ -18,7 +18,7 @@ import logging
 import os
 from fnmatch import fnmatch
 
-from mitmproxy import ctx, http
+from mitmproxy import ctx, http, dns
 
 # Settings layers, lowest to highest precedence.
 SETTINGS_PATHS = [
@@ -108,12 +108,12 @@ class SandcatAddon:
         with open(SANDCAT_ENV_PATH, "w") as f:
             f.write("\n".join(lines) + "\n")
 
-    def _is_request_allowed(self, method: str, host: str) -> bool:
+    def _is_request_allowed(self, method: str | None, host: str) -> bool:
         for rule in self.network_rules:
             if not fnmatch(host, rule["host"]):
                 continue
             rule_method = rule.get("method")
-            if rule_method is not None and rule_method.upper() != method.upper():
+            if rule_method is not None and method is not None and rule_method.upper() != method.upper():
                 continue
             return rule["action"] == "allow"
         return False # default deny
@@ -174,6 +174,17 @@ class SandcatAddon:
             return
 
         self._substitute_secrets(flow)
+
+    def dns_request(self, flow: dns.DNSFlow):
+        question = flow.request.question
+        if question is None:
+            flow.response = flow.request.fail(dns.response_codes.REFUSED)
+            return
+
+        host = question.name
+        if not self._is_request_allowed(None, host):
+            flow.response = flow.request.fail(dns.response_codes.REFUSED)
+            ctx.log.warn(f"DNS deny: {host}")
 
 
 addons = [SandcatAddon()]
