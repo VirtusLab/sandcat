@@ -262,10 +262,23 @@ Common additions for other stacks:
 | Java / Maven | `repo.maven.apache.org`, `repo1.maven.org` |
 | JetBrains | `plugins.jetbrains.com`, `downloads.marketplace.jetbrains.com` |
 
+### DNS filtering
+
+DNS queries are checked against the same network rules as HTTP requests. If a
+hostname is not allowed by any rule, the DNS lookup is refused — the container
+never learns the IP address. This prevents DNS-based exfiltration even when HTTP
+to that host would be blocked.
+
+Because DNS has no HTTP method, method-specific rules are matched on host only.
+A rule like `{"action": "allow", "host": "*", "method": "GET"}` will also allow
+DNS resolution for any host. Rule ordering matters: a method-specific deny rule
+will block DNS for that host even if a later rule would allow other methods.
+
 ### Examples
 
 With the liberal template rules:
 - `GET` to any host → **allowed** (rule 1)
+- DNS lookup for any host → **allowed** (rule 1 matches on host)
 - `POST` to `api.github.com` → **allowed** (rule 2)
 - `POST` to `api.anthropic.com` → **allowed** (rule 4)
 - `POST` to `example.com` → **denied**
