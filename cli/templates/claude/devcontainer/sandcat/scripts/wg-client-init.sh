@@ -75,7 +75,7 @@ ip -6 rule add table main suppress_prefixlength 0
 # Docker's embedded DNS at 127.0.0.11 resolves queries on the host,
 # bypassing the WireGuard tunnel. Point resolv.conf at an external
 # nameserver so DNS goes through wg0 and is intercepted by mitmproxy.
-echo "nameserver 1.1.1.1" > /etc/resolv.conf
+printf "nameserver 1.1.1.1\nnameserver 8.8.8.8\n" > /etc/resolv.conf
 
 # ── Firewall kill switch ────────────────────────────────────────────────────
 # iptables rules that enforce the tunnel. Without these, traffic could leak
