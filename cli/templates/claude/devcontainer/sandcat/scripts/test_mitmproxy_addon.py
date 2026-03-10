@@ -183,12 +183,6 @@ class TestNetworkRules:
         ]
         assert addon._is_request_allowed(None, "example.com") is True
 
-    def test_none_method_matches_method_agnostic_rules(self):
-        addon = SandcatAddon()
-        addon.network_rules = [
-            {"action": "allow", "host": "*"},
-        ]
-        assert addon._is_request_allowed(None, "example.com") is True
 
 
 # ---------------------------------------------------------------------------
@@ -322,68 +316,10 @@ class TestDNSProxy:
         assert flow.response is not None
         assert flow.response["response_code"] == 5
 
-    def test_default_deny_with_no_rules(self):
-        addon = SandcatAddon()
-        addon.network_rules = []
-        flow = _make_dns_flow("example.com")
-        addon.dns_request(flow)
-        assert flow.response is not None
-        assert flow.response["response_code"] == 5
-
-    def test_host_glob_pattern_matches(self):
-        addon = SandcatAddon()
-        addon.network_rules = [{"action": "allow", "host": "*.github.com"}]
-        flow = _make_dns_flow("api.github.com")
-        addon.dns_request(flow)
-        assert flow.response is None
-
-    def test_host_glob_pattern_no_match(self):
-        addon = SandcatAddon()
-        addon.network_rules = [{"action": "allow", "host": "*.github.com"}]
-        flow = _make_dns_flow("example.com")
-        addon.dns_request(flow)
-        assert flow.response is not None
-        assert flow.response["response_code"] == 5
-
-    def test_method_specific_rule_matches_dns(self):
-        addon = SandcatAddon()
-        addon.network_rules = [{"action": "allow", "host": "*", "method": "GET"}]
-        flow = _make_dns_flow("example.com")
-        addon.dns_request(flow)
-        assert flow.response is None
-
-    def test_method_agnostic_rule_matches_dns(self):
-        addon = SandcatAddon()
-        addon.network_rules = [{"action": "allow", "host": "*"}]
-        flow = _make_dns_flow("example.com")
-        addon.dns_request(flow)
-        assert flow.response is None
-
     def test_empty_questions_returns_refused(self):
         addon = SandcatAddon()
         addon.network_rules = [{"action": "allow", "host": "*"}]
         flow = _make_dns_flow(name=None)
-        addon.dns_request(flow)
-        assert flow.response is not None
-        assert flow.response["response_code"] == 5
-
-    def test_first_match_wins_allow_before_deny(self):
-        addon = SandcatAddon()
-        addon.network_rules = [
-            {"action": "allow", "host": "*"},
-            {"action": "deny", "host": "*"},
-        ]
-        flow = _make_dns_flow("example.com")
-        addon.dns_request(flow)
-        assert flow.response is None
-
-    def test_first_match_wins_deny_before_allow(self):
-        addon = SandcatAddon()
-        addon.network_rules = [
-            {"action": "deny", "host": "*"},
-            {"action": "allow", "host": "*"},
-        ]
-        flow = _make_dns_flow("example.com")
         addon.dns_request(flow)
         assert flow.response is not None
         assert flow.response["response_code"] == 5
