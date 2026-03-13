@@ -34,10 +34,10 @@ The [CLI](cli/README.md) is a helper script and thin wrapper around docker-compo
 
 ```bash
 # Pull the image to local docker
-docker pull ghcr.io/VirtusLab/sandcat
+docker pull ghcr.io/virtuslab/sandcat
 
 # Add to your .bashrc or .zshrc
-alias sandcat='docker run --rm -it -v "/var/run/docker.sock:/var/run/docker.sock" -v"$PWD:$PWD" -w"$PWD" -e TERM -e HOME --network none ghcr.io/VirtusLab/sandcat'
+alias sandcat='docker run --rm -it -v "/var/run/docker.sock:/var/run/docker.sock" -v"$PWD:$PWD" -w"$PWD" -e TERM -e HOME --network none ghcr.io/virtuslab/sandcat'
 ```
 
 Using the Docker image disables the editor integration (`vi` installed in the image will be used instead of your host editor).
