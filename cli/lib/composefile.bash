@@ -218,7 +218,7 @@ set_workspace() {
 	project_name="$project_name" yq -i \
 		'.services.agent.working_dir = "/workspaces/" + env(project_name)' "$compose_file"
 
-	add_volume_entry "$compose_file" "..:${workspace}:cached" "true" "Mount the project's code"
+	add_volume_entry "$compose_file" "..:${workspace}" "true" "Mount the project's code"
 	add_volume_entry "$compose_file" "../.devcontainer:${workspace}/.devcontainer:ro" "true" "Read-only devcontainer directory"
 	add_volume_entry "$compose_file" "../.sandcat:${workspace}/.sandcat:ro" "true" "Read-only settings directory"
 }

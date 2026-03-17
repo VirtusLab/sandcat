@@ -161,7 +161,7 @@ EOF
 	run yq '.services.agent.working_dir' "$COMPOSE_FILE"
 	assert_output "/workspaces/my-project"
 
-	yq -e '.services.agent.volumes[] | select(. == "..:/workspaces/my-project:cached")' "$COMPOSE_FILE"
+	yq -e '.services.agent.volumes[] | select(. == "..:/workspaces/my-project")' "$COMPOSE_FILE"
 	yq -e '.services.agent.volumes[] | select(. == "../.devcontainer:/workspaces/my-project/.devcontainer:ro")' "$COMPOSE_FILE"
 	yq -e '.services.agent.volumes[] | select(. == "../.sandcat:/workspaces/my-project/.sandcat:ro")' "$COMPOSE_FILE"
 }
