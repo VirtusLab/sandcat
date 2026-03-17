@@ -84,6 +84,12 @@ identity, API key secrets, and service-specific network rules.
 Opens the container Dockerfile (`.devcontainer/Dockerfile.app`) in your editor. Use this to add or change
 development stack versions installed via mise.
 
+### `sandcat proxy`
+
+Opens the mitmproxy console (TUI) for interactive traffic inspection. Temporarily replaces the web UI with the
+console interface — network is briefly interrupted while switching modes. On exit, the web UI is restored.
+Additional mitmproxy arguments can be passed (e.g. `sandcat proxy --set flow_detail=3`).
+
 ### `sandcat restart-proxy`
 
 Restarts the mitmproxy and wg-client services to pick up settings changes. Run this after editing any settings

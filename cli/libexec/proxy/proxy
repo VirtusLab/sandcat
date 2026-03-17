@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# shellcheck source=../../lib/logging.bash
+source "$SCT_LIBDIR/logging.bash"
+# shellcheck source=../../lib/require.bash
+source "$SCT_LIBDIR/require.bash"
+# shellcheck source=../../lib/path.bash
+source "$SCT_LIBDIR/path.bash"
+
+# Opens the mitmproxy console (TUI) for interactive traffic inspection.
+# Temporarily replaces the web UI (mitmweb) with the console interface.
+# Network is briefly interrupted while switching modes.
+# On exit, the web UI is restored.
+proxy() {
+	require docker
+
+	local compose_file
+	compose_file="$(find_compose_file)"
+
+	echo "Stopping proxy (web mode)..." | info
+	docker compose -f "$compose_file" stop wg-client mitmproxy 2>/dev/null || true
+
+	echo "Starting proxy console (TUI). Press 'q' to exit." | info
+
+	# Run mitmproxy console interactively with the same config as mitmweb.
+	# Uses 'run' to get an interactive TTY. The --rm flag cleans up after exit.
+	docker compose -f "$compose_file" run --rm -it \
+		mitmproxy \
+		mitmproxy --mode wireguard -s /scripts/mitmproxy_addon.py \
+		"$@" || true
+
+	echo "Restoring proxy (web mode)..." | info
+	docker compose -f "$compose_file" up -d mitmproxy
+	docker compose -f "$compose_file" up -d wg-client
+}
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]
+then
+	proxy "$@"
+fi

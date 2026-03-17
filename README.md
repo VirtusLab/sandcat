@@ -600,14 +600,26 @@ HTTPS transparently.
 
 ## Testing the proxy
 
-Once inside the container, you can inspect traffic in the mitmproxy web UI. The
-host port is assigned dynamically — look it up from a host terminal with:
+Once inside the container, you can inspect traffic using either the web UI or the
+terminal console.
+
+**Web UI** — the host port is assigned dynamically. Look it up with:
 
 ```sh
 sandcat compose port mitmproxy 8081
 ```
 
 Or using Docker's UI. Log in with password `mitmproxy`.
+
+**Console (TUI)** — for terminal-based inspection:
+
+```sh
+sandcat proxy
+```
+
+This temporarily replaces the web UI with an interactive mitmproxy console.
+Press `q` to exit and restore the web UI. Useful in terminal-only environments
+(SSH sessions, remote servers) or when a browser adds overhead.
 
 To verify the kill switch blocks direct traffic:
 
