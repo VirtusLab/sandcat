@@ -600,8 +600,8 @@ HTTPS transparently.
 
 ## Testing the proxy
 
-Once inside the container, you can inspect traffic using either the web UI or the
-terminal console.
+You can inspect traffic using either the web UI or the terminal console. These
+commands are run on the host, from the project directory.
 
 **Web UI** — the host port is assigned dynamically. Look it up with:
 
