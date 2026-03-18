@@ -30,7 +30,7 @@ proxy() {
 		if ! docker compose -f "$compose_file" up -d --force-recreate mitmproxy; then
 			echo "Failed to restore mitmproxy web mode." | warning
 		fi
-		if ! docker compose -f "$compose_file" restart wg-client; then
+		if ! docker compose -f "$compose_file" up -d wg-client; then
 			echo "Failed to restart wg-client." | warning
 		fi
 		rm -f "$override"
@@ -38,25 +38,25 @@ proxy() {
 	}
 	trap _proxy_restore EXIT INT TERM
 
-	# Build the command as a YAML list for correct argument handling
-	local cmd_yaml="[\"mitmproxy\", \"--mode\", \"wireguard\", \"-s\", \"/scripts/mitmproxy_addon.py\""
-	local arg
-	for arg in "$@"; do
-		cmd_yaml="$cmd_yaml, \"$arg\""
-	done
-	cmd_yaml="$cmd_yaml]"
+	# Build the command as a JSON array (YAML-compatible) with proper escaping
+	local cmd_json
+	cmd_json=$(printf '%s\n' "mitmproxy" "--mode" "wireguard" "-s" "/scripts/mitmproxy_addon.py" "$@" \
+		| sed 's/\\/\\\\/g; s/"/\\"/g' \
+		| sed 's/.*/"&"/' \
+		| paste -sd ',' - \
+		| sed 's/^/[/; s/$/]/')
 
 	cat > "$override" << YAML
 services:
   mitmproxy:
-    command: $cmd_yaml
+    command: $cmd_json
     stdin_open: true
     tty: true
 YAML
 
 	echo "Switching proxy to console mode..." | info
 	docker compose -f "$compose_file" -f "$override" up -d --force-recreate mitmproxy
-	docker compose -f "$compose_file" restart wg-client
+	docker compose -f "$compose_file" up -d wg-client
 
 	echo "Press 'q' to exit." | info
 

@@ -18,11 +18,11 @@ teardown() {
 @test "proxy switches to console, attaches, then restores web mode" {
 	stub docker \
 		"compose -f $COMPOSE_FILE -f * up -d --force-recreate mitmproxy : :" \
-		"compose -f $COMPOSE_FILE restart wg-client : :" \
+		"compose -f $COMPOSE_FILE up -d wg-client : :" \
 		"compose -f $COMPOSE_FILE ps -q mitmproxy : echo container-id" \
 		"attach container-id : :" \
 		"compose -f $COMPOSE_FILE up -d --force-recreate mitmproxy : :" \
-		"compose -f $COMPOSE_FILE restart wg-client : :"
+		"compose -f $COMPOSE_FILE up -d wg-client : :"
 
 	cd "$BATS_TEST_TMPDIR"
 	run proxy
@@ -36,11 +36,11 @@ teardown() {
 
 	stub docker \
 		"compose -f $COMPOSE_FILE -f * up -d --force-recreate mitmproxy : cat \"\$5\" > '$captured'" \
-		"compose -f $COMPOSE_FILE restart wg-client : :" \
+		"compose -f $COMPOSE_FILE up -d wg-client : :" \
 		"compose -f $COMPOSE_FILE ps -q mitmproxy : echo container-id" \
 		"attach container-id : :" \
 		"compose -f $COMPOSE_FILE up -d --force-recreate mitmproxy : :" \
-		"compose -f $COMPOSE_FILE restart wg-client : :"
+		"compose -f $COMPOSE_FILE up -d wg-client : :"
 
 	cd "$BATS_TEST_TMPDIR"
 	proxy --set flow_detail=3
@@ -52,11 +52,11 @@ teardown() {
 @test "proxy restores web mode and propagates error on console failure" {
 	stub docker \
 		"compose -f $COMPOSE_FILE -f * up -d --force-recreate mitmproxy : :" \
-		"compose -f $COMPOSE_FILE restart wg-client : :" \
+		"compose -f $COMPOSE_FILE up -d wg-client : :" \
 		"compose -f $COMPOSE_FILE ps -q mitmproxy : echo container-id" \
 		"attach container-id : exit 1" \
 		"compose -f $COMPOSE_FILE up -d --force-recreate mitmproxy : :" \
-		"compose -f $COMPOSE_FILE restart wg-client : :"
+		"compose -f $COMPOSE_FILE up -d wg-client : :"
 
 	cd "$BATS_TEST_TMPDIR"
 	run proxy
