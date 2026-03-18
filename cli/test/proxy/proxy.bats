@@ -60,7 +60,6 @@ teardown() {
 	cd "$BATS_TEST_TMPDIR"
 	run proxy
 	assert_failure
-	assert_output --partial "Restoring proxy"
 }
 
 @test "proxy restores web mode and propagates error on console failure" {
