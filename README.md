@@ -617,9 +617,10 @@ Or using Docker's UI. Log in with password `mitmproxy`.
 sandcat proxy
 ```
 
-This temporarily replaces the web UI with an interactive mitmproxy console.
-Press `q` to exit and restore the web UI. Useful in terminal-only environments
-(SSH sessions, remote servers) or when a browser adds overhead.
+This replaces the web UI with an interactive mitmproxy console while keeping the
+WireGuard tunnel active — traffic continues to flow and can be inspected in
+real-time. Press `q` to exit and restore the web UI. Useful in terminal-only
+environments (SSH sessions, remote servers) or when a browser adds overhead.
 
 To verify the kill switch blocks direct traffic:
 

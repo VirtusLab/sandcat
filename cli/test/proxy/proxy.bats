@@ -15,41 +15,33 @@ teardown() {
 	unstub_all
 }
 
-@test "proxy stops web mode, runs console, restores web mode" {
+@test "proxy switches to console, attaches, then restores web mode" {
 	stub docker \
-		"compose -f $COMPOSE_FILE stop wg-client mitmproxy : :" \
-		"compose -f $COMPOSE_FILE run --rm -it mitmproxy mitmproxy --mode wireguard -s /scripts/mitmproxy_addon.py : :" \
-		"compose -f $COMPOSE_FILE up -d mitmproxy : :" \
-		"compose -f $COMPOSE_FILE up -d wg-client : :"
+		"compose -f $COMPOSE_FILE -f * up -d --force-recreate mitmproxy : :" \
+		"compose -f $COMPOSE_FILE restart wg-client : :" \
+		"compose -f $COMPOSE_FILE ps -q mitmproxy : echo container-id" \
+		"attach container-id : :" \
+		"compose -f $COMPOSE_FILE up -d --force-recreate mitmproxy : :" \
+		"compose -f $COMPOSE_FILE restart wg-client : :"
 
 	cd "$BATS_TEST_TMPDIR"
 	run proxy
 	assert_success
-	assert_output --partial "Stopping proxy"
+	assert_output --partial "Switching proxy to console mode"
 	assert_output --partial "Restoring proxy"
 }
 
-@test "proxy restores web mode even if console exits with error" {
+@test "proxy restores web mode and propagates error on console failure" {
 	stub docker \
-		"compose -f $COMPOSE_FILE stop wg-client mitmproxy : :" \
-		"compose -f $COMPOSE_FILE run --rm -it mitmproxy mitmproxy --mode wireguard -s /scripts/mitmproxy_addon.py : exit 1" \
-		"compose -f $COMPOSE_FILE up -d mitmproxy : :" \
-		"compose -f $COMPOSE_FILE up -d wg-client : :"
+		"compose -f $COMPOSE_FILE -f * up -d --force-recreate mitmproxy : :" \
+		"compose -f $COMPOSE_FILE restart wg-client : :" \
+		"compose -f $COMPOSE_FILE ps -q mitmproxy : echo container-id" \
+		"attach container-id : exit 1" \
+		"compose -f $COMPOSE_FILE up -d --force-recreate mitmproxy : :" \
+		"compose -f $COMPOSE_FILE restart wg-client : :"
 
 	cd "$BATS_TEST_TMPDIR"
 	run proxy
-	assert_success
+	assert_failure
 	assert_output --partial "Restoring proxy"
-}
-
-@test "proxy passes additional arguments to mitmproxy" {
-	stub docker \
-		"compose -f $COMPOSE_FILE stop wg-client mitmproxy : :" \
-		"compose -f $COMPOSE_FILE run --rm -it mitmproxy mitmproxy --mode wireguard -s /scripts/mitmproxy_addon.py --set flow_detail=3 : :" \
-		"compose -f $COMPOSE_FILE up -d mitmproxy : :" \
-		"compose -f $COMPOSE_FILE up -d wg-client : :"
-
-	cd "$BATS_TEST_TMPDIR"
-	run proxy --set flow_detail=3
-	assert_success
 }

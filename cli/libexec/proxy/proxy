@@ -9,30 +9,49 @@ source "$SCT_LIBDIR/require.bash"
 source "$SCT_LIBDIR/path.bash"
 
 # Opens the mitmproxy console (TUI) for interactive traffic inspection.
-# Temporarily replaces the web UI (mitmweb) with the console interface.
-# Network is briefly interrupted while switching modes.
-# On exit, the web UI is restored.
+# Replaces the web UI (mitmweb) with the console interface while keeping the
+# WireGuard tunnel active so traffic keeps flowing. On exit (or Ctrl+C), the
+# web UI is restored.
 proxy() {
 	require docker
 
-	local compose_file
-	compose_file="$(find_compose_file)"
+	_proxy_compose_file="$(find_compose_file)"
+	_proxy_override=$(mktemp "${TMPDIR:-/tmp}/sandcat-proxy-XXXXXX.yml")
 
-	echo "Stopping proxy (web mode)..." | info
-	docker compose -f "$compose_file" stop wg-client mitmproxy 2>/dev/null || true
+	_proxy_restore() {
+		echo "Restoring proxy (web mode)..." | info
+		docker compose -f "$_proxy_compose_file" up -d --force-recreate mitmproxy 2>/dev/null || true
+		docker compose -f "$_proxy_compose_file" restart wg-client 2>/dev/null || true
+		rm -f "$_proxy_override"
+		trap - EXIT INT TERM
+	}
+	trap _proxy_restore EXIT INT TERM
 
-	echo "Starting proxy console (TUI). Press 'q' to exit." | info
+	# Build the command with any extra arguments the user passed
+	local cmd="mitmproxy --mode wireguard -s /scripts/mitmproxy_addon.py"
+	if [[ $# -gt 0 ]]; then
+		cmd="$cmd $*"
+	fi
 
-	# Run mitmproxy console interactively with the same config as mitmweb.
-	# Uses 'run' to get an interactive TTY. The --rm flag cleans up after exit.
-	docker compose -f "$compose_file" run --rm -it \
-		mitmproxy \
-		mitmproxy --mode wireguard -s /scripts/mitmproxy_addon.py \
-		"$@" || true
+	cat > "$_proxy_override" << YAML
+services:
+  mitmproxy:
+    command: $cmd
+    stdin_open: true
+    tty: true
+YAML
 
-	echo "Restoring proxy (web mode)..." | info
-	docker compose -f "$compose_file" up -d mitmproxy
-	docker compose -f "$compose_file" up -d wg-client
+	echo "Switching proxy to console mode..." | info
+	docker compose -f "$_proxy_compose_file" -f "$_proxy_override" up -d --force-recreate mitmproxy
+	docker compose -f "$_proxy_compose_file" restart wg-client
+
+	echo "Press 'q' to exit." | info
+
+	local console_exit=0
+	docker attach "$(docker compose -f "$_proxy_compose_file" ps -q mitmproxy)" || console_exit=$?
+
+	_proxy_restore
+	return "$console_exit"
 }
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]
