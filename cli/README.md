@@ -87,8 +87,9 @@ development stack versions installed via mise.
 ### `sandcat proxy`
 
 Opens the mitmproxy console (TUI) for interactive traffic inspection. Replaces the web UI with the console
-interface while keeping the WireGuard tunnel active so traffic continues to flow. On exit (or Ctrl+C), the web
-UI is restored. Additional mitmproxy arguments can be passed (e.g. `sandcat proxy --set flow_detail=3`).
+interface. The WireGuard tunnel is briefly interrupted while switching modes and reconnects automatically.
+On exit (or Ctrl+C), the web UI is restored. Additional mitmproxy arguments can be passed
+(e.g. `sandcat proxy --set flow_detail=3`).
 
 ### `sandcat restart-proxy`
 

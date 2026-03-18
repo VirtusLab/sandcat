@@ -32,8 +32,10 @@ teardown() {
 }
 
 @test "proxy passes additional arguments to mitmproxy command" {
+	local captured="$BATS_TEST_TMPDIR/captured-override"
+
 	stub docker \
-		"compose -f $COMPOSE_FILE -f * up -d --force-recreate mitmproxy : :" \
+		"compose -f $COMPOSE_FILE -f * up -d --force-recreate mitmproxy : cat \"\$5\" > '$captured'" \
 		"compose -f $COMPOSE_FILE restart wg-client : :" \
 		"compose -f $COMPOSE_FILE ps -q mitmproxy : echo container-id" \
 		"attach container-id : :" \
@@ -41,10 +43,9 @@ teardown() {
 		"compose -f $COMPOSE_FILE restart wg-client : :"
 
 	cd "$BATS_TEST_TMPDIR"
-	run proxy --set flow_detail=3
+	proxy --set flow_detail=3
 
-	# Verify the override file contains the extra args
-	# (override is cleaned up by restore, so check output instead)
+	run grep 'flow_detail=3' "$captured"
 	assert_success
 }
 
