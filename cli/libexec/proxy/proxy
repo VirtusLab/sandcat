@@ -14,14 +14,12 @@ source "$SCT_LIBDIR/path.bash"
 # automatically. On exit (or Ctrl+C), the web UI is restored.
 proxy() {
 	require docker
+	require yq
 
 	local compose_file override
 	compose_file="$(find_compose_file)"
 	override=$(mktemp "${TMPDIR:-/tmp}/sandcat-proxy-XXXXXX")
 
-	# Save existing EXIT trap so we can restore it after cleanup
-	local _prev_exit_trap
-	_prev_exit_trap=$(trap -p EXIT)
 	local _restored=false
 	_proxy_restore() {
 		if [[ "$_restored" == "true" ]]; then
@@ -37,10 +35,9 @@ proxy() {
 			echo "Failed to restart wg-client." | warning
 		fi
 		rm -f "$override"
-		trap - INT TERM
-		eval "${_prev_exit_trap:-trap - EXIT}"
+		trap - EXIT
 	}
-	trap _proxy_restore EXIT INT TERM
+	trap _proxy_restore EXIT
 
 	# Build a YAML override file with the command as a properly encoded list.
 	# Start with the base args, then append user args one at a time via yq
