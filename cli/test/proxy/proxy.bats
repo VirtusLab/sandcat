@@ -43,7 +43,8 @@ teardown() {
 		"compose -f $COMPOSE_FILE up -d --force-recreate wg-client : :"
 
 	cd "$BATS_TEST_TMPDIR"
-	proxy --set flow_detail=3
+	run proxy --set flow_detail=3
+	assert_success
 
 	run grep 'flow_detail=3' "$captured"
 	assert_success
