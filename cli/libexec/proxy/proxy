@@ -56,8 +56,8 @@ proxy() {
 
 	echo "Switching proxy to console mode..." | info
 	docker compose -f "$compose_file" -f "$override" up -d --force-recreate mitmproxy
-	docker compose -f "$compose_file" up -d --force-recreate wg-client
 	_proxy_switched=true
+	docker compose -f "$compose_file" up -d --force-recreate wg-client
 
 	echo "Press 'q' to exit." | info
 
@@ -65,6 +65,7 @@ proxy() {
 	docker attach "$(docker compose -f "$compose_file" ps -q mitmproxy)" || console_exit=$?
 
 	_proxy_restore
+	trap - EXIT
 	return "$console_exit"
 }
 
