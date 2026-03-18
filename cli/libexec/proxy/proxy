@@ -31,7 +31,7 @@ proxy() {
 		if ! docker compose -f "$compose_file" up -d --force-recreate mitmproxy; then
 			echo "Failed to restore mitmproxy web mode." | warning
 		fi
-		if ! docker compose -f "$compose_file" up -d wg-client; then
+		if ! docker compose -f "$compose_file" up -d --force-recreate wg-client; then
 			echo "Failed to restart wg-client." | warning
 		fi
 		rm -f "$override"
@@ -54,7 +54,7 @@ proxy() {
 
 	echo "Switching proxy to console mode..." | info
 	docker compose -f "$compose_file" -f "$override" up -d --force-recreate mitmproxy
-	docker compose -f "$compose_file" up -d wg-client
+	docker compose -f "$compose_file" up -d --force-recreate wg-client
 
 	echo "Press 'q' to exit." | info
 
