@@ -19,6 +19,9 @@ proxy() {
 	compose_file="$(find_compose_file)"
 	override=$(mktemp "${TMPDIR:-/tmp}/sandcat-proxy-XXXXXX")
 
+	# Save existing EXIT trap so we can restore it after cleanup
+	local _prev_exit_trap
+	_prev_exit_trap=$(trap -p EXIT)
 	local _restored=false
 	_proxy_restore() {
 		if [[ "$_restored" == "true" ]]; then
@@ -34,25 +37,23 @@ proxy() {
 			echo "Failed to restart wg-client." | warning
 		fi
 		rm -f "$override"
-		trap - EXIT INT TERM
+		trap - INT TERM
+		eval "${_prev_exit_trap:-trap - EXIT}"
 	}
 	trap _proxy_restore EXIT INT TERM
 
-	# Build the command as a JSON array (YAML-compatible) with proper escaping
-	local cmd_json
-	cmd_json=$(printf '%s\n' "mitmproxy" "--mode" "wireguard" "-s" "/scripts/mitmproxy_addon.py" "$@" \
-		| sed 's/\\/\\\\/g; s/"/\\"/g' \
-		| sed 's/.*/"&"/' \
-		| paste -sd ',' - \
-		| sed 's/^/[/; s/$/]/')
-
-	cat > "$override" << YAML
-services:
-  mitmproxy:
-    command: $cmd_json
-    stdin_open: true
-    tty: true
-YAML
+	# Build a YAML override file with the command as a properly encoded list.
+	# Start with the base args, then append user args one at a time via yq
+	# to ensure correct YAML encoding of special characters.
+	yq -n -o yaml '
+		.services.mitmproxy.command = ["mitmproxy", "--mode", "wireguard", "-s", "/scripts/mitmproxy_addon.py"] |
+		.services.mitmproxy.stdin_open = true |
+		.services.mitmproxy.tty = true
+	' > "$override"
+	local arg
+	for arg in "$@"; do
+		arg="$arg" yq -i '.services.mitmproxy.command += [env(arg)]' "$override"
+	done
 
 	echo "Switching proxy to console mode..." | info
 	docker compose -f "$compose_file" -f "$override" up -d --force-recreate mitmproxy
