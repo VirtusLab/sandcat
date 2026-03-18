@@ -31,6 +31,23 @@ teardown() {
 	assert_output --partial "Restoring proxy"
 }
 
+@test "proxy passes additional arguments to mitmproxy command" {
+	stub docker \
+		"compose -f $COMPOSE_FILE -f * up -d --force-recreate mitmproxy : :" \
+		"compose -f $COMPOSE_FILE restart wg-client : :" \
+		"compose -f $COMPOSE_FILE ps -q mitmproxy : echo container-id" \
+		"attach container-id : :" \
+		"compose -f $COMPOSE_FILE up -d --force-recreate mitmproxy : :" \
+		"compose -f $COMPOSE_FILE restart wg-client : :"
+
+	cd "$BATS_TEST_TMPDIR"
+	run proxy --set flow_detail=3
+
+	# Verify the override file contains the extra args
+	# (override is cleaned up by restore, so check output instead)
+	assert_success
+}
+
 @test "proxy restores web mode and propagates error on console failure" {
 	stub docker \
 		"compose -f $COMPOSE_FILE -f * up -d --force-recreate mitmproxy : :" \

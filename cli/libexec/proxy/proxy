@@ -15,14 +15,19 @@ source "$SCT_LIBDIR/path.bash"
 proxy() {
 	require docker
 
-	_proxy_compose_file="$(find_compose_file)"
-	_proxy_override=$(mktemp "${TMPDIR:-/tmp}/sandcat-proxy-XXXXXX.yml")
+	local compose_file override
+	compose_file="$(find_compose_file)"
+	override=$(mktemp "${TMPDIR:-/tmp}/sandcat-proxy-XXXXXX")
 
 	_proxy_restore() {
 		echo "Restoring proxy (web mode)..." | info
-		docker compose -f "$_proxy_compose_file" up -d --force-recreate mitmproxy 2>/dev/null || true
-		docker compose -f "$_proxy_compose_file" restart wg-client 2>/dev/null || true
-		rm -f "$_proxy_override"
+		if ! docker compose -f "$compose_file" up -d --force-recreate mitmproxy; then
+			echo "Failed to restore mitmproxy web mode." | warning
+		fi
+		if ! docker compose -f "$compose_file" restart wg-client; then
+			echo "Failed to restart wg-client." | warning
+		fi
+		rm -f "$override"
 		trap - EXIT INT TERM
 	}
 	trap _proxy_restore EXIT INT TERM
@@ -33,7 +38,7 @@ proxy() {
 		cmd="$cmd $*"
 	fi
 
-	cat > "$_proxy_override" << YAML
+	cat > "$override" << YAML
 services:
   mitmproxy:
     command: $cmd
@@ -42,13 +47,13 @@ services:
 YAML
 
 	echo "Switching proxy to console mode..." | info
-	docker compose -f "$_proxy_compose_file" -f "$_proxy_override" up -d --force-recreate mitmproxy
-	docker compose -f "$_proxy_compose_file" restart wg-client
+	docker compose -f "$compose_file" -f "$override" up -d --force-recreate mitmproxy
+	docker compose -f "$compose_file" restart wg-client
 
 	echo "Press 'q' to exit." | info
 
 	local console_exit=0
-	docker attach "$(docker compose -f "$_proxy_compose_file" ps -q mitmproxy)" || console_exit=$?
+	docker attach "$(docker compose -f "$compose_file" ps -q mitmproxy)" || console_exit=$?
 
 	_proxy_restore
 	return "$console_exit"
