@@ -20,22 +20,24 @@ proxy() {
 	compose_file="$(find_compose_file)"
 	override=$(mktemp "${TMPDIR:-/tmp}/sandcat-proxy-XXXXXX")
 
-	local _restored=false
+	_proxy_restored=false
+	_proxy_switched=false
 	_proxy_restore() {
-		if [[ "$_restored" == "true" ]]; then
+		if [[ "$_proxy_restored" == "true" ]]; then
 			return
 		fi
-		_restored=true
+		_proxy_restored=true
 
-		echo "Restoring proxy (web mode)..." | info
-		if ! docker compose -f "$compose_file" up -d --force-recreate mitmproxy; then
-			echo "Failed to restore mitmproxy web mode." | warning
-		fi
-		if ! docker compose -f "$compose_file" up -d --force-recreate wg-client; then
-			echo "Failed to restart wg-client." | warning
-		fi
 		rm -f "$override"
-		trap - EXIT
+		if [[ "$_proxy_switched" == "true" ]]; then
+			echo "Restoring proxy (web mode)..." | info
+			if ! docker compose -f "$compose_file" up -d --force-recreate mitmproxy; then
+				echo "Failed to restore mitmproxy web mode." | warning
+			fi
+			if ! docker compose -f "$compose_file" up -d --force-recreate wg-client; then
+				echo "Failed to restart wg-client." | warning
+			fi
+		fi
 	}
 	trap _proxy_restore EXIT
 
@@ -55,6 +57,7 @@ proxy() {
 	echo "Switching proxy to console mode..." | info
 	docker compose -f "$compose_file" -f "$override" up -d --force-recreate mitmproxy
 	docker compose -f "$compose_file" up -d --force-recreate wg-client
+	_proxy_switched=true
 
 	echo "Press 'q' to exit." | info
 
