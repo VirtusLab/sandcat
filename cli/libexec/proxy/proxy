@@ -16,9 +16,8 @@ proxy() {
 	require docker
 	require yq
 
-	local compose_file override
-	compose_file="$(find_compose_file)"
-	override=$(mktemp "${TMPDIR:-/tmp}/sandcat-proxy-XXXXXX")
+	_proxy_compose_file="$(find_compose_file)"
+	_proxy_override=$(mktemp "${TMPDIR:-/tmp}/sandcat-proxy-XXXXXX")
 
 	_proxy_restored=false
 	_proxy_switched=false
@@ -28,13 +27,13 @@ proxy() {
 		fi
 		_proxy_restored=true
 
-		rm -f "$override"
+		rm -f "$_proxy_override"
 		if [[ "$_proxy_switched" == "true" ]]; then
 			echo "Restoring proxy (web mode)..." | info
-			if ! docker compose -f "$compose_file" up -d --force-recreate mitmproxy; then
+			if ! docker compose -f "$_proxy_compose_file" up -d --force-recreate mitmproxy; then
 				echo "Failed to restore mitmproxy web mode." | warning
 			fi
-			if ! docker compose -f "$compose_file" up -d --force-recreate wg-client; then
+			if ! docker compose -f "$_proxy_compose_file" up -d --force-recreate wg-client; then
 				echo "Failed to restart wg-client." | warning
 			fi
 		fi
@@ -48,21 +47,21 @@ proxy() {
 		.services.mitmproxy.command = ["mitmproxy", "--mode", "wireguard", "-s", "/scripts/mitmproxy_addon.py"] |
 		.services.mitmproxy.stdin_open = true |
 		.services.mitmproxy.tty = true
-	' > "$override"
+	' > "$_proxy_override"
 	local arg
 	for arg in "$@"; do
-		arg="$arg" yq -i '.services.mitmproxy.command += [strenv(arg)]' "$override"
+		arg="$arg" yq -i '.services.mitmproxy.command += [strenv(arg)]' "$_proxy_override"
 	done
 
 	echo "Switching proxy to console mode..." | info
-	docker compose -f "$compose_file" -f "$override" up -d --force-recreate mitmproxy
+	docker compose -f "$_proxy_compose_file" -f "$_proxy_override" up -d --force-recreate mitmproxy
 	_proxy_switched=true
-	docker compose -f "$compose_file" up -d --force-recreate wg-client
+	docker compose -f "$_proxy_compose_file" up -d --force-recreate wg-client
 
 	echo "Press 'q' to exit." | info
 
 	local console_exit=0
-	docker attach "$(docker compose -f "$compose_file" ps -q mitmproxy)" || console_exit=$?
+	docker attach "$(docker compose -f "$_proxy_compose_file" ps -q mitmproxy)" || console_exit=$?
 
 	_proxy_restore
 	trap - EXIT
