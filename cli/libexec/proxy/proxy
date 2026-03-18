@@ -49,7 +49,7 @@ proxy() {
 	' > "$override"
 	local arg
 	for arg in "$@"; do
-		arg="$arg" yq -i '.services.mitmproxy.command += [env(arg)]' "$override"
+		arg="$arg" yq -i '.services.mitmproxy.command += [strenv(arg)]' "$override"
 	done
 
 	echo "Switching proxy to console mode..." | info
