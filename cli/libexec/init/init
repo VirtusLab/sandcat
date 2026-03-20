@@ -49,6 +49,7 @@ create_user_settings() {
 #   --path - Project directory path
 #   --stacks - Comma-separated list of development stacks (node,python,java,...)
 #   --proxy - Proxy UI mode: web (default) or tui
+#   --1password - Enable 1Password integration for secrets (no value needed)
 init() {
 	require yq
 
@@ -59,6 +60,7 @@ init() {
 	local stacks_csv=""
 	local stacks_provided=false
 	local proxy_mode=""
+	local onepassword=""
 
 	while [[ $# -gt 0 ]]
 	do
@@ -95,6 +97,10 @@ init() {
 		--proxy)
 			proxy_mode="$2"
 			shift 2
+			;;
+		--1password)
+			onepassword="true"
+			shift 1
 			;;
 		*)
 			echo "Unknown option: $1" | error
@@ -162,6 +168,11 @@ init() {
 		return 1
 	fi
 
+	# 1Password integration
+	if [[ -z "$onepassword" ]]; then
+		onepassword=$(select_yes_no "Enable 1Password integration for secrets?")
+	fi
+
 	# Stack selection
 	local stacks_resolved=""
 	if [[ "$stacks_provided" == "true" ]] && [[ -n "$stacks_csv" ]]; then
@@ -191,14 +202,19 @@ init() {
 
 	create_user_settings
 	settings "$project_path/$settings_file" "${services[@]}"
-	devcontainer \
-		--settings-file "$settings_file" \
-		--project-path "$project_path" \
-		--agent "$agent" \
-		--ide "$ide" \
-		--name "$name" \
-		--stacks "$stacks_resolved" \
+	local devcontainer_args=(
+		--settings-file "$settings_file"
+		--project-path "$project_path"
+		--agent "$agent"
+		--ide "$ide"
+		--name "$name"
+		--stacks "$stacks_resolved"
 		--proxy "$proxy_mode"
+	)
+	if [[ "$onepassword" == "true" ]]; then
+		devcontainer_args+=(--1password)
+	fi
+	devcontainer "${devcontainer_args[@]}"
 
 	# Summary
 	echo "" >&2
@@ -209,11 +225,21 @@ init() {
 	echo "  Project settings: $SCT_PROJECT_DIR/settings.json (network rules)" | info
 	echo "  User settings:    ~/.config/sandcat/settings.json (git identity, API keys)" | info
 	echo "  Devcontainer:     .devcontainer/" | info
+	if [[ "$onepassword" == "true" ]]; then
+		echo "  1Password:        enabled (set OP_SERVICE_ACCOUNT_TOKEN in your shell)" | info
+	fi
 	echo "" >&2
 	echo "Next steps:" | info
-	echo "  Edit ~/.config/sandcat/settings.json to add your API keys:" | info
-	echo "    ANTHROPIC_API_KEY  your Anthropic API key (for Claude Code)" | info
-	echo "    GITHUB_TOKEN       a GitHub personal access token (for git push, gh cli)" | info
+	if [[ "$onepassword" == "true" ]]; then
+		echo "  Edit ~/.config/sandcat/settings.json to add 1Password references:" | info
+		echo "    \"op\": \"op://vault/Anthropic API Key/credential\"" | info
+		echo "  Or use plain values with \"value\": \"sk-ant-...\"" | info
+		echo "  Set OP_SERVICE_ACCOUNT_TOKEN in your shell for container auth" | info
+	else
+		echo "  Edit ~/.config/sandcat/settings.json to add your API keys:" | info
+		echo "    ANTHROPIC_API_KEY  your Anthropic API key (for Claude Code)" | info
+		echo "    GITHUB_TOKEN       a GitHub personal access token (for git push, gh cli)" | info
+	fi
 	echo "  Then run: sandcat run, or reopen the project using the dev container" | info
 }
 

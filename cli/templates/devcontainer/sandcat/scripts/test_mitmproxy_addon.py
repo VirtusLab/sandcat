@@ -533,6 +533,73 @@ class TestEnvVarNameValidation:
 
 
 # ---------------------------------------------------------------------------
+# 1Password secret resolution
+# ---------------------------------------------------------------------------
+
+class TestOpSecretResolution:
+    def test_op_reference_resolved_via_subprocess(self):
+        entry = {"op": "op://vault/item/field", "hosts": ["api.example.com"]}
+        with patch("mitmproxy_addon.subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0, stdout="secret-value\n", stderr="")
+            value = SandcatAddon._resolve_secret_value("KEY", entry)
+        assert value == "secret-value"
+        mock_run.assert_called_once_with(
+            ["op", "read", "op://vault/item/field"],
+            capture_output=True, text=True, timeout=30,
+        )
+
+    def test_value_field_still_works(self):
+        entry = {"value": "plain-secret", "hosts": []}
+        value = SandcatAddon._resolve_secret_value("KEY", entry)
+        assert value == "plain-secret"
+
+    def test_both_value_and_op_raises(self):
+        entry = {"value": "x", "op": "op://vault/item/field", "hosts": []}
+        with pytest.raises(ValueError, match="either 'value' or 'op'"):
+            SandcatAddon._resolve_secret_value("KEY", entry)
+
+    def test_neither_value_nor_op_raises(self):
+        entry = {"hosts": ["example.com"]}
+        with pytest.raises(ValueError, match="must specify either"):
+            SandcatAddon._resolve_secret_value("KEY", entry)
+
+    def test_op_without_prefix_raises(self):
+        entry = {"op": "vault/item/field", "hosts": []}
+        with pytest.raises(ValueError, match="must start with 'op://'"):
+            SandcatAddon._resolve_secret_value("KEY", entry)
+
+    def test_op_cli_not_found_raises(self):
+        entry = {"op": "op://vault/item/field", "hosts": []}
+        with patch("mitmproxy_addon.subprocess.run", side_effect=FileNotFoundError):
+            with pytest.raises(RuntimeError, match="'op' CLI not found"):
+                SandcatAddon._resolve_secret_value("KEY", entry)
+
+    def test_op_cli_failure_raises(self):
+        entry = {"op": "op://vault/item/field", "hosts": []}
+        with patch("mitmproxy_addon.subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="authorization required")
+            with pytest.raises(RuntimeError, match="authorization required"):
+                SandcatAddon._resolve_secret_value("KEY", entry)
+
+    def test_op_reference_in_full_load(self, tmp_path):
+        settings = {"secrets": {
+            "API_KEY": {"op": "op://vault/item/field", "hosts": ["api.example.com"]},
+        }}
+        p = tmp_path / "settings.json"
+        p.write_text(json.dumps(settings))
+        env_path = tmp_path / "sandcat.env"
+        addon = SandcatAddon()
+        with patch("mitmproxy_addon.SETTINGS_PATHS", [str(p)]), \
+             patch("mitmproxy_addon.SANDCAT_ENV_PATH", str(env_path)), \
+             patch("mitmproxy_addon.subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0, stdout="resolved-secret\n", stderr="")
+            addon.load(MagicMock())
+        assert addon.secrets["API_KEY"]["value"] == "resolved-secret"
+        content = env_path.read_text()
+        assert 'export API_KEY="SANDCAT_PLACEHOLDER_API_KEY"' in content
+
+
+# ---------------------------------------------------------------------------
 # Settings merging
 # ---------------------------------------------------------------------------
 

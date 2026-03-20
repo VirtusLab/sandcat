@@ -17,6 +17,7 @@ import json
 import logging
 import os
 import re
+import subprocess
 from fnmatch import fnmatch
 
 from mitmproxy import ctx, http, dns
@@ -86,11 +87,55 @@ class SandcatAddon:
     def _load_secrets(self, raw_secrets: dict):
         for name, entry in raw_secrets.items():
             placeholder = f"SANDCAT_PLACEHOLDER_{name}"
+            value = self._resolve_secret_value(name, entry)
             self.secrets[name] = {
-                "value": entry["value"],
+                "value": value,
                 "hosts": entry.get("hosts", []),
                 "placeholder": placeholder,
             }
+
+    @staticmethod
+    def _resolve_secret_value(name: str, entry: dict) -> str:
+        """Resolve a secret value from either a plain 'value' or a 1Password 'op' reference."""
+        has_value = "value" in entry
+        has_op = "op" in entry
+
+        if has_value and has_op:
+            raise ValueError(
+                f"Secret {name!r}: specify either 'value' or 'op', not both"
+            )
+        if not has_value and not has_op:
+            raise ValueError(
+                f"Secret {name!r}: must specify either 'value' or 'op'"
+            )
+
+        if has_value:
+            return entry["value"]
+
+        op_ref = entry["op"]
+        if not op_ref.startswith("op://"):
+            raise ValueError(
+                f"Secret {name!r}: 'op' value must start with 'op://', got {op_ref!r}"
+            )
+
+        try:
+            result = subprocess.run(
+                ["op", "read", op_ref],
+                capture_output=True, text=True, timeout=30,
+            )
+        except FileNotFoundError:
+            raise RuntimeError(
+                f"Secret {name!r}: 'op' CLI not found. "
+                "Install 1Password CLI to use op:// references."
+            ) from None
+
+        if result.returncode != 0:
+            stderr = result.stderr.strip()
+            raise RuntimeError(
+                f"Secret {name!r}: 'op read' failed: {stderr}"
+            )
+
+        return result.stdout.strip()
 
     def _load_network_rules(self, raw_rules: list):
         self.network_rules = raw_rules

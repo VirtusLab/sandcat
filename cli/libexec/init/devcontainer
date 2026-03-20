@@ -23,6 +23,7 @@ devcontainer() {
 	local name=""
 	local stacks=""
 	local proxy_mode="web"
+	local onepassword="false"
 
 	while [[ $# -gt 0 ]]
 	do
@@ -63,6 +64,10 @@ devcontainer() {
 			proxy_mode="$2"
 			shift 2
 			;;
+		--1password)
+			onepassword="true"
+			shift 1
+			;;
 		*)
 			echo "Unknown option: $1" | error
 			return 1
@@ -99,6 +104,10 @@ devcontainer() {
 
 	if [[ "$proxy_mode" == "tui" ]]; then
 		set_proxy_tui_mode "$devcontainer_dir/sandcat/compose-proxy.yml"
+	fi
+
+	if [[ "$onepassword" == "true" ]]; then
+		enable_1password "$devcontainer_dir/sandcat/compose-proxy.yml"
 	fi
 
 	customize_compose_file "$rel_settings_file" "$compose_file" "$agent" "$ide" "$project_name"
