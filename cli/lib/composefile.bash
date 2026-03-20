@@ -64,7 +64,7 @@ customize_compose_file() {
 }
 
 # Enables 1Password integration in the mitmproxy service.
-# Replaces the upstream image with a custom build that includes the op CLI,
+# Switches to the pre-built mitmproxy image that includes the op CLI,
 # and forwards OP_SERVICE_ACCOUNT_TOKEN from the host environment.
 # Args:
 #   $1 - Path to the compose-proxy.yml file
@@ -73,9 +73,7 @@ enable_1password() {
 	local compose_file=$1
 
 	yq -i '
-		del(.services.mitmproxy.image) |
-		.services.mitmproxy.build.context = "." |
-		.services.mitmproxy.build.dockerfile = "Dockerfile.mitmproxy" |
+		.services.mitmproxy.image = "ghcr.io/virtuslab/sandcat-mitmproxy:latest" |
 		.services.mitmproxy.environment = ["OP_SERVICE_ACCOUNT_TOKEN"]
 	' "$compose_file"
 }
