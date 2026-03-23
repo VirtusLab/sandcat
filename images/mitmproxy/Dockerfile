@@ -7,8 +7,10 @@ RUN ARCH=$(dpkg --print-architecture) \
     && apt-get update \
     && apt-get install -y --no-install-recommends curl unzip \
     && curl -sSfo /tmp/op.zip "https://cache.agilebits.com/dist/1P/op2/pkg/v${OP_CLI_VERSION}/op_linux_${ARCH}_v${OP_CLI_VERSION}.zip" \
+    && curl -sSfo /tmp/op.zip.sha256 "https://cache.agilebits.com/dist/1P/op2/pkg/v${OP_CLI_VERSION}/op_linux_${ARCH}_v${OP_CLI_VERSION}.zip.sha256" \
+    && cd /tmp && sha256sum --check op.zip.sha256 && cd / \
     && unzip /tmp/op.zip -d /usr/local/bin op \
-    && rm /tmp/op.zip \
+    && rm /tmp/op.zip /tmp/op.zip.sha256 \
     && apt-get purge -y curl unzip \
     && apt-get autoremove -y \
     && rm -rf /var/lib/apt/lists/*

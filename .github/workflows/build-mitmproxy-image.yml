@@ -10,6 +10,8 @@ on:
     paths:
       - 'images/mitmproxy/**'
       - '.github/workflows/build-mitmproxy-image.yml'
+  schedule:
+    - cron: '0 6 * * 1' # Weekly Monday 6am — rebuild against latest mitmproxy
   workflow_dispatch:
 
 jobs:
@@ -53,5 +55,6 @@ jobs:
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
+          # Skip cache on scheduled builds to pick up upstream mitmproxy:latest changes
+          cache-from: ${{ github.event_name != 'schedule' && 'type=gha' || '' }}
           cache-to: type=gha,mode=max
