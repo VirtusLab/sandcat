@@ -39,7 +39,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/VirtusLab/sandcat-mitmproxy-op
+          images: ghcr.io/virtuslab/sandcat-mitmproxy-op
           tags: |
             type=ref,event=branch
             type=ref,event=pr
