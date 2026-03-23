@@ -40,6 +40,21 @@ create_user_settings() {
 		' "$user_settings"
 }
 
+# Adds op_service_account_token field to user settings if not already present.
+add_op_token_to_user_settings() {
+	local user_settings
+	user_settings="$(sct_home)/settings.json"
+
+	if [[ ! -f "$user_settings" ]]; then
+		return
+	fi
+
+	# Add the field only if it doesn't exist yet
+	if ! yq -e '.op_service_account_token' "$user_settings" &>/dev/null; then
+		yq -i -o json '.op_service_account_token = ""' "$user_settings"
+	fi
+}
+
 # Initializes sandcat for a project.
 # Prompts for any options not provided via flags.
 # Args:
@@ -49,6 +64,8 @@ create_user_settings() {
 #   --path - Project directory path
 #   --stacks - Comma-separated list of development stacks (node,python,java,...)
 #   --proxy - Proxy UI mode: web (default) or tui
+#   --1password - Enable 1Password integration for secrets (no value needed)
+#   --features - Comma-separated list of optional features (tui,1password)
 init() {
 	require yq
 
@@ -59,11 +76,14 @@ init() {
 	local stacks_csv=""
 	local stacks_provided=false
 	local proxy_mode=""
+	local onepassword=""
+	local features_csv=""
+	local features_provided=false
 
 	while [[ $# -gt 0 ]]
 	do
 		case $1 in
-		--name|--path|--agent|--ide|--stacks|--proxy)
+		--name|--path|--agent|--ide|--stacks|--proxy|--features)
 			if [[ $# -lt 2 ]]; then
 				echo "Option $1 requires a value" | error
 				return 1
@@ -94,6 +114,16 @@ init() {
 			;;
 		--proxy)
 			proxy_mode="$2"
+			shift 2
+			;;
+		--1password)
+			onepassword="true"
+			features_provided=true
+			shift 1
+			;;
+		--features)
+			features_csv="$2"
+			features_provided=true
 			shift 2
 			;;
 		*)
@@ -151,16 +181,39 @@ init() {
 		return 1
 	fi
 
-	# Proxy mode selection
-	local available_proxy_modes=(web tui)
-	if [[ -z "$proxy_mode" ]]
-	then
-		proxy_mode=$(select_option "Select proxy UI:" "${available_proxy_modes[@]}")
-	elif [[ ! " ${available_proxy_modes[*]} " =~ [[:space:]]${proxy_mode}[[:space:]] ]]
-	then
-		echo "Invalid proxy mode: $proxy_mode (expected: ${available_proxy_modes[*]})" | error
+	# Optional features (tui, 1password)
+	if [[ "$features_provided" != "true" ]]; then
+		local available_features=(tui 1password)
+		local selected_features
+		selected_features=$(select_multiple "Select optional features (comma-separated numbers, empty for none):" "${available_features[@]}")
+		if [[ -n "$selected_features" ]]; then
+			for f in $selected_features; do
+				case "$f" in
+					tui) proxy_mode="tui" ;;
+					1password) onepassword="true" ;;
+				esac
+			done
+		fi
+	else
+		# Parse --features flag
+		if [[ -n "$features_csv" ]]; then
+			local IFS=','
+			for f in $features_csv; do
+				case "$f" in
+					tui) proxy_mode="tui" ;;
+					1password) onepassword="true" ;;
+					*) echo "Unknown feature: $f (expected: tui, 1password)" | error; return 1 ;;
+				esac
+			done
+		fi
+	fi
+
+	# --proxy flag (backwards compat) overrides feature selection
+	if [[ -n "$proxy_mode" ]] && [[ "$proxy_mode" != "web" && "$proxy_mode" != "tui" ]]; then
+		echo "Invalid proxy mode: $proxy_mode (expected: web, tui)" | error
 		return 1
 	fi
+	: "${proxy_mode:=web}"
 
 	# Stack selection
 	local stacks_resolved=""
@@ -190,15 +243,25 @@ init() {
 	fi
 
 	create_user_settings
+
+	if [[ "$onepassword" == "true" ]]; then
+		add_op_token_to_user_settings
+	fi
+
 	settings "$project_path/$settings_file" "${services[@]}"
-	devcontainer \
-		--settings-file "$settings_file" \
-		--project-path "$project_path" \
-		--agent "$agent" \
-		--ide "$ide" \
-		--name "$name" \
-		--stacks "$stacks_resolved" \
+	local devcontainer_args=(
+		--settings-file "$settings_file"
+		--project-path "$project_path"
+		--agent "$agent"
+		--ide "$ide"
+		--name "$name"
+		--stacks "$stacks_resolved"
 		--proxy "$proxy_mode"
+	)
+	if [[ "$onepassword" == "true" ]]; then
+		devcontainer_args+=(--1password)
+	fi
+	devcontainer "${devcontainer_args[@]}"
 
 	# Summary
 	echo "" >&2
@@ -209,11 +272,25 @@ init() {
 	echo "  Project settings: $SCT_PROJECT_DIR/settings.json (network rules)" | info
 	echo "  User settings:    ~/.config/sandcat/settings.json (git identity, API keys)" | info
 	echo "  Devcontainer:     .devcontainer/" | info
+	if [[ "$onepassword" == "true" ]]; then
+		echo "  1Password:        enabled" | info
+	fi
 	echo "" >&2
 	echo "Next steps:" | info
 	echo "  Edit ~/.config/sandcat/settings.json to add your API keys:" | info
-	echo "    ANTHROPIC_API_KEY  your Anthropic API key (for Claude Code)" | info
-	echo "    GITHUB_TOKEN       a GitHub personal access token (for git push, gh cli)" | info
+	if [[ "$onepassword" == "true" ]]; then
+		echo "    Use 1Password references: \"op\": \"op://vault/item/field\"" | info
+		echo "    Or plain values:          \"value\": \"sk-ant-...\"" | info
+		echo "" >&2
+		echo "  1Password setup:" | info
+		echo "    1. Create a service account at https://my.1password.com/developer-tools/infrastructure-secrets/serviceaccount" | info
+		echo "    2. Grant it read access to vaults containing your secrets" | info
+		echo "    3. Add the token to ~/.config/sandcat/settings.json:" | info
+		echo "       \"op_service_account_token\": \"ops_...\"" | info
+	else
+		echo "    ANTHROPIC_API_KEY  your Anthropic API key (for Claude Code)" | info
+		echo "    GITHUB_TOKEN       a GitHub personal access token (for git push, gh cli)" | info
+	fi
 	echo "  Then run: sandcat run, or reopen the project using the dev container" | info
 }
 

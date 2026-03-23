@@ -69,9 +69,9 @@ teardown() {
 	stub read_line "* : echo ''"
 	stub select_option \
 		"'Select agent:' claude : echo claude" \
-		"'Select IDE:' vscode jetbrains none : echo vscode" \
-		"'Select proxy UI:' web tui : echo web"
+		"'Select IDE:' vscode jetbrains none : echo vscode"
 	stub select_multiple \
+		"'Select optional features (comma-separated numbers, empty for none):' tui 1password : echo ''" \
 		"'Select development stacks (comma-separated numbers, empty for none):' node python java rust go scala ruby dotnet : echo ''"
 
 	local expected_name

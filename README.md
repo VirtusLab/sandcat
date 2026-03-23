@@ -93,6 +93,9 @@ development stacks to install. You can also pass flags to skip prompts:
 
 ```bash
 sandcat init --agent claude --ide vscode --stacks "python,node"
+
+# With optional features (proxy TUI, 1Password integration)
+sandcat init --features "1password" --agent claude --ide vscode
 ```
 
 Available stacks: `node`, `python`, `java`, `rust`, `go`, `scala`, `ruby`,
@@ -337,6 +340,67 @@ The `hosts` field accepts glob patterns via `fnmatch`:
 If a placeholder appears in a request to a host **not** in the allowlist,
 mitmproxy blocks the request with HTTP 403 and logs a warning. This prevents
 accidental secret leakage to unintended services.
+
+### 1Password integration
+
+Instead of storing secret values directly in settings files, you can reference
+secrets stored in 1Password using `op://` references:
+
+```json
+{
+  "secrets": {
+    "ANTHROPIC_API_KEY": {
+      "op": "op://Private/Anthropic API Key/credential",
+      "hosts": ["api.anthropic.com"]
+    }
+  }
+}
+```
+
+Each secret entry must have either `"value"` (plain text) or `"op"` (1Password
+reference), not both. You can mix both styles in the same settings file.
+
+The mitmproxy addon resolves `op://` references at startup using the `op` CLI.
+To enable 1Password during project setup, select it from the optional features
+prompt, or pass the flag:
+
+```bash
+sandcat init --features 1password
+```
+
+This switches the mitmproxy service to
+`ghcr.io/virtuslab/sandcat-mitmproxy-op`, a pre-built image that includes the
+`op` CLI.
+
+**Authentication.** The `op` CLI inside the container authenticates via a
+[1Password service account](https://developer.1password.com/docs/service-accounts/).
+To set one up:
+
+1. Go to [1Password Developer Tools > Service
+   Accounts](https://my.1password.com/developer-tools/infrastructure-secrets/serviceaccount/)
+   and create a new service account
+2. Grant it read access to the vault(s) containing your secrets
+3. Add the token to `~/.config/sandcat/settings.json`:
+
+```json
+{
+  "op_service_account_token": "ops_...",
+  "secrets": {
+    "ANTHROPIC_API_KEY": {
+      "op": "op://Private/Anthropic API Key/credential",
+      "hosts": ["api.anthropic.com"]
+    }
+  }
+}
+```
+
+The token is read from the settings file by the mitmproxy addon at startup. If
+`op_service_account_token` is not set in settings, the addon falls back to the
+`OP_SERVICE_ACCOUNT_TOKEN` environment variable (forwarded from the host shell
+into the container).
+
+Secret resolution happens once at mitmproxy startup — run `sandcat
+restart-proxy` after changing 1Password items.
 
 ### How it works internally
 
@@ -585,8 +649,8 @@ HTTPS transparently.
 
 ## Testing the proxy
 
-The proxy mode is chosen during `sandcat init` via the `--proxy` flag (or
-interactively). Both modes run `sandcat proxy` from the host, in the project
+The proxy mode is chosen during `sandcat init` via the optional features prompt,
+or with `--features tui` / `--proxy tui`. Both modes run `sandcat proxy` from the host, in the project
 directory.
 
 **Web UI** (default, `--proxy web`) — opens a browser-based interface:

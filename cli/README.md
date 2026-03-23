@@ -17,6 +17,8 @@ Options:
 - `--ide` - IDE for devcontainer mode: `vscode`, `jetbrains`, `none` (skips prompt)
 - `--stacks` - Comma-separated development stacks to install: `node`, `python`, `java`, `rust`, `go`, `scala`, `ruby`, `dotnet` (skips prompt)
 - `--proxy` - Proxy UI mode: `web` (default, mitmweb browser UI) or `tui` (mitmproxy console, use with `sandcat proxy` to attach)
+- `--features` - Comma-separated optional features: `tui` (proxy console mode), `1password` (1Password secret resolution via `op` CLI)
+- `--1password` - Shorthand for `--features 1password`
 - `--name` - Project name for Docker Compose (default: derived from directory name)
 - `--path` - Project directory (default: current directory)
 
@@ -24,9 +26,12 @@ Selected stacks are installed via [mise](https://mise.jdx.dev/) in the container
 to LTS where available (e.g. Node.js LTS, Java LTS). Selecting `scala` automatically includes `java`. Stacks
 with a VS Code extension (e.g. `rust-analyzer`, `metals`) have it added to `devcontainer.json`.
 
-Fully non-interactive example:
+Fully non-interactive examples:
 ```bash
 sandcat init --agent claude --ide vscode --stacks "python,node" --name myproject --path /some/dir
+
+# With 1Password integration
+sandcat init --agent claude --ide vscode --features "1password" --name myproject
 ```
 
 #### `sandcat init devcontainer`

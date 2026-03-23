@@ -1,6 +1,7 @@
 """Unit tests for mitmproxy-addon.py — no mitmproxy daemon needed."""
 
 import json
+import os
 import sys
 import types
 from unittest.mock import MagicMock, patch
@@ -533,6 +534,108 @@ class TestEnvVarNameValidation:
 
 
 # ---------------------------------------------------------------------------
+# 1Password secret resolution
+# ---------------------------------------------------------------------------
+
+class TestOpSecretResolution:
+    def test_op_reference_resolved_via_subprocess(self):
+        entry = {"op": "op://vault/item/field", "hosts": ["api.example.com"]}
+        with patch("mitmproxy_addon.subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0, stdout="secret-value\n", stderr="")
+            value = SandcatAddon._resolve_secret_value("KEY", entry)
+        assert value == "secret-value"
+        mock_run.assert_called_once_with(
+            ["op", "read", "op://vault/item/field"],
+            capture_output=True, text=True, timeout=30,
+        )
+
+    def test_value_field_still_works(self):
+        entry = {"value": "plain-secret", "hosts": []}
+        value = SandcatAddon._resolve_secret_value("KEY", entry)
+        assert value == "plain-secret"
+
+    def test_both_value_and_op_raises(self):
+        entry = {"value": "x", "op": "op://vault/item/field", "hosts": []}
+        with pytest.raises(ValueError, match="either 'value' or 'op'"):
+            SandcatAddon._resolve_secret_value("KEY", entry)
+
+    def test_neither_value_nor_op_raises(self):
+        entry = {"hosts": ["example.com"]}
+        with pytest.raises(ValueError, match="must specify either"):
+            SandcatAddon._resolve_secret_value("KEY", entry)
+
+    def test_op_without_prefix_raises(self):
+        entry = {"op": "vault/item/field", "hosts": []}
+        with pytest.raises(ValueError, match="must start with 'op://'"):
+            SandcatAddon._resolve_secret_value("KEY", entry)
+
+    def test_op_cli_not_found_raises(self):
+        entry = {"op": "op://vault/item/field", "hosts": []}
+        with patch("mitmproxy_addon.subprocess.run", side_effect=FileNotFoundError):
+            with pytest.raises(RuntimeError, match="'op' CLI not found"):
+                SandcatAddon._resolve_secret_value("KEY", entry)
+
+    def test_op_cli_failure_raises(self):
+        entry = {"op": "op://vault/item/field", "hosts": []}
+        with patch("mitmproxy_addon.subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="authorization required")
+            with pytest.raises(RuntimeError, match="authorization required"):
+                SandcatAddon._resolve_secret_value("KEY", entry)
+
+    def test_op_reference_in_full_load(self, tmp_path):
+        settings = {"secrets": {
+            "API_KEY": {"op": "op://vault/item/field", "hosts": ["api.example.com"]},
+        }}
+        p = tmp_path / "settings.json"
+        p.write_text(json.dumps(settings))
+        env_path = tmp_path / "sandcat.env"
+        addon = SandcatAddon()
+        with patch("mitmproxy_addon.SETTINGS_PATHS", [str(p)]), \
+             patch("mitmproxy_addon.SANDCAT_ENV_PATH", str(env_path)), \
+             patch("mitmproxy_addon.subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0, stdout="resolved-secret\n", stderr="")
+            addon.load(MagicMock())
+        assert addon.secrets["API_KEY"]["value"] == "resolved-secret"
+        content = env_path.read_text()
+        assert 'export API_KEY="SANDCAT_PLACEHOLDER_API_KEY"' in content
+
+    def test_op_token_from_settings(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("OP_SERVICE_ACCOUNT_TOKEN", raising=False)
+        settings = {
+            "op_service_account_token": "ops_test_token",
+            "secrets": {
+                "KEY": {"op": "op://vault/item/field", "hosts": []},
+            },
+        }
+        p = tmp_path / "settings.json"
+        p.write_text(json.dumps(settings))
+        env_path = tmp_path / "sandcat.env"
+        addon = SandcatAddon()
+        with patch("mitmproxy_addon.SETTINGS_PATHS", [str(p)]), \
+             patch("mitmproxy_addon.SANDCAT_ENV_PATH", str(env_path)), \
+             patch("mitmproxy_addon.subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0, stdout="secret\n", stderr="")
+            addon.load(MagicMock())
+        assert os.environ.get("OP_SERVICE_ACCOUNT_TOKEN") == "ops_test_token"
+        monkeypatch.delenv("OP_SERVICE_ACCOUNT_TOKEN", raising=False)
+
+    def test_op_token_env_var_takes_precedence(self, monkeypatch):
+        monkeypatch.setenv("OP_SERVICE_ACCOUNT_TOKEN", "from_env")
+        SandcatAddon._configure_op_token("from_settings")
+        assert os.environ["OP_SERVICE_ACCOUNT_TOKEN"] == "from_env"
+
+    def test_op_token_not_set_when_empty(self, monkeypatch):
+        monkeypatch.delenv("OP_SERVICE_ACCOUNT_TOKEN", raising=False)
+        SandcatAddon._configure_op_token("")
+        assert "OP_SERVICE_ACCOUNT_TOKEN" not in os.environ
+
+    def test_op_token_not_set_when_none(self, monkeypatch):
+        monkeypatch.delenv("OP_SERVICE_ACCOUNT_TOKEN", raising=False)
+        SandcatAddon._configure_op_token(None)
+        assert "OP_SERVICE_ACCOUNT_TOKEN" not in os.environ
+
+
+# ---------------------------------------------------------------------------
 # Settings merging
 # ---------------------------------------------------------------------------
 
@@ -582,10 +685,33 @@ class TestSettingsMerging:
         assert merged["env"] == {"A": "1"}
         assert merged["secrets"] == {}
         assert merged["network"] == [{"action": "allow", "host": "*"}]
+        assert merged["op_service_account_token"] is None
+
+    def test_op_token_highest_precedence_wins(self):
+        layers = [
+            {"op_service_account_token": "user_token"},
+            {"op_service_account_token": "project_token"},
+        ]
+        merged = SandcatAddon._merge_settings(layers)
+        assert merged["op_service_account_token"] == "project_token"
+
+    def test_op_token_skips_empty(self):
+        layers = [
+            {"op_service_account_token": "user_token"},
+            {"op_service_account_token": ""},
+        ]
+        merged = SandcatAddon._merge_settings(layers)
+        assert merged["op_service_account_token"] == "user_token"
+
+    def test_op_token_absent(self):
+        layers = [{"env": {"A": "1"}}]
+        merged = SandcatAddon._merge_settings(layers)
+        assert merged["op_service_account_token"] is None
 
     def test_empty_layers_list(self):
         merged = SandcatAddon._merge_settings([])
-        assert merged == {"env": {}, "secrets": {}, "network": []}
+        assert merged == {"env": {}, "secrets": {}, "network": [],
+                          "op_service_account_token": None}
 
 
 

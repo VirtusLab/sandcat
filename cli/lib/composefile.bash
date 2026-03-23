@@ -63,6 +63,21 @@ customize_compose_file() {
 	sed '/^$/{ N; /^\n[[:space:]]/{ s/^\n//; }; }' "$compose_file" > "$compose_file.tmp" && mv "$compose_file.tmp" "$compose_file"
 }
 
+# Enables 1Password integration in the mitmproxy service.
+# Switches to the pre-built mitmproxy image that includes the op CLI,
+# and forwards OP_SERVICE_ACCOUNT_TOKEN from the host environment.
+# Args:
+#   $1 - Path to the compose-proxy.yml file
+enable_1password() {
+	require yq
+	local compose_file=$1
+
+	yq -i '
+		.services.mitmproxy.image = "ghcr.io/virtuslab/sandcat-mitmproxy-op:latest" |
+		.services.mitmproxy.environment = ["OP_SERVICE_ACCOUNT_TOKEN"]
+	' "$compose_file"
+}
+
 # Switches the mitmproxy service from web UI to console (mitmdump) mode.
 # Replaces the mitmweb command with mitmdump and removes the web UI port.
 # mitmdump logs flows as text to stdout, viewable via docker compose logs.
