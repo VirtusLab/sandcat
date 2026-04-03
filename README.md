@@ -99,7 +99,7 @@ sandcat init --features "1password" --agent claude --ide vscode
 ```
 
 Available stacks: `node`, `python`, `java`, `rust`, `go`, `scala`, `ruby`,
-`dotnet`. Versions default to LTS where available (e.g. Node.js LTS, Java LTS).
+`dotnet`, `zig`. Versions default to LTS where available (e.g. Node.js LTS, Java LTS).
 To change versions after init, edit the `mise use` lines in the generated
 `.devcontainer/Dockerfile.app`.
 

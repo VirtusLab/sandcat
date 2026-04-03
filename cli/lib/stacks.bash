@@ -15,6 +15,7 @@ stack_mise_cmd() {
 		scala)  echo "mise use -g scala@latest && mise use -g sbt@latest && mise use -g scala-cli@latest" ;;
 		ruby)   echo "mise use -g ruby@latest" ;;
 		dotnet) echo "mise use -g dotnet@latest" ;;
+		zig)    echo "mise use -g zig@latest" ;;
 	esac
 }
 
@@ -28,6 +29,7 @@ stack_extension() {
 		scala)  echo "scalameta.metals" ;;
 		ruby)   echo "shopify.ruby-lsp" ;;
 		dotnet) echo "ms-dotnettools.csdevkit" ;;
+		dotnet) echo "ziglang.vscode-zig" ;;
 		*)      echo "" ;;
 	esac
 }
