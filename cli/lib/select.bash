@@ -32,7 +32,7 @@ select_option() {
 	local default="${options[0]}"
 	local i
 
-	echo "$prompt [$default]" >&2
+	printf '%s\n' "$prompt [$default]" >&2
 	for i in "${!options[@]}"; do
 		echo "  $((i+1))) ${options[$i]}" >&2
 	done
@@ -82,7 +82,7 @@ select_multiple() {
 		fi
 	done
 
-	echo "$prompt" >&2
+	printf '%s\n' "$prompt" >&2
 	local i
 	for i in "${!options[@]}"; do
 		local marker=""
