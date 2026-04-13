@@ -84,7 +84,7 @@ devcontainer() {
 
 	mkdir -p "$devcontainer_dir"
 	# Use rsync-style copy to include dotfiles (glob * skips them)
-	cp -a "$SCT_TEMPLATEDIR/devcontainer/." "$devcontainer_dir/"
+	cp -R "$SCT_TEMPLATEDIR/devcontainer/." "$devcontainer_dir/"
 
 	local rel_settings_file="../$settings_file"
 
