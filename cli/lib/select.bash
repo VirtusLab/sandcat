@@ -32,13 +32,14 @@ select_option() {
 	local default="${options[0]}"
 	local i
 
+	echo "$prompt [$default]" >&2
 	for i in "${!options[@]}"; do
 		echo "  $((i+1))) ${options[$i]}" >&2
 	done
 
 	local reply
 	while true; do
-		read -rp "$prompt [$default] " reply >&2
+		read -rp "> " reply >&2
 		if [[ -z $reply ]]; then
 			printf '%s\n' "$default"
 			return
@@ -81,6 +82,7 @@ select_multiple() {
 		fi
 	done
 
+	echo "$prompt" >&2
 	local i
 	for i in "${!options[@]}"; do
 		local marker=""
@@ -96,7 +98,7 @@ select_multiple() {
 
 	local reply
 	while true; do
-		read -rp "$prompt " reply >&2
+		read -rp "> " reply >&2
 		if [[ -z $reply ]]; then
 			# Return defaults on empty input
 			echo "${defaults[*]+${defaults[*]}}"
