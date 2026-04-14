@@ -115,7 +115,7 @@ class SandcatAddon:
 
     @staticmethod
     def _resolve_secret_value(name: str, entry: dict) -> str:
-        """Resolve a secret value from either a plain 'value' or a 1Password 'op' reference."""
+        """Resolve a secret value from a plain 'value', a 'cmd:' command, an 'env:' variable, or a 1Password 'op' reference."""
         has_value = "value" in entry
         has_op = "op" in entry
 
@@ -129,7 +129,12 @@ class SandcatAddon:
             )
 
         if has_value:
-            return entry["value"]
+            raw = entry["value"]
+            if raw.startswith("cmd:"):
+                return SandcatAddon._resolve_cmd_value(name, raw[4:])
+            if raw.startswith("env:"):
+                return SandcatAddon._resolve_env_value(name, raw[4:])
+            return raw
 
         op_ref = entry["op"]
         if not op_ref.startswith("op://"):
@@ -155,6 +160,36 @@ class SandcatAddon:
             )
 
         return result.stdout.strip()
+
+    @staticmethod
+    def _resolve_cmd_value(name: str, cmd: str) -> str:
+        """Run a shell command and return its stripped stdout as the secret value."""
+        try:
+            result = subprocess.run(
+                cmd, shell=True, capture_output=True, text=True, timeout=30,
+            )
+        except Exception as e:
+            raise RuntimeError(
+                f"Secret {name!r}: command execution failed: {e}"
+            ) from None
+
+        if result.returncode != 0:
+            stderr = result.stderr.strip()
+            raise RuntimeError(
+                f"Secret {name!r}: command failed (exit {result.returncode}): {stderr}"
+            )
+
+        return result.stdout.strip()
+
+    @staticmethod
+    def _resolve_env_value(name: str, var_name: str) -> str:
+        """Read a secret value from a host environment variable."""
+        value = os.environ.get(var_name)
+        if value is None:
+            raise RuntimeError(
+                f"Secret {name!r}: environment variable {var_name!r} is not set"
+            )
+        return value
 
     def _load_network_rules(self, raw_rules: list):
         self.network_rules = raw_rules

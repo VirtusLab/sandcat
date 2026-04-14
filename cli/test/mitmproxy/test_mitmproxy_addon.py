@@ -658,6 +658,118 @@ class TestOpSecretResolution:
 
 
 # ---------------------------------------------------------------------------
+# cmd: and env: secret resolution
+# ---------------------------------------------------------------------------
+
+class TestCmdSecretResolution:
+    def test_cmd_prefix_runs_command_and_strips_output(self):
+        entry = {"value": "cmd:echo hello", "hosts": []}
+        value = SandcatAddon._resolve_secret_value("KEY", entry)
+        assert value == "hello"
+
+    def test_cmd_prefix_supports_shell_pipelines(self):
+        entry = {"value": "cmd:echo 'abc' | tr 'a-z' 'A-Z'", "hosts": []}
+        value = SandcatAddon._resolve_secret_value("KEY", entry)
+        assert value == "ABC"
+
+    def test_cmd_failure_raises_with_stderr(self):
+        entry = {"value": "cmd:sh -c 'echo boom >&2; exit 1'", "hosts": []}
+        with pytest.raises(RuntimeError, match="command failed") as exc_info:
+            SandcatAddon._resolve_secret_value("KEY", entry)
+        assert "boom" in str(exc_info.value)
+
+    def test_cmd_via_subprocess_mock(self):
+        entry = {"value": "cmd:gh auth token", "hosts": ["github.com"]}
+        with patch("mitmproxy_addon.subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0, stdout="gho_token123\n", stderr="")
+            value = SandcatAddon._resolve_secret_value("GITHUB_TOKEN", entry)
+        assert value == "gho_token123"
+        mock_run.assert_called_once_with(
+            "gh auth token", shell=True, capture_output=True, text=True, timeout=30,
+        )
+
+    def test_cmd_in_full_load(self, tmp_path):
+        settings = {"secrets": {
+            "MY_TOKEN": {"value": "cmd:echo loaded-from-cmd", "hosts": ["example.com"]},
+        }}
+        p = tmp_path / "settings.json"
+        p.write_text(json.dumps(settings))
+        env_path = tmp_path / "sandcat.env"
+        addon = SandcatAddon()
+        with patch("mitmproxy_addon.SETTINGS_PATHS", [str(p)]), \
+             patch("mitmproxy_addon.SANDCAT_ENV_PATH", str(env_path)):
+            addon.load(MagicMock())
+        assert addon.secrets["MY_TOKEN"]["value"] == "loaded-from-cmd"
+        assert 'export MY_TOKEN="SANDCAT_PLACEHOLDER_MY_TOKEN"' in env_path.read_text()
+
+    def test_cmd_failure_logs_warning_and_continues(self, tmp_path):
+        settings = {"secrets": {
+            "BAD": {"value": "cmd:exit 99", "hosts": []},
+            "GOOD": {"value": "plain-value", "hosts": []},
+        }}
+        p = tmp_path / "settings.json"
+        p.write_text(json.dumps(settings))
+        env_path = tmp_path / "sandcat.env"
+        addon = SandcatAddon()
+        with patch("mitmproxy_addon.SETTINGS_PATHS", [str(p)]), \
+             patch("mitmproxy_addon.SANDCAT_ENV_PATH", str(env_path)):
+            addon.load(MagicMock())
+        assert addon.secrets["BAD"]["value"] == ""
+        assert addon.secrets["GOOD"]["value"] == "plain-value"
+
+
+class TestEnvSecretResolution:
+    def test_env_prefix_reads_environment_variable(self, monkeypatch):
+        monkeypatch.setenv("MY_SECRET_VAR", "secret-from-env")
+        entry = {"value": "env:MY_SECRET_VAR", "hosts": []}
+        value = SandcatAddon._resolve_secret_value("KEY", entry)
+        assert value == "secret-from-env"
+
+    def test_env_prefix_missing_variable_raises(self, monkeypatch):
+        monkeypatch.delenv("MISSING_VAR", raising=False)
+        entry = {"value": "env:MISSING_VAR", "hosts": []}
+        with pytest.raises(RuntimeError, match="MISSING_VAR.*is not set"):
+            SandcatAddon._resolve_secret_value("KEY", entry)
+
+    def test_env_prefix_empty_string_is_valid(self, monkeypatch):
+        monkeypatch.setenv("EMPTY_VAR", "")
+        entry = {"value": "env:EMPTY_VAR", "hosts": []}
+        value = SandcatAddon._resolve_secret_value("KEY", entry)
+        assert value == ""
+
+    def test_env_in_full_load(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("HOST_API_KEY", "key-from-host-env")
+        settings = {"secrets": {
+            "API_KEY": {"value": "env:HOST_API_KEY", "hosts": ["api.example.com"]},
+        }}
+        p = tmp_path / "settings.json"
+        p.write_text(json.dumps(settings))
+        env_path = tmp_path / "sandcat.env"
+        addon = SandcatAddon()
+        with patch("mitmproxy_addon.SETTINGS_PATHS", [str(p)]), \
+             patch("mitmproxy_addon.SANDCAT_ENV_PATH", str(env_path)):
+            addon.load(MagicMock())
+        assert addon.secrets["API_KEY"]["value"] == "key-from-host-env"
+        assert 'export API_KEY="SANDCAT_PLACEHOLDER_API_KEY"' in env_path.read_text()
+
+    def test_env_missing_logs_warning_and_continues(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("UNSET_VAR", raising=False)
+        settings = {"secrets": {
+            "MISSING": {"value": "env:UNSET_VAR", "hosts": []},
+            "PRESENT": {"value": "plain", "hosts": []},
+        }}
+        p = tmp_path / "settings.json"
+        p.write_text(json.dumps(settings))
+        env_path = tmp_path / "sandcat.env"
+        addon = SandcatAddon()
+        with patch("mitmproxy_addon.SETTINGS_PATHS", [str(p)]), \
+             patch("mitmproxy_addon.SANDCAT_ENV_PATH", str(env_path)):
+            addon.load(MagicMock())
+        assert addon.secrets["MISSING"]["value"] == ""
+        assert addon.secrets["PRESENT"]["value"] == "plain"
+
+
+# ---------------------------------------------------------------------------
 # Settings merging
 # ---------------------------------------------------------------------------
 

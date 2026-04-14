@@ -402,6 +402,51 @@ into the container).
 Secret resolution happens once at mitmproxy startup — run `sandcat
 restart-proxy` after changing 1Password items.
 
+### Command secrets
+
+Secret values can be read by running an arbitrary shell command. Prefix the
+`value` field with `cmd:`:
+
+```json
+{
+  "secrets": {
+    "GITHUB_TOKEN": {
+      "value": "cmd:gh auth token",
+      "hosts": ["github.com", "*.github.com", "*.githubusercontent.com"]
+    }
+  }
+}
+```
+
+The command runs inside the mitmproxy container at startup using `sh -c`. Its
+stdout (stripped of leading/trailing whitespace) becomes the secret value. If
+the command exits with a non-zero status, a warning is logged and the secret
+resolves to an empty string.
+
+### Environment variable secrets
+
+Secret values can be read from environment variables forwarded from the host
+shell into the mitmproxy container. Prefix the `value` field with `env:`:
+
+```json
+{
+  "secrets": {
+    "GITHUB_TOKEN": {
+      "value": "env:GITHUB_TOKEN",
+      "hosts": ["github.com", "*.github.com", "*.githubusercontent.com"]
+    }
+  }
+}
+```
+
+The named variable is looked up in the mitmproxy container's environment at
+startup. If it is not set, a warning is logged and the secret resolves to an
+empty string.
+
+To forward a variable from your host shell, set it in the `environment` section
+of your `docker-compose.override.yml`, or export it before running
+`sandcat compose up`.
+
 ### How it works internally
 
 1. The mitmproxy container mounts `~/.config/sandcat/settings.json` (read-only)
