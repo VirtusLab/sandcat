@@ -73,7 +73,7 @@ then
 	echo "Total $(jq -r '.percent_covered' <"$coverage_dir/merged/kcov-merged/coverage.json")%"
 fi
 
-if ! command -v tput &>/dev/null; then
+if ! tput sgr0 &>/dev/null; then
 	tput() { :; }
 fi
 
