@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+
+# this will catch unmatched commands, otherwise `sandcat attach foobar` would try
+# to execute `foobar` as a command in this module
+
+exec attach "$@"

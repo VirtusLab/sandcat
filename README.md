@@ -132,6 +132,20 @@ sandcat run --build
 claude-yolo
 ```
 
+**Attaching to a running container:**
+
+If the sandbox is already running (e.g. started by VS Code's devcontainer integration or
+another terminal), use `attach` to open an additional shell in it without starting a new
+container:
+
+```bash
+sandcat attach
+```
+
+Unlike `sandcat run`, this connects to an existing container rather than starting a fresh one.
+It uses `find_compose_file` to locate the correct project, so it works reliably even when
+multiple sandboxes are running in parallel.
+
 ### Customizing the generated files
 
 **`compose-all.yml`** — `network_mode: "service:wg-client"` routes all traffic
@@ -830,6 +844,12 @@ Start the container from the command line:
 
 ```sh
 sandcat run
+```
+
+Attach a shell to an already-running container:
+
+```sh
+sandcat attach
 ```
 
 Tear down all containers and volumes (resets persisted home directory):
