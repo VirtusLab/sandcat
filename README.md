@@ -139,7 +139,8 @@ another terminal), use `attach` to open an additional shell in it without starti
 container:
 
 ```bash
-sandcat attach
+sandcat attach           # opens bash --login
+sandcat attach <cmd>     # runs <cmd> directly, e.g. sandcat attach zsh
 ```
 
 Unlike `sandcat run`, this connects to an existing container rather than starting a fresh one.
