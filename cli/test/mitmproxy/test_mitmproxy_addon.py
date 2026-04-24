@@ -138,6 +138,18 @@ def _patch_cursor_cli_config_path(tmp_path):
         yield
 
 
+@pytest.fixture(autouse=True)
+def _patch_extra_hosts_path(tmp_path_factory):
+    """load() writes extra_hosts sidecar; keep it off the real mitmproxy home.
+
+    Tests that care about the file's contents re-patch this locally with a
+    known path (see TestExtraHosts).
+    """
+    path = tmp_path_factory.mktemp("extra_hosts_default") / "extra_hosts"
+    with patch(f"{_COMMON}.EXTRA_HOSTS_PATH", str(path)):
+        yield
+
+
 def _make_flow(method="GET", host="example.com", url=None, headers=None, content=None):
     flow = MagicMock()
     flow.request = _Request(
@@ -1855,6 +1867,7 @@ class TestSettingsMerging:
         assert merged == {
             "env": {},
             "secrets": {},
+            "extra_hosts": {},
             "network": [],
             "cursor": {"cli": {}},
             "op_service_account_token": None,
@@ -1924,6 +1937,99 @@ class TestSettingsMerging:
         merged = BaseAddon._merge_settings(layers)
         assert merged["dns_servers"] is None
 
+    def test_extra_hosts_higher_precedence_wins(self):
+        layers = [
+            {"extra_hosts": {"a.corp": "10.0.0.1", "b.corp": "10.0.0.2"}},
+            {"extra_hosts": {"b.corp": "10.0.0.99"}},
+        ]
+        merged = BaseAddon._merge_settings(layers)
+        assert merged["extra_hosts"] == {"a.corp": "10.0.0.1", "b.corp": "10.0.0.99"}
+
+
+
+@pytest.mark.parametrize("addon_cls", ADDONS)
+class TestExtraHosts:
+    def _load_with_settings(self, addon_cls, tmp_path, settings):
+        p = tmp_path / "settings.json"
+        p.write_text(json.dumps(settings))
+        hosts_path = tmp_path / "extra_hosts"
+        addon = addon_cls()
+        with patch(f"{_COMMON}.SETTINGS_PATHS", [str(p)]), \
+             patch(f"{_COMMON}.SANDCAT_ENV_PATH", str(tmp_path / "sandcat.env")), \
+             patch(f"{_COMMON}.SANDCAT_DNS_CONF_PATH", str(tmp_path / "dns.conf")), \
+             patch(f"{_COMMON}.EXTRA_HOSTS_PATH", str(hosts_path)):
+            addon.load(MagicMock())
+        return hosts_path.read_text() if hosts_path.exists() else None
+
+    def test_writes_hosts_file_in_etc_hosts_format(self, addon_cls, tmp_path):
+        content = self._load_with_settings(addon_cls, tmp_path, {
+            "extra_hosts": {"maven.corp": "10.0.0.5", "jira.corp": "10.0.0.6"},
+        })
+        assert "10.0.0.5\tmaven.corp" in content
+        assert "10.0.0.6\tjira.corp" in content
+
+    def test_writes_empty_file_when_no_entries(self, addon_cls, tmp_path):
+        # Even when `extra_hosts` is absent from settings, the file MUST exist
+        # (empty), so wg-client-init can treat file-existence as authoritative
+        # and clean stale entries from previous runs.
+        content = self._load_with_settings(addon_cls, tmp_path, {
+            "network": [{"action": "allow", "host": "*"}],
+        })
+        assert content == ""
+
+    def test_ipv6_address_accepted(self, addon_cls, tmp_path):
+        # IPv6 accepted for NSS lookup even though the container's kill-switch
+        # drops outbound IPv6 (documented behaviour, matches _write_extra_hosts
+        # docstring). Test guards against regression that silently drops the entry.
+        content = self._load_with_settings(addon_cls, tmp_path, {
+            "extra_hosts": {"v6.corp": "2001:db8::1"},
+        })
+        assert "2001:db8::1\tv6.corp" in content
+
+    def test_invalid_ip_skipped(self, addon_cls, tmp_path):
+        content = self._load_with_settings(addon_cls, tmp_path, {
+            "extra_hosts": {"good.corp": "10.0.0.1", "bad.corp": "not-an-ip"},
+        })
+        assert "10.0.0.1\tgood.corp" in content
+        assert "bad.corp" not in content
+
+    def test_invalid_hostname_skipped(self, addon_cls, tmp_path):
+        content = self._load_with_settings(addon_cls, tmp_path, {
+            "extra_hosts": {"bad host!": "10.0.0.1", "good.corp": "10.0.0.2"},
+        })
+        assert "10.0.0.2\tgood.corp" in content
+        assert "bad host!" not in content
+
+    def test_non_string_value_skipped(self, addon_cls, tmp_path):
+        content = self._load_with_settings(addon_cls, tmp_path, {
+            "extra_hosts": {"numeric.corp": 42, "good.corp": "10.0.0.2"},
+        })
+        assert "10.0.0.2\tgood.corp" in content
+        assert "numeric.corp" not in content
+
+    def test_trailing_dot_in_hostname_normalised(self, addon_cls, tmp_path):
+        # FQDN with trailing dot is a common convention; the addon strips it
+        # before regex validation so `nexus.corp.` is stored as `nexus.corp`.
+        content = self._load_with_settings(addon_cls, tmp_path, {
+            "extra_hosts": {"nexus.corp.": "10.0.0.1"},
+        })
+        assert "10.0.0.1\tnexus.corp" in content
+        assert "nexus.corp." not in content
+
+    def test_disable_branch_truncates_stale_extra_hosts(self, addon_cls, tmp_path):
+        # When the addon disables itself (no settings files present) it MUST
+        # still truncate any pre-existing extra_hosts sidecar so wg-client
+        # cannot re-apply stale mappings from a previous run.
+        hosts_path = tmp_path / "extra_hosts"
+        hosts_path.write_text("10.0.0.5\tstale.corp\n")  # simulate leftover
+        addon = addon_cls()
+        with patch(f"{_COMMON}.SETTINGS_PATHS", [str(tmp_path / "does-not-exist.json")]), \
+             patch(f"{_COMMON}.SANDCAT_ENV_PATH", str(tmp_path / "sandcat.env")), \
+             patch(f"{_COMMON}.SANDCAT_DNS_CONF_PATH", str(tmp_path / "dns.conf")), \
+             patch(f"{_COMMON}.CURSOR_CLI_CONFIG_PATH", str(tmp_path / "cursor-cli-config.json")), \
+             patch(f"{_COMMON}.EXTRA_HOSTS_PATH", str(hosts_path)):
+            addon.load(MagicMock())
+        assert hosts_path.read_text() == "", "disable branch must truncate stale entries"
 
 # ---------------------------------------------------------------------------
 # Multi-file loading — exercises the shared layer-reading loop.
