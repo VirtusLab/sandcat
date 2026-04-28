@@ -190,8 +190,8 @@ class SandcatAddon:
 
     @staticmethod
     def _normalize_secret_value(value) -> str:
-        """Default: pass-through. Subclasses may strip whitespace / BOM."""
-        return "" if value is None else value
+        """Default: coerce to string. Subclasses may strip whitespace / BOM."""
+        return "" if value is None else str(value)
 
     # --------------------------------------------------------------- network
 
