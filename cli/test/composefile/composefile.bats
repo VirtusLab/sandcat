@@ -49,11 +49,11 @@ teardown() {
 	yq -e '.services.agent.volumes[] | select(. == "${HOME}/.claude/commands:/home/vscode/.claude/commands:ro")' "$COMPOSE_FILE"
 }
 
-@test "add_cursor_config_volumes adds AGENTS.md, rules, and skills" {
+@test "add_cursor_config_volumes adds AGENTS.md, rules, skills, commands, hooks, and agents" {
 	add_cursor_config_volumes "$COMPOSE_FILE"
 
 	run yq '.services.agent.volumes | length' "$COMPOSE_FILE"
-	assert_output "4"
+	assert_output "8"
 
 	# shellcheck disable=SC2016
 	yq -e '.services.agent.volumes[] | select(. == "${HOME}/.cursor/AGENTS.md:/home/vscode/.cursor/AGENTS.md:ro")' "$COMPOSE_FILE"
@@ -63,6 +63,18 @@ teardown() {
 
 	# shellcheck disable=SC2016
 	yq -e '.services.agent.volumes[] | select(. == "${HOME}/.cursor/skills:/home/vscode/.cursor/skills:ro")' "$COMPOSE_FILE"
+
+	# shellcheck disable=SC2016
+	yq -e '.services.agent.volumes[] | select(. == "${HOME}/.cursor/commands:/home/vscode/.cursor/commands:ro")' "$COMPOSE_FILE"
+
+	# shellcheck disable=SC2016
+	yq -e '.services.agent.volumes[] | select(. == "${HOME}/.cursor/hooks.json:/home/vscode/.cursor/hooks.json:ro")' "$COMPOSE_FILE"
+
+	# shellcheck disable=SC2016
+	yq -e '.services.agent.volumes[] | select(. == "${HOME}/.cursor/hooks:/home/vscode/.cursor/hooks:ro")' "$COMPOSE_FILE"
+
+	# shellcheck disable=SC2016
+	yq -e '.services.agent.volumes[] | select(. == "${HOME}/.cursor/agents:/home/vscode/.cursor/agents:ro")' "$COMPOSE_FILE"
 }
 
 
@@ -256,16 +268,22 @@ EOF
 
 # shellcheck disable=SC2016
 @test "customize_compose_file dispatches to add_cursor_config_volumes for cursor agent" {
-	# We assert the dispatch (one Cursor-specific volume present) rather than
-	# re-listing every cursor mount; the per-volume contract is covered by
-	# `add_cursor_config_volumes adds AGENTS.md, rules, and skills`.
+	# Dispatch smoke: representative cursor mounts; full list is covered by
+	# `add_cursor_config_volumes adds AGENTS.md, rules, skills, commands, hooks, and agents`.
 	SETTINGS_FILE=".sandcat/settings.json"
 	mkdir -p "$BATS_TEST_TMPDIR/.sandcat"
 	touch "$BATS_TEST_TMPDIR/$SETTINGS_FILE"
 
 	customize_compose_file "$SETTINGS_FILE" "$COMPOSE_FILE" "cursor" "vscode" "test-project"
 
+	# shellcheck disable=SC2016
 	yq -e '.services.agent.volumes[] | select(. == "${HOME}/.cursor/AGENTS.md:/home/vscode/.cursor/AGENTS.md:ro")' "$COMPOSE_FILE"
+	# shellcheck disable=SC2016
+	yq -e '.services.agent.volumes[] | select(. == "${HOME}/.cursor/commands:/home/vscode/.cursor/commands:ro")' "$COMPOSE_FILE"
+	# shellcheck disable=SC2016
+	yq -e '.services.agent.volumes[] | select(. == "${HOME}/.cursor/hooks.json:/home/vscode/.cursor/hooks.json:ro")' "$COMPOSE_FILE"
+	# shellcheck disable=SC2016
+	yq -e '.services.agent.volumes[] | select(. == "${HOME}/.cursor/agents:/home/vscode/.cursor/agents:ro")' "$COMPOSE_FILE"
 	# No claude volumes leak through when agent=cursor.
 	run yq '.services.agent.volumes[] | select(test("\\.claude/"))' "$COMPOSE_FILE"
 	assert_output ""

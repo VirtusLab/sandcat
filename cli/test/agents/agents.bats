@@ -67,7 +67,11 @@ setup() {
 	run sct_agent_host_config_paths cursor
 	assert_output --partial '$HOME/.cursor/rules/'
 	assert_output --partial '$HOME/.cursor/skills/'
+	assert_output --partial '$HOME/.cursor/commands/'
+	assert_output --partial '$HOME/.cursor/agents/'
+	assert_output --partial '$HOME/.cursor/hooks/'
 	assert_output --partial '$HOME/.cursor/AGENTS.md'
+	assert_output --partial '$HOME/.cursor/hooks.json'
 }
 
 @test "sct_agent_host_config_paths: unknown returns empty" {
@@ -98,6 +102,33 @@ setup() {
 	assert_success
 
 	[[ ! -d "$HOME/.claude" ]]
+}
+
+@test "ensure_host_agent_config_paths: creates cursor paths under HOME" {
+	export HOME="$BATS_TEST_TMPDIR/home"
+	mkdir -p "$HOME"
+
+	run ensure_host_agent_config_paths cursor
+	assert_success
+
+	[[ -d "$HOME/.cursor/rules" ]]
+	[[ -d "$HOME/.cursor/skills" ]]
+	[[ -d "$HOME/.cursor/commands" ]]
+	[[ -d "$HOME/.cursor/agents" ]]
+	[[ -d "$HOME/.cursor/hooks" ]]
+	[[ -f "$HOME/.cursor/AGENTS.md" ]]
+	[[ -f "$HOME/.cursor/hooks.json" ]]
+}
+
+@test "ensure_host_agent_config_paths: skips when SANDCAT_MOUNT_CURSOR_CONFIG=false" {
+	export HOME="$BATS_TEST_TMPDIR/home"
+	mkdir -p "$HOME"
+	export SANDCAT_MOUNT_CURSOR_CONFIG=false
+
+	run ensure_host_agent_config_paths cursor
+	assert_success
+
+	[[ ! -d "$HOME/.cursor" ]]
 }
 
 @test "ensure_host_agent_config_paths: no-op for unknown agent" {

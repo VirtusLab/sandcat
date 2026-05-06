@@ -205,6 +205,56 @@ assert_cursor_volumes() {
 			.read_only == true
 		)
 	" "$compose_file"
+
+	HOME="$HOME" yq -e "
+		.services.agent.volumes[] |
+		select(
+			.type == \"bind\" and
+			.source == (env(HOME) + \"/.cursor/skills\") and
+			.target == \"/home/vscode/.cursor/skills\" and
+			.read_only == true
+		)
+	" "$compose_file"
+
+	HOME="$HOME" yq -e "
+		.services.agent.volumes[] |
+		select(
+			.type == \"bind\" and
+			.source == (env(HOME) + \"/.cursor/commands\") and
+			.target == \"/home/vscode/.cursor/commands\" and
+			.read_only == true
+		)
+	" "$compose_file"
+
+	HOME="$HOME" yq -e "
+		.services.agent.volumes[] |
+		select(
+			.type == \"bind\" and
+			.source == (env(HOME) + \"/.cursor/agents\") and
+			.target == \"/home/vscode/.cursor/agents\" and
+			.read_only == true
+		)
+	" "$compose_file"
+
+	HOME="$HOME" yq -e "
+		.services.agent.volumes[] |
+		select(
+			.type == \"bind\" and
+			.source == (env(HOME) + \"/.cursor/hooks\") and
+			.target == \"/home/vscode/.cursor/hooks\" and
+			.read_only == true
+		)
+	" "$compose_file"
+
+	HOME="$HOME" yq -e "
+		.services.agent.volumes[] |
+		select(
+			.type == \"bind\" and
+			.source == (env(HOME) + \"/.cursor/hooks.json\") and
+			.target == \"/home/vscode/.cursor/hooks.json\" and
+			.read_only == true
+		)
+	" "$compose_file"
 }
 
 assert_devcontainer_volume() {

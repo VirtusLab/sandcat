@@ -57,7 +57,11 @@ EOF
 			cat <<'EOF'
 $HOME/.cursor/rules/
 $HOME/.cursor/skills/
+$HOME/.cursor/commands/
+$HOME/.cursor/agents/
+$HOME/.cursor/hooks/
 $HOME/.cursor/AGENTS.md
+$HOME/.cursor/hooks.json
 EOF
 			;;
 		*)

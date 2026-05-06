@@ -33,6 +33,14 @@ teardown() {
 }
 
 @test "warning when image is much newer than volume" {
+	# warn_stale_home_volume uses GNU date (-d flag) and silently skips the
+	# stale-volume check when it is unavailable (e.g. BSD date on macOS).
+	# Skip this test on those platforms so it only runs where the warning
+	# is actually emitted.
+	if ! date -d "2024-01-01T00:00:00Z" +%s &>/dev/null; then
+		skip "requires GNU date"
+	fi
+
 	stub docker \
 		"volume inspect myproject-sandbox_agent-home : :" \
 		"volume inspect --format {{.CreatedAt}} myproject-sandbox_agent-home : echo '2024-01-15T10:00:00Z'" \

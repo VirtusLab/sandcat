@@ -13,7 +13,8 @@ source "$SCT_LIBDIR/agents.bash"
 # Optional volumes are added as commented-out entries by default. Set environment
 # variables to "true" before calling this function to add them as active mounts:
 #   - SANDCAT_MOUNT_CLAUDE_CONFIG: "true" to mount host Claude config (~/.claude)
-#   - SANDCAT_MOUNT_CURSOR_CONFIG: "true" to mount host Cursor config (~/.cursor)
+#   - SANDCAT_MOUNT_CURSOR_CONFIG: "true" to mount host Cursor config (~/.cursor:
+#     AGENTS.md, rules/, skills/, commands/, hooks.json, hooks/, agents/)
 #   - SANDCAT_MOUNT_GIT_READONLY: "true" to mount .git directory as read-only
 #   - SANDCAT_MOUNT_IDEA_READONLY: "true" to mount .idea directory as read-only
 # Args:
@@ -254,6 +255,14 @@ add_cursor_config_volumes() {
 	add_volume_entry "$compose_file" '${HOME}/.cursor/rules:/home/vscode/.cursor/rules:ro' "$active"
 	# shellcheck disable=SC2016
 	add_volume_entry "$compose_file" '${HOME}/.cursor/skills:/home/vscode/.cursor/skills:ro' "$active"
+	# shellcheck disable=SC2016
+	add_volume_entry "$compose_file" '${HOME}/.cursor/commands:/home/vscode/.cursor/commands:ro' "$active"
+	# shellcheck disable=SC2016
+	add_volume_entry "$compose_file" '${HOME}/.cursor/hooks.json:/home/vscode/.cursor/hooks.json:ro' "$active"
+	# shellcheck disable=SC2016
+	add_volume_entry "$compose_file" '${HOME}/.cursor/hooks:/home/vscode/.cursor/hooks:ro' "$active"
+	# shellcheck disable=SC2016
+	add_volume_entry "$compose_file" '${HOME}/.cursor/agents:/home/vscode/.cursor/agents:ro' "$active"
 }
 
 

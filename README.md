@@ -574,7 +574,11 @@ Cursor CLI support is available via `sandcat init --agent cursor`.
   `~/.config/cursor/cli-config.json` (`~/.cursor/cli-config.json` is also
   updated for compatibility).
 - `SANDCAT_MOUNT_CURSOR_CONFIG=true` mounts `~/.cursor/AGENTS.md`,
-  `~/.cursor/rules`, and `~/.cursor/skills` into the agent container.
+  `~/.cursor/rules`, `~/.cursor/skills`, `~/.cursor/commands`,
+  `~/.cursor/hooks.json`, `~/.cursor/hooks`, and `~/.cursor/agents` into the
+  agent container (read-only). User-level MCP config (`~/.cursor/mcp.json`,
+  `~/.cursor/plugins/local`, etc.) is not mounted yet; treat MCP + mitmproxy
+  allowlists as a separate change if you need them in the sandbox.
 - **Cursor CLI TLS through mitmproxy.** The Cursor CLI bundles its own Node.js
   binary with compiled-in Mozilla CA roots. Sandcat sets
   `NODE_OPTIONS=--use-openssl-ca` so the bundled Node.js uses the system CA
