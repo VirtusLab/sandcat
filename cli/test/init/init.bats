@@ -42,9 +42,9 @@ teardown() {
 	stub settings \
 		"$PROJECT_DIR/.sandcat/settings.json claude jetbrains : :"
 	stub devcontainer \
-		"--settings-file .sandcat/settings.json --project-path * --agent claude --ide jetbrains --name test --stacks * --proxy web : :"
+		"--settings-file .sandcat/settings.json --project-path * --agent claude --ide jetbrains --name test --stacks * --proxy web --secret-provider none : :"
 
-	run init --agent claude --ide jetbrains --name test --path "$PROJECT_DIR" --stacks "" --proxy web --features ""
+	run init --agent claude --ide jetbrains --name test --path "$PROJECT_DIR" --stacks "" --proxy web --features "" --secret-provider none
 	assert_success
 }
 
@@ -52,23 +52,46 @@ teardown() {
 	stub settings \
 		"$PROJECT_DIR/.sandcat/settings.json cursor vscode : :"
 	stub devcontainer \
-		"--settings-file .sandcat/settings.json --project-path * --agent cursor --ide vscode --name test --stacks * --proxy web : :"
+		"--settings-file .sandcat/settings.json --project-path * --agent cursor --ide vscode --name test --stacks * --proxy web --secret-provider none : :"
 
-	run init --agent cursor --ide vscode --name test --path "$PROJECT_DIR" --stacks "" --proxy web --features ""
+	run init --agent cursor --ide vscode --name test --path "$PROJECT_DIR" --stacks "" --proxy web --features "" --secret-provider none
 	assert_success
+}
+
+@test "init rejects invalid --secret-provider value" {
+	run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" --stacks "" --proxy web --features "" --secret-provider invalid
+	assert_failure
+	assert_output --partial "Invalid secret provider: invalid (expected: none 1password protonpass)"
+}
+
+@test "init rejects combining --1password and --secret-provider" {
+	run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" --stacks "" --proxy web --features "" --secret-provider protonpass --1password
+	assert_failure
+	assert_output --partial "Do not combine --1password with --secret-provider"
+}
+
+@test "init adds pass_access_token when protonpass selected" {
+	stub settings "$PROJECT_DIR/.sandcat/settings.json claude vscode : :"
+	stub devcontainer \
+		"--settings-file .sandcat/settings.json --project-path * --agent claude --ide vscode --name test --stacks * --proxy web --secret-provider protonpass : :"
+
+	run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" --stacks "" --proxy web --features "" --secret-provider protonpass
+	assert_success
+	run yq -r '.pass_access_token' "$SCT_HOME_DIR/settings.json"
+	assert_output ""
 }
 
 @test "init accepts valid --stacks value" {
 	stub settings "$PROJECT_DIR/.sandcat/settings.json claude vscode : :"
 	stub devcontainer \
-		"--settings-file .sandcat/settings.json --project-path $PROJECT_DIR --agent claude --ide vscode --name test --stacks 'python rust' --proxy web : :"
+		"--settings-file .sandcat/settings.json --project-path $PROJECT_DIR --agent claude --ide vscode --name test --stacks 'python rust' --proxy web --secret-provider none : :"
 
-	run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" --stacks "python,rust" --proxy web --features ""
+	run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" --stacks "python,rust" --proxy web --features "" --secret-provider none
 	assert_success
 }
 
 @test "init rejects invalid --stacks value" {
-	run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" --stacks "python,invalid" --features ""
+	run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" --stacks "python,invalid" --features "" --secret-provider none
 	assert_failure
 	assert_output --partial "Invalid stack: invalid"
 }
@@ -76,17 +99,16 @@ teardown() {
 @test "init resolves scala dependency to java" {
 	stub settings "$PROJECT_DIR/.sandcat/settings.json claude vscode : :"
 	stub devcontainer \
-		"--settings-file .sandcat/settings.json --project-path $PROJECT_DIR --agent claude --ide vscode --name test --stacks 'java scala' --proxy web : :"
+		"--settings-file .sandcat/settings.json --project-path $PROJECT_DIR --agent claude --ide vscode --name test --stacks 'java scala' --proxy web --secret-provider none : :"
 
-	run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" --stacks "scala" --proxy web --features ""
+	run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" --stacks "scala" --proxy web --features "" --secret-provider none
 	assert_success
 }
 
-@test "init pre-selects 1password when op token exists in user settings" {
+@test "init pre-selects 1password provider when op token exists" {
 	unset -f read_line
 	unset -f select_option
 	unset -f select_multiple
-	unset -f add_op_token_to_user_settings
 
 	# Create user settings with a non-empty op token
 	echo '{"op_service_account_token": "ops_test123"}' > "$SCT_HOME_DIR/settings.json"
@@ -94,11 +116,11 @@ teardown() {
 	stub read_line "* : echo ''"
 	stub select_option \
 		"'Select agent:' claude cursor : echo claude" \
-		"'Select IDE:' vscode jetbrains none : echo vscode"
+		"'Select IDE:' vscode jetbrains none : echo vscode" \
+		"'Select secret provider:' 1password none protonpass : echo 1password"
 	stub select_multiple \
-		"'Select optional features (comma-separated numbers, enter for defaults):' 'tui (mitmproxy console instead of web UI)' 1password -- 1password : echo 1password" \
+		"'Select optional features (comma-separated numbers, empty for none):' 'tui (mitmproxy console instead of web UI)' : echo ''" \
 		"'Select development stacks (comma-separated numbers, empty for none):' node python java rust go scala ruby dotnet zig : echo ''"
-	stub add_op_token_to_user_settings ":"
 
 	local expected_name
 	expected_name=$(basename "$PROJECT_DIR")-sandbox
@@ -106,7 +128,7 @@ teardown() {
 
 	stub settings "$PROJECT_DIR/$settings_file claude vscode : :"
 	stub devcontainer \
-		"--settings-file $settings_file --project-path $PROJECT_DIR --agent claude --ide vscode --name $expected_name --stacks '' --proxy web --1password : :"
+		"--settings-file $settings_file --project-path $PROJECT_DIR --agent claude --ide vscode --name $expected_name --stacks '' --proxy web --secret-provider 1password : :"
 
 	run init --path "$PROJECT_DIR"
 
@@ -116,9 +138,9 @@ teardown() {
 @test "init pre-creates host paths for claude config mount" {
 	stub settings "$PROJECT_DIR/.sandcat/settings.json claude vscode : :"
 	stub devcontainer \
-		"--settings-file .sandcat/settings.json --project-path * --agent claude --ide vscode --name test --stacks * --proxy web : :"
+		"--settings-file .sandcat/settings.json --project-path * --agent claude --ide vscode --name test --stacks * --proxy web --secret-provider none : :"
 
-	run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" --stacks "" --proxy web --features ""
+	run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" --stacks "" --proxy web --features "" --secret-provider none
 	assert_success
 
 	# Directories pre-created so Docker won't materialise them as root-owned
@@ -130,9 +152,9 @@ teardown() {
 @test "init pre-creates host paths for cursor config mount" {
 	stub settings "$PROJECT_DIR/.sandcat/settings.json cursor vscode : :"
 	stub devcontainer \
-		"--settings-file .sandcat/settings.json --project-path * --agent cursor --ide vscode --name test --stacks * --proxy web : :"
+		"--settings-file .sandcat/settings.json --project-path * --agent cursor --ide vscode --name test --stacks * --proxy web --secret-provider none : :"
 
-	run init --agent cursor --ide vscode --name test --path "$PROJECT_DIR" --stacks "" --proxy web --features ""
+	run init --agent cursor --ide vscode --name test --path "$PROJECT_DIR" --stacks "" --proxy web --features "" --secret-provider none
 	assert_success
 
 	[[ -d "$HOME/.cursor/rules" ]]
@@ -145,9 +167,9 @@ teardown() {
 
 	stub settings "$PROJECT_DIR/.sandcat/settings.json cursor vscode : :"
 	stub devcontainer \
-		"--settings-file .sandcat/settings.json --project-path * --agent cursor --ide vscode --name test --stacks * --proxy web : :"
+		"--settings-file .sandcat/settings.json --project-path * --agent cursor --ide vscode --name test --stacks * --proxy web --secret-provider none : :"
 
-	run init --agent cursor --ide vscode --name test --path "$PROJECT_DIR" --stacks "" --proxy web --features ""
+	run init --agent cursor --ide vscode --name test --path "$PROJECT_DIR" --stacks "" --proxy web --features "" --secret-provider none
 	assert_success
 
 	[[ ! -d "$HOME/.cursor/rules" ]]
@@ -162,9 +184,10 @@ teardown() {
 	stub read_line "* : echo ''"
 	stub select_option \
 		"'Select agent:' claude cursor : echo claude" \
-		"'Select IDE:' vscode jetbrains none : echo vscode"
+		"'Select IDE:' vscode jetbrains none : echo vscode" \
+		"'Select secret provider:' none 1password protonpass : echo none"
 	stub select_multiple \
-		"'Select optional features (comma-separated numbers, empty for none):' 'tui (mitmproxy console instead of web UI)' 1password -- : echo ''" \
+		"'Select optional features (comma-separated numbers, empty for none):' 'tui (mitmproxy console instead of web UI)' : echo ''" \
 		"'Select development stacks (comma-separated numbers, empty for none):' node python java rust go scala ruby dotnet zig : echo ''"
 
 	local expected_name
@@ -173,7 +196,7 @@ teardown() {
 
 	stub settings "$PROJECT_DIR/$settings_file claude vscode : :"
 	stub devcontainer \
-		"--settings-file $settings_file --project-path $PROJECT_DIR --agent claude --ide vscode --name $expected_name --stacks '' --proxy web : :"
+		"--settings-file $settings_file --project-path $PROJECT_DIR --agent claude --ide vscode --name $expected_name --stacks '' --proxy web --secret-provider none : :"
 
 	run init --path "$PROJECT_DIR"
 

@@ -23,12 +23,12 @@ devcontainer() {
 	local name=""
 	local stacks=""
 	local proxy_mode="web"
-	local onepassword="false"
+	local secret_provider="none"
 
 	while [[ $# -gt 0 ]]
 	do
 		case $1 in
-		--settings-file|--project-path|--agent|--ide|--name|--stacks|--proxy)
+		--settings-file|--project-path|--agent|--ide|--name|--stacks|--proxy|--secret-provider)
 			if [[ $# -lt 2 ]]; then
 				echo "Option $1 requires a value" | error
 				return 1
@@ -64,8 +64,12 @@ devcontainer() {
 			proxy_mode="$2"
 			shift 2
 			;;
+		--secret-provider)
+			secret_provider="$2"
+			shift 2
+			;;
 		--1password)
-			onepassword="true"
+			secret_provider="1password"
 			shift 1
 			;;
 		*)
@@ -107,9 +111,7 @@ devcontainer() {
 		set_proxy_tui_mode "$devcontainer_dir/sandcat/compose-proxy.yml"
 	fi
 
-	if [[ "$onepassword" == "true" ]]; then
-		enable_1password "$devcontainer_dir/sandcat/compose-proxy.yml"
-	fi
+	apply_secret_provider "$devcontainer_dir/sandcat/compose-proxy.yml" "$secret_provider"
 
 	customize_compose_file "$rel_settings_file" "$compose_file" "$agent" "$ide" "$project_name"
 	set_project_name "$compose_file" "$project_name"

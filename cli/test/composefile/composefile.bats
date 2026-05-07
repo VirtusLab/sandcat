@@ -310,3 +310,44 @@ YAML
 	assert_output "mitmdump --mode wireguard --set http2=true --set stream_large_bodies=1m --set connection_strategy=lazy --set anticomp=true --set timeout_read=300 -s /scripts/mitmproxy_addon_cursor.py"
 	yq -e '.services.mitmproxy.command | contains("/scripts/mitmproxy_addon_cursor.py")' "$proxy_compose"
 }
+
+@test "apply_secret_provider configures 1password proxy image/env" {
+	local proxy_compose="$BATS_TEST_TMPDIR/compose-proxy.yml"
+	cat >"$proxy_compose" <<'YAML'
+services:
+  mitmproxy:
+    image: mitmproxy/mitmproxy:latest
+YAML
+
+	apply_secret_provider "$proxy_compose" "1password"
+
+	yq -e '.services.mitmproxy.image == "ghcr.io/virtuslab/sandcat-mitmproxy-op:latest"' "$proxy_compose"
+	yq -e '.services.mitmproxy.environment[] | select(. == "OP_SERVICE_ACCOUNT_TOKEN")' "$proxy_compose"
+}
+
+@test "apply_secret_provider configures protonpass proxy image/env" {
+	local proxy_compose="$BATS_TEST_TMPDIR/compose-proxy-pass.yml"
+	cat >"$proxy_compose" <<'YAML'
+services:
+  mitmproxy:
+    image: mitmproxy/mitmproxy:latest
+YAML
+
+	apply_secret_provider "$proxy_compose" "protonpass"
+
+	yq -e '.services.mitmproxy.image == "ghcr.io/virtuslab/sandcat-mitmproxy-pass:latest"' "$proxy_compose"
+	yq -e '.services.mitmproxy.environment[] | select(. == "PASS_ACCESS_TOKEN")' "$proxy_compose"
+}
+
+@test "apply_secret_provider leaves default image for none" {
+	local proxy_compose="$BATS_TEST_TMPDIR/compose-proxy-none.yml"
+	cat >"$proxy_compose" <<'YAML'
+services:
+  mitmproxy:
+    image: mitmproxy/mitmproxy:latest
+YAML
+
+	apply_secret_provider "$proxy_compose" "none"
+
+	yq -e '.services.mitmproxy.image == "mitmproxy/mitmproxy:latest"' "$proxy_compose"
+}

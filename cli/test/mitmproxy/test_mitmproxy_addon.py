@@ -1039,13 +1039,49 @@ class TestOpSecretResolution:
 
     def test_both_value_and_op_raises(self, addon_cls):
         entry = {"value": "x", "op": "op://vault/item/field", "hosts": []}
-        with pytest.raises(ValueError, match="either 'value' or 'op'"):
+        with pytest.raises(ValueError, match="exactly one of 'value', 'op', or 'pass'"):
+            addon_cls._resolve_secret_value("KEY", entry)
+
+    def test_both_op_and_pass_raises(self, addon_cls):
+        entry = {"op": "op://vault/item/field", "pass": "pass://vault/item/field", "hosts": []}
+        with pytest.raises(ValueError, match="exactly one of 'value', 'op', or 'pass'"):
             addon_cls._resolve_secret_value("KEY", entry)
 
     def test_neither_value_nor_op_raises(self, addon_cls):
         entry = {"hosts": ["example.com"]}
-        with pytest.raises(ValueError, match="must specify either"):
+        with pytest.raises(ValueError, match="exactly one of 'value', 'op', or 'pass'"):
             addon_cls._resolve_secret_value("KEY", entry)
+
+    def test_pass_reference_resolved_via_subprocess(self, addon_cls):
+        entry = {"pass": "pass://vault/item/field", "hosts": ["api.example.com"]}
+        with patch(f"{_COMMON}.subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0, stdout="secret-value\n", stderr="")
+            value = addon_cls._resolve_secret_value("KEY", entry)
+        assert value == "secret-value"
+        mock_run.assert_called_once_with(
+            ["pass-cli", "secret", "get", "pass://vault/item/field"],
+            capture_output=True, text=True, timeout=30,
+        )
+
+    def test_pass_without_prefix_raises(self, addon_cls):
+        entry = {"pass": "vault/item/field", "hosts": []}
+        with pytest.raises(ValueError, match="must start with 'pass://'"):
+            addon_cls._resolve_secret_value("KEY", entry)
+
+    def test_pass_cli_not_found_raises(self, addon_cls):
+        entry = {"pass": "pass://vault/item/field", "hosts": []}
+        with patch(f"{_COMMON}.subprocess.run", side_effect=FileNotFoundError):
+            with pytest.raises(RuntimeError, match="'pass-cli' not found"):
+                addon_cls._resolve_secret_value("KEY", entry)
+
+    def test_pass_cli_failure_raises(self, addon_cls):
+        entry = {"pass": "pass://vault/item/field", "hosts": []}
+        with patch(f"{_COMMON}.subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=1, stdout="", stderr="unauthorized"
+            )
+            with pytest.raises(RuntimeError, match="'pass-cli' read failed"):
+                addon_cls._resolve_secret_value("KEY", entry)
 
     def test_op_without_prefix_raises(self, addon_cls):
         entry = {"op": "vault/item/field", "hosts": []}
@@ -1134,6 +1170,29 @@ class TestOpSecretResolution:
         addon_cls._configure_op_token(None)
         assert "OP_SERVICE_ACCOUNT_TOKEN" not in os.environ
 
+    def test_pass_token_from_settings(self, addon_cls, tmp_path, monkeypatch):
+        monkeypatch.delenv("PASS_ACCESS_TOKEN", raising=False)
+        settings = {
+            "pass_access_token": "pass_test_token",
+            "secrets": {"KEY": {"pass": "pass://vault/item/field", "hosts": []}},
+        }
+        p = tmp_path / "settings.json"
+        p.write_text(json.dumps(settings))
+        env_path = tmp_path / "sandcat.env"
+        addon = addon_cls()
+        with patch(f"{_COMMON}.SETTINGS_PATHS", [str(p)]), \
+             patch(f"{_COMMON}.SANDCAT_ENV_PATH", str(env_path)), \
+             patch(f"{_COMMON}.subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0, stdout="secret\n", stderr="")
+            addon.load(MagicMock())
+        assert os.environ.get("PASS_ACCESS_TOKEN") == "pass_test_token"
+        monkeypatch.delenv("PASS_ACCESS_TOKEN", raising=False)
+
+    def test_pass_token_env_var_takes_precedence(self, addon_cls, monkeypatch):
+        monkeypatch.setenv("PASS_ACCESS_TOKEN", "from_env")
+        addon_cls._configure_pass_token("from_settings")
+        assert os.environ["PASS_ACCESS_TOKEN"] == "from_env"
+
 
 # ---------------------------------------------------------------------------
 # Settings merging — pure shared logic on the base class.
@@ -1188,6 +1247,7 @@ class TestSettingsMerging:
         assert merged["secrets"] == {}
         assert merged["network"] == [{"action": "allow", "host": "*"}]
         assert merged["op_service_account_token"] is None
+        assert merged["pass_access_token"] is None
 
     def test_op_token_highest_precedence_wins(self):
         layers = [
@@ -1209,6 +1269,23 @@ class TestSettingsMerging:
         layers = [{"env": {"A": "1"}}]
         merged = BaseAddon._merge_settings(layers)
         assert merged["op_service_account_token"] is None
+        assert merged["pass_access_token"] is None
+
+    def test_pass_token_highest_precedence_wins(self):
+        layers = [
+            {"pass_access_token": "user_pass"},
+            {"pass_access_token": "project_pass"},
+        ]
+        merged = BaseAddon._merge_settings(layers)
+        assert merged["pass_access_token"] == "project_pass"
+
+    def test_pass_token_skips_empty(self):
+        layers = [
+            {"pass_access_token": "user_pass"},
+            {"pass_access_token": ""},
+        ]
+        merged = BaseAddon._merge_settings(layers)
+        assert merged["pass_access_token"] == "user_pass"
 
     def test_empty_layers_list(self):
         merged = BaseAddon._merge_settings([])
@@ -1218,7 +1295,44 @@ class TestSettingsMerging:
             "network": [],
             "op_service_account_token": None,
             "dns_servers": None,
+            "pass_access_token": None,
         }
+
+    def test_dns_servers_highest_precedence_wins(self):
+        layers = [
+            {"dns_servers": ["10.0.0.1"]},
+            {"dns_servers": ["10.0.0.2", "10.0.0.3"]},
+        ]
+        merged = BaseAddon._merge_settings(layers)
+        assert merged["dns_servers"] == ["10.0.0.2", "10.0.0.3"]
+
+    def test_dns_servers_explicit_empty_wins_over_lower_layer(self):
+        # Higher-precedence layer explicitly sets [] → resets to "no overrides",
+        # the wg-client falls back to its hardcoded defaults.
+        layers = [
+            {"dns_servers": ["10.0.0.1"]},
+            {"dns_servers": []},
+        ]
+        merged = BaseAddon._merge_settings(layers)
+        assert merged["dns_servers"] == []
+
+    def test_dns_servers_absent(self):
+        layers = [{"env": {"A": "1"}}]
+        merged = BaseAddon._merge_settings(layers)
+        assert merged["dns_servers"] is None
+
+    def test_dns_servers_lower_layer_used_when_higher_layer_omits_key(self):
+        # Most common shape: user sets corp DNS, project doesn't touch it.
+        layers = [{"dns_servers": ["10.0.0.1"]}, {"env": {"A": "1"}}]
+        merged = BaseAddon._merge_settings(layers)
+        assert merged["dns_servers"] == ["10.0.0.1"]
+
+    def test_dns_servers_explicit_null_overrides_lower_layer(self):
+        # A higher layer with explicit null resets the merge — wg-client falls
+        # back to defaults.
+        layers = [{"dns_servers": ["10.0.0.1"]}, {"dns_servers": None}]
+        merged = BaseAddon._merge_settings(layers)
+        assert merged["dns_servers"] is None
 
     def test_dns_servers_highest_precedence_wins(self):
         layers = [

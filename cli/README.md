@@ -17,8 +17,9 @@ Options:
 - `--ide` - IDE for devcontainer mode: `vscode`, `jetbrains`, `none` (skips prompt)
 - `--stacks` - Comma-separated development stacks to install: `node`, `python`, `java`, `rust`, `go`, `scala`, `ruby`, `dotnet`, `zig` (skips prompt)
 - `--proxy` - Proxy UI mode: `web` (default, mitmweb browser UI) or `tui` (mitmproxy console, use with `sandcat proxy` to attach)
-- `--features` - Comma-separated optional features: `tui` (proxy console mode), `1password` (1Password secret resolution via `op` CLI)
-- `--1password` - Shorthand for `--features 1password`
+- `--secret-provider` / `--sp` - Secret backend: `none` (default), `1password`, `protonpass` (skips prompt when set)
+- `--1password` - Deprecated alias for `--secret-provider 1password`
+- `--features` - Comma-separated optional non-provider features: `tui` (proxy console mode; prefer `--proxy tui`)
 - `--name` - Project name for Docker Compose (default: derived from directory name)
 - `--path` - Project directory (default: current directory)
 
@@ -34,7 +35,23 @@ sandcat init --agent claude --ide vscode --stacks "python,node" --name myproject
 sandcat init --agent cursor --ide vscode --stacks "python,node" --name myproject --path /some/dir
 
 # With 1Password integration
-sandcat init --agent claude --ide vscode --features "1password" --name myproject
+sandcat init --agent claude --ide vscode --secret-provider 1password --name myproject
+
+# With Proton Pass integration
+sandcat init --agent claude --ide vscode --secret-provider protonpass --name myproject
+```
+
+Example Proton Pass secret entry in `~/.config/sandcat/settings.json` (under `"secrets"`):
+
+```json
+{
+  "secrets": {
+    "GITHUB_TOKEN": {
+      "pass": "pass://vault/GitHub Token/credential",
+      "hosts": ["github.com", "*.github.com", "*.githubusercontent.com"]
+    }
+  }
+}
 ```
 
 Note: Cursor agent support currently uses compatibility defaults for auth/network
@@ -54,6 +71,8 @@ Options:
 - `--ide` - The IDE name (e.g., `vscode`, `jetbrains`, `none`) (optional)
 - `--stacks` - Space-separated development stacks (e.g., `"python java"`) (optional)
 - `--name` - Project name for Docker Compose (default: `{dir}-sandbox`)
+- `--secret-provider` - `none`, `1password`, or `protonpass` (optional; default `none`)
+- `--1password` - Deprecated alias for `--secret-provider 1password`
 
 #### `sandcat init settings`
 

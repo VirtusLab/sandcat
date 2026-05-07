@@ -80,19 +80,22 @@ ensure_cursor_user_settings_defaults() {
 	' "$user_settings"
 }
 
-# Adds op_service_account_token field to user settings if not already present.
-add_op_token_to_user_settings() {
+# Seeds secret-backend token fields in user settings when missing (idempotent).
+add_secret_provider_tokens_to_user_settings() {
+	local provider=$1
 	local user_settings
 	user_settings="$(sct_home)/settings.json"
 
-	if [[ ! -f "$user_settings" ]]; then
-		return
-	fi
+	[[ -f "$user_settings" ]] || return 0
 
-	# Add the field only if it doesn't exist yet
-	if ! yq -e '.op_service_account_token' "$user_settings" &>/dev/null; then
-		yq -i -o json '.op_service_account_token = ""' "$user_settings"
-	fi
+	case "$provider" in
+	1password)
+		yq -i -o json '.op_service_account_token = (.op_service_account_token // "")' "$user_settings"
+		;;
+	protonpass)
+		yq -i -o json '.pass_access_token = (.pass_access_token // "")' "$user_settings"
+		;;
+	esac
 }
 
 # Initializes sandcat for a project.
@@ -104,8 +107,9 @@ add_op_token_to_user_settings() {
 #   --path - Project directory path
 #   --stacks - Comma-separated list of development stacks (node,python,java,...)
 #   --proxy - Proxy UI mode: web (default) or tui
-#   --1password - Enable 1Password integration for secrets (no value needed)
-#   --features - Comma-separated list of optional features (tui,1password)
+#   --secret-provider / --sp - Secret backend: none, 1password, protonpass
+#   --1password - Deprecated; same as --secret-provider 1password
+#   --features - Comma-separated optional non-provider features (tui)
 init() {
 	require yq
 
@@ -116,14 +120,16 @@ init() {
 	local stacks_csv=""
 	local stacks_provided=false
 	local proxy_mode=""
-	local onepassword=""
+	local secret_provider=""
+	local secret_provider_provided=false
+	local onepassword_alias=false
 	local features_csv=""
 	local features_provided=false
 
 	while [[ $# -gt 0 ]]
 	do
 		case $1 in
-		--name|--path|--agent|--ide|--stacks|--proxy|--features)
+		--name|--path|--agent|--ide|--stacks|--proxy|--features|--secret-provider|--sp)
 			if [[ $# -lt 2 ]]; then
 				echo "Option $1 requires a value" | error
 				return 1
@@ -156,9 +162,13 @@ init() {
 			proxy_mode="$2"
 			shift 2
 			;;
+		--secret-provider|--sp)
+			secret_provider="$2"
+			secret_provider_provided=true
+			shift 2
+			;;
 		--1password)
-			onepassword="true"
-			features_provided=true
+			onepassword_alias=true
 			shift 1
 			;;
 		--features)
@@ -172,6 +182,15 @@ init() {
 			;;
 		esac
 	done
+
+	if [[ "$onepassword_alias" == "true" && "$secret_provider_provided" == "true" ]]; then
+		echo "Do not combine --1password with --secret-provider" | error
+		return 1
+	fi
+	if [[ "$onepassword_alias" == "true" ]]; then
+		secret_provider="1password"
+		secret_provider_provided=true
+	fi
 
 	if [[ -z "$project_path" ]]
 	then
@@ -222,43 +241,47 @@ init() {
 		return 1
 	fi
 
-	# Optional features (tui, 1password)
-	if [[ "$features_provided" != "true" ]]; then
-		local available_features=("tui (mitmproxy console instead of web UI)" 1password)
-		local feature_defaults=()
-
-		# Pre-select 1password if user already has a non-empty op token configured
+	# Secret provider (none | 1password | protonpass)
+	if [[ "$secret_provider_provided" != "true" ]]; then
 		local existing_settings
 		existing_settings="$(sct_home)/settings.json"
 		if [[ -f "$existing_settings" ]] && \
 		   yq -e '.op_service_account_token // "" | select(. != "")' "$existing_settings" &>/dev/null; then
-			feature_defaults=(1password)
+			secret_provider=$(select_option "Select secret provider:" 1password none protonpass)
+		else
+			secret_provider=$(select_option "Select secret provider:" none 1password protonpass)
 		fi
+	fi
 
-		local feature_prompt="Select optional features (comma-separated numbers, empty for none):"
-		if [[ ${#feature_defaults[@]} -gt 0 ]]; then
-			feature_prompt="Select optional features (comma-separated numbers, enter for defaults):"
-		fi
+	if [[ ! " none 1password protonpass " =~ [[:space:]]${secret_provider}[[:space:]] ]]; then
+		echo "Invalid secret provider: $secret_provider (expected: none 1password protonpass)" | error
+		return 1
+	fi
 
+	# Optional non-provider features (tui → mitmproxy console)
+	if [[ "$features_provided" != "true" ]]; then
+		local available_features=("tui (mitmproxy console instead of web UI)")
 		local selected_features
-		selected_features=$(select_multiple "$feature_prompt" "${available_features[@]}" -- ${feature_defaults[@]+"${feature_defaults[@]}"})
+		selected_features=$(select_multiple "Select optional features (comma-separated numbers, empty for none):" "${available_features[@]}")
 		if [[ -n "$selected_features" ]]; then
 			for f in $selected_features; do
 				case "$f" in
 					tui*) proxy_mode="tui" ;;
-					1password) onepassword="true" ;;
+					*) echo "Unknown feature: $f (expected: tui)" | error; return 1 ;;
 				esac
 			done
 		fi
 	else
-		# Parse --features flag
 		if [[ -n "$features_csv" ]]; then
 			local IFS=','
 			for f in $features_csv; do
 				case "$f" in
 					tui) proxy_mode="tui" ;;
-					1password) onepassword="true" ;;
-					*) echo "Unknown feature: $f (expected: tui, 1password)" | error; return 1 ;;
+					1password)
+						echo "Use --secret-provider 1password instead of --features 1password" | error
+						return 1
+						;;
+					*) echo "Unknown feature: $f (expected: tui)" | error; return 1 ;;
 				esac
 			done
 		fi
@@ -306,9 +329,7 @@ init() {
 	# so Docker doesn't auto-create them as root-owned dirs in the user's home.
 	ensure_host_agent_config_paths "$agent"
 
-	if [[ "$onepassword" == "true" ]]; then
-		add_op_token_to_user_settings
-	fi
+	add_secret_provider_tokens_to_user_settings "$secret_provider"
 
 	settings "$project_path/$settings_file" "${services[@]}"
 	local devcontainer_args=(
@@ -319,10 +340,8 @@ init() {
 		--name "$name"
 		--stacks "$stacks_resolved"
 		--proxy "$proxy_mode"
+		--secret-provider "$secret_provider"
 	)
-	if [[ "$onepassword" == "true" ]]; then
-		devcontainer_args+=(--1password)
-	fi
 	devcontainer "${devcontainer_args[@]}"
 
 	# Summary
@@ -334,13 +353,22 @@ init() {
 	echo "  Project settings: $SCT_PROJECT_DIR/settings.json (network rules)" | info
 	echo "  User settings:    ~/.config/sandcat/settings.json (git identity, API keys)" | info
 	echo "  Devcontainer:     .devcontainer/" | info
-	if [[ "$onepassword" == "true" ]]; then
-		echo "  1Password:        enabled" | info
-	fi
+	case "$secret_provider" in
+	1password)
+		echo "  Secret provider:  1Password" | info
+		;;
+	protonpass)
+		echo "  Secret provider:  Proton Pass" | info
+		;;
+	none)
+		:
+		;;
+	esac
 	echo "" >&2
 	echo "Next steps:" | info
 	echo "  Edit ~/.config/sandcat/settings.json to add your API keys:" | info
-	if [[ "$onepassword" == "true" ]]; then
+	case "$secret_provider" in
+	1password)
 		echo "    $(sct_agent_op_api_key_help "$agent")" | info
 		echo "    GITHUB_TOKEN       \"op\": \"op://vault/GitHub Token/credential\"" | info
 		echo "    (adjust vault/item names to match your 1Password setup," | info
@@ -351,10 +379,17 @@ init() {
 		echo "    2. Grant it read access to the vault(s) containing your secrets" | info
 		echo "    3. Add the token to ~/.config/sandcat/settings.json:" | info
 		echo "       \"op_service_account_token\": \"ops_...\"" | info
-	else
+		;;
+	protonpass)
+		echo "    $(sct_agent_api_key_help "$agent")" | info
+		echo "    GITHUB_TOKEN       \"pass\": \"pass://vault/GitHub Token/credential\"" | info
+		echo "       \"pass_access_token\": \"...\"" | info
+		;;
+	none)
 		echo "    $(sct_agent_api_key_help "$agent")" | info
 		echo "    GITHUB_TOKEN       a GitHub personal access token (for git push, gh cli)" | info
-	fi
+		;;
+	esac
 	echo "  Then run: sandcat run, or reopen the project using the dev container" | info
 }
 

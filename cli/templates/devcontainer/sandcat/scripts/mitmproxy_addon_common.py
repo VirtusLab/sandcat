@@ -5,7 +5,7 @@ Provides a base ``SandcatAddon`` class that agent-specific addons subclass.
 The base implements all behavior that is identical across agents:
 
   - Settings layer loading and merging (user / project / local).
-  - 1Password (``op://``) reference resolution.
+  - 1Password (``op://``) and Proton Pass (``pass://``) reference resolution.
   - Network policy evaluation (top-to-bottom, first match wins, default deny).
   - Secret substitution in URL, headers, optional Basic Auth, and body.
   - ``sandcat.env`` file generation that exports placeholders for the agent.
@@ -88,6 +88,7 @@ class SandcatAddon:
         self._on_settings_merged(merged)
 
         self._configure_op_token(merged.get("op_service_account_token"))
+        self._configure_pass_token(merged.get("pass_access_token"))
         self.env = merged["env"]
         self._load_secrets(merged["secrets"])
         self._load_network_rules(merged["network"])
@@ -111,20 +112,29 @@ class SandcatAddon:
             os.environ["OP_SERVICE_ACCOUNT_TOKEN"] = token
 
     @staticmethod
+    def _configure_pass_token(token: str | None):
+        """Set PASS_ACCESS_TOKEN from settings if not already in the environment."""
+        if token and "PASS_ACCESS_TOKEN" not in os.environ:
+            os.environ["PASS_ACCESS_TOKEN"] = token
+
+    @staticmethod
     def _merge_settings(layers: list[dict]) -> dict:
-        """Merge settings from multiple layers (lowest to highest precedence).
+        """        Merge settings from multiple layers (lowest to highest precedence).
 
         - env: dict merge, higher precedence overwrites.
         - secrets: dict merge, higher precedence overwrites.
         - network: concatenated, highest precedence first (top-to-bottom matching).
         - op_service_account_token: highest precedence non-empty value wins.
         - dns_servers: highest-precedence layer that sets the key wins (last-wins).
+        - pass_access_token: highest precedence non-empty value wins.
+        - pass_access_token: highest precedence non-empty value wins.
         """
         env: dict[str, str] = {}
         secrets: dict[str, dict] = {}
         network: list[dict] = []
         op_token: str | None = None
         dns_servers = None
+        pass_token: str | None = None
 
         for layer in layers:
             env.update(layer.get("env", {}))
@@ -134,6 +144,9 @@ class SandcatAddon:
                 op_token = layer_token
             if "dns_servers" in layer:
                 dns_servers = layer["dns_servers"]
+            layer_pass_token = layer.get("pass_access_token")
+            if layer_pass_token:
+                pass_token = layer_pass_token
 
         # Network rules: highest-precedence layer's rules come first.
         for layer in reversed(layers):
@@ -145,6 +158,7 @@ class SandcatAddon:
             "network": network,
             "op_service_account_token": op_token,
             "dns_servers": dns_servers,
+            "pass_access_token": pass_token,
         }
 
     # --------------------------------------------------------------- secrets
@@ -166,43 +180,62 @@ class SandcatAddon:
 
     @classmethod
     def _resolve_secret_value(cls, name: str, entry: dict) -> str:
-        """Resolve a secret from either a plain ``value`` or a 1Password ``op`` reference."""
+        """Resolve a secret from a plain ``value``, 1Password ``op://``, or Proton Pass ``pass://`` reference."""
         has_value = "value" in entry
         has_op = "op" in entry
+        has_pass = "pass" in entry
 
-        if has_value and has_op:
+        provided = [has_value, has_op, has_pass]
+        if sum(provided) != 1:
             raise ValueError(
-                f"Secret {name!r}: specify either 'value' or 'op', not both"
-            )
-        if not has_value and not has_op:
-            raise ValueError(
-                f"Secret {name!r}: must specify either 'value' or 'op'"
+                f"Secret {name!r}: specify exactly one of 'value', 'op', or 'pass'"
             )
 
         if has_value:
             return cls._normalize_secret_value(entry["value"])
 
-        op_ref = entry["op"]
-        if not op_ref.startswith("op://"):
-            raise ValueError(
-                f"Secret {name!r}: 'op' value must start with 'op://', got {op_ref!r}"
-            )
+        if has_op:
+            op_ref = entry["op"]
+            if not op_ref.startswith("op://"):
+                raise ValueError(
+                    f"Secret {name!r}: 'op' value must start with 'op://', got {op_ref!r}"
+                )
 
+            try:
+                result = subprocess.run(
+                    ["op", "read", op_ref],
+                    capture_output=True, text=True, timeout=30,
+                )
+            except FileNotFoundError:
+                raise RuntimeError(
+                    f"Secret {name!r}: 'op' CLI not found. "
+                    "Install 1Password CLI to use op:// references."
+                ) from None
+
+            if result.returncode != 0:
+                stderr = result.stderr.strip()
+                raise RuntimeError(f"Secret {name!r}: 'op read' failed: {stderr}")
+
+            return cls._normalize_secret_value(result.stdout.strip())
+
+        pass_ref = entry["pass"]
+        if not pass_ref.startswith("pass://"):
+            raise ValueError(
+                f"Secret {name!r}: 'pass' value must start with 'pass://', got {pass_ref!r}"
+            )
         try:
             result = subprocess.run(
-                ["op", "read", op_ref],
+                ["pass-cli", "secret", "get", pass_ref],
                 capture_output=True, text=True, timeout=30,
             )
         except FileNotFoundError:
             raise RuntimeError(
-                f"Secret {name!r}: 'op' CLI not found. "
-                "Install 1Password CLI to use op:// references."
+                f"Secret {name!r}: 'pass-cli' not found. Install Proton Pass CLI to use pass:// references."
             ) from None
-
         if result.returncode != 0:
-            stderr = result.stderr.strip()
-            raise RuntimeError(f"Secret {name!r}: 'op read' failed: {stderr}")
-
+            raise RuntimeError(
+                f"Secret {name!r}: 'pass-cli' read failed: {result.stderr.strip()}"
+            )
         return cls._normalize_secret_value(result.stdout.strip())
 
     @staticmethod

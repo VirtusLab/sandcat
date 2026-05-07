@@ -35,8 +35,8 @@ teardown() {
 @test "warning when image is much newer than volume" {
 	stub docker \
 		"volume inspect myproject-sandbox_agent-home : :" \
-		"volume inspect --format {{.CreatedAt}} myproject-sandbox_agent-home : echo '2024-01-15T10:00:00Z'" \
-		"image inspect --format {{.Created}} myproject-sandbox-agent : echo '2024-06-20T14:30:00.123456789Z'"
+		"volume inspect --format * myproject-sandbox_agent-home : echo '2024-01-15T10:00:00Z'" \
+		"image inspect --format * myproject-sandbox-agent : echo '2024-06-20T14:30:00.123456789Z'"
 
 	run --separate-stderr warn_stale_home_volume "$COMPOSE_FILE"
 	assert_success
@@ -49,8 +49,8 @@ teardown() {
 	# install the image is naturally ~20s newer than the volume.
 	stub docker \
 		"volume inspect myproject-sandbox_agent-home : :" \
-		"volume inspect --format {{.CreatedAt}} myproject-sandbox_agent-home : echo '2024-01-15T10:00:00Z'" \
-		"image inspect --format {{.Created}} myproject-sandbox-agent : echo '2024-01-15T10:00:30Z'"
+		"volume inspect --format * myproject-sandbox_agent-home : echo '2024-01-15T10:00:00Z'" \
+		"image inspect --format * myproject-sandbox-agent : echo '2024-01-15T10:00:30Z'"
 
 	run warn_stale_home_volume "$COMPOSE_FILE"
 	assert_success
@@ -60,8 +60,8 @@ teardown() {
 @test "no warning when volume is newer than image" {
 	stub docker \
 		"volume inspect myproject-sandbox_agent-home : :" \
-		"volume inspect --format {{.CreatedAt}} myproject-sandbox_agent-home : echo '2024-06-20T14:30:00Z'" \
-		"image inspect --format {{.Created}} myproject-sandbox-agent : echo '2024-01-15T10:00:00.123456789Z'"
+		"volume inspect --format * myproject-sandbox_agent-home : echo '2024-06-20T14:30:00Z'" \
+		"image inspect --format * myproject-sandbox-agent : echo '2024-01-15T10:00:00.123456789Z'"
 
 	run warn_stale_home_volume "$COMPOSE_FILE"
 	assert_success
@@ -71,8 +71,8 @@ teardown() {
 @test "no warning when image does not exist" {
 	stub docker \
 		"volume inspect myproject-sandbox_agent-home : :" \
-		"volume inspect --format {{.CreatedAt}} myproject-sandbox_agent-home : echo '2024-01-15T10:00:00Z'" \
-		"image inspect --format {{.Created}} myproject-sandbox-agent : exit 1"
+		"volume inspect --format * myproject-sandbox_agent-home : echo '2024-01-15T10:00:00Z'" \
+		"image inspect --format * myproject-sandbox-agent : exit 1"
 
 	run warn_stale_home_volume "$COMPOSE_FILE"
 	assert_success
@@ -82,7 +82,7 @@ teardown() {
 @test "no warning when volume inspect for timestamp fails" {
 	stub docker \
 		"volume inspect myproject-sandbox_agent-home : :" \
-		"volume inspect --format {{.CreatedAt}} myproject-sandbox_agent-home : exit 1"
+		"volume inspect --format * myproject-sandbox_agent-home : exit 1"
 
 	run warn_stale_home_volume "$COMPOSE_FILE"
 	assert_success
