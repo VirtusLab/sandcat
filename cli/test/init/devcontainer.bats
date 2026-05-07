@@ -46,3 +46,31 @@ teardown() {
 	run grep '__STACK_EXTENSIONS__' "$DEVCONTAINER_JSON"
 	assert_success
 }
+
+@test "apply_template_placeholders fails when target file is missing" {
+	run apply_template_placeholders "$BATS_TEST_TMPDIR/missing.txt" "__X__" "y"
+	assert_failure
+	assert_output --partial "file not found"
+}
+
+@test "apply_inline_placeholders fails when target file is missing" {
+	run apply_inline_placeholders "$BATS_TEST_TMPDIR/missing.txt" "__X__" "y"
+	assert_failure
+	assert_output --partial "file not found"
+}
+
+@test "verify_no_placeholders passes when no placeholders remain" {
+	mkdir -p "$BATS_TEST_TMPDIR/dc"
+	echo "all good here" > "$BATS_TEST_TMPDIR/dc/file.txt"
+	run verify_no_placeholders "$BATS_TEST_TMPDIR/dc"
+	assert_success
+}
+
+@test "verify_no_placeholders fails when a placeholder remains" {
+	mkdir -p "$BATS_TEST_TMPDIR/dc"
+	echo "still has __AGENT_MITM_ADDON__ here" > "$BATS_TEST_TMPDIR/dc/file.txt"
+	run verify_no_placeholders "$BATS_TEST_TMPDIR/dc"
+	assert_failure
+	assert_output --partial "Unsubstituted template placeholders"
+	assert_output --partial "__AGENT_MITM_ADDON__"
+}

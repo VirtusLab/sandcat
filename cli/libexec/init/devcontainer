@@ -85,6 +85,12 @@ devcontainer() {
 	mkdir -p "$devcontainer_dir"
 	# Use rsync-style copy to include dotfiles (glob * skips them)
 	cp -R "$SCT_TEMPLATEDIR/devcontainer/." "$devcontainer_dir/"
+	# Strip any compiled-Python artefacts that may have been copied along
+	# with the addon sources. Stale .pyc files would otherwise be picked
+	# up by mitmproxy in preference to the .py source on the bind mount.
+	find "$devcontainer_dir" -depth \
+		\( -name '__pycache__' -type d -o -name '*.pyc' \) \
+		-exec rm -rf {} +
 
 	local rel_settings_file="../$settings_file"
 
@@ -115,6 +121,8 @@ devcontainer() {
 	set_project_name "$compose_file" "$project_name"
 
 	customize_devcontainer_json "$devcontainer_dir/devcontainer.json" "$project_name"
+
+	verify_no_placeholders "$devcontainer_dir"
 
 	echo "Devcontainer dir created at ${devcontainer_dir#"$project_path"/}" | info
 }

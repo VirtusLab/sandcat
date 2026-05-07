@@ -106,6 +106,11 @@ apply_template_placeholders() {
 	local file=$1
 	shift
 
+	if [[ ! -f "$file" ]]; then
+		echo "apply_template_placeholders: file not found: $file" >&2
+		return 1
+	fi
+
 	local tokens=() replacements=()
 	while [[ $# -ge 2 ]]; do
 		tokens+=("$1")
@@ -146,6 +151,11 @@ apply_inline_placeholders() {
 	local file=$1
 	shift
 
+	if [[ ! -f "$file" ]]; then
+		echo "apply_inline_placeholders: file not found: $file" >&2
+		return 1
+	fi
+
 	local tokens=() replacements=()
 	while [[ $# -ge 2 ]]; do
 		tokens+=("$1")
@@ -162,6 +172,37 @@ apply_inline_placeholders() {
 		printf '%s\n' "$line"
 	done < "$file" > "$tmpfile"
 	mv "$tmpfile" "$file"
+}
+
+# Fail loudly if any unsubstituted __PLACEHOLDER__ tokens remain in the
+# generated devcontainer files. Acts as a tripwire so the bug surfaces
+# during init rather than at compose-up time, where stale placeholders
+# silently mount empty directories or pass garbage flags to mitmproxy.
+#
+# Args:
+#   $1 - Path to the generated devcontainer directory
+verify_no_placeholders() {
+	local devcontainer_dir=$1
+	local hits rc=0
+	# grep exit codes: 0 = match, 1 = no match, >1 = real error. We
+	# treat 1 as success (no leftover placeholders) and let >1 (e.g.
+	# the path doesn't exist) propagate as a hard failure.
+	#
+	# -I skips binary files (e.g. compiled .pyc bytecode that may
+	# travel alongside the addon sources). The pattern requires
+	# uppercase letters/digits so Python lowercase dunders like
+	# __name__ and __init__ in template scripts don't false-match.
+	hits=$(grep -IrnE '__[A-Z][A-Z0-9_]*__' "$devcontainer_dir") || rc=$?
+	if [[ "$rc" -gt 1 ]]; then
+		echo "verify_no_placeholders: grep failed (rc=$rc) for $devcontainer_dir" >&2
+		return "$rc"
+	fi
+	if [[ -n "$hits" ]]; then
+		echo "Unsubstituted template placeholders remain in generated files:" >&2
+		echo "$hits" >&2
+		return 1
+	fi
+	return 0
 }
 
 # Replaces provider-specific placeholders in generated templates.

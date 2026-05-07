@@ -257,6 +257,46 @@ cursor_agent_compose_file_has_expected_content() {
 	assert_customization_volumes_core "$compose_file"
 }
 
+# Issue #59: init silently produced a devcontainer with unreplaced
+# __AGENT_MITM_ADDON__ / __AGENT_USER_INIT__ / __MITM_HTTP2__ placeholders.
+# verify_no_placeholders now fails init outright; this test pins that
+# behavior for the claude+jetbrains+node combination from the bug report.
+@test "devcontainer leaves no placeholders for claude+jetbrains+node" {
+	run devcontainer \
+		--settings-file "$SETTINGS_FILE" \
+		--project-path "$PROJECT_DIR" \
+		--agent "claude" \
+		--ide "jetbrains" \
+		--name "test-project" \
+		--stacks "node" \
+		--proxy "web"
+	assert_success
+
+	local scripts_dir="$PROJECT_DIR/.devcontainer/sandcat/scripts"
+	local f
+	for f in \
+		mitmproxy_addon_claude.py \
+		mitmproxy_addon_common.py \
+		wg-client-init.sh \
+		app-init.sh \
+		app-post-start.sh \
+		app-user-init.sh
+	do
+		[[ -s "$scripts_dir/$f" ]] || \
+			fail "expected non-empty $scripts_dir/$f"
+	done
+
+	# Pin the specific symptoms from #59: the bug report named these
+	# files and these tokens. Asserting via grep rather than relying
+	# solely on verify_no_placeholders means this test still fails if
+	# someone later removes the verify call from `devcontainer`.
+	local proxy_yml="$PROJECT_DIR/.devcontainer/sandcat/compose-proxy.yml"
+	run grep -nE '__(AGENT_MITM_ADDON|MITM_HTTP2|AGENT_MITM_STREAMING_FLAGS)__' "$proxy_yml"
+	assert_failure
+	run grep -nE '__AGENT_USER_INIT__' "$scripts_dir/app-user-init.sh"
+	assert_failure
+}
+
 @test "devcontainer end-to-end: creates devcontainer config for claude agent" {
 	export SANDCAT_MOUNT_CLAUDE_CONFIG="true"
 	export SANDCAT_ENABLE_DOTFILES="true"
