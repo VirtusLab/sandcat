@@ -1170,28 +1170,194 @@ class TestOpSecretResolution:
         addon_cls._configure_op_token(None)
         assert "OP_SERVICE_ACCOUNT_TOKEN" not in os.environ
 
-    def test_pass_token_from_settings(self, addon_cls, tmp_path, monkeypatch):
-        monkeypatch.delenv("PASS_ACCESS_TOKEN", raising=False)
+    def test_proton_pass_token_from_settings(self, addon_cls, tmp_path, monkeypatch):
+        monkeypatch.delenv("PROTON_PASS_PERSONAL_ACCESS_TOKEN", raising=False)
         settings = {
-            "pass_access_token": "pass_test_token",
+            "proton_pass_token": "pst_test_token",
             "secrets": {"KEY": {"pass": "pass://vault/item/field", "hosts": []}},
         }
         p = tmp_path / "settings.json"
         p.write_text(json.dumps(settings))
         env_path = tmp_path / "sandcat.env"
         addon = addon_cls()
+
+        def mock_run_side_effect(cmd, **kwargs):
+            if cmd[0] == "pass-cli" and cmd[1] == "login":
+                return MagicMock(returncode=0, stdout="", stderr="")
+            if cmd[0] == "pass-cli" and cmd[1] == "info":
+                return MagicMock(returncode=0, stdout="Personal Access Token: pst_test_token\n", stderr="")
+            if cmd[0] == "pass-cli" and cmd[1] == "secret":
+                return MagicMock(returncode=0, stdout="secret\n", stderr="")
+            return MagicMock(returncode=0, stdout="", stderr="")
+
         with patch(f"{_COMMON}.SETTINGS_PATHS", [str(p)]), \
              patch(f"{_COMMON}.SANDCAT_ENV_PATH", str(env_path)), \
-             patch(f"{_COMMON}.subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(returncode=0, stdout="secret\n", stderr="")
+             patch(f"{_COMMON}.subprocess.run", side_effect=mock_run_side_effect):
             addon.load(MagicMock())
-        assert os.environ.get("PASS_ACCESS_TOKEN") == "pass_test_token"
-        monkeypatch.delenv("PASS_ACCESS_TOKEN", raising=False)
+        assert os.environ.get("PROTON_PASS_PERSONAL_ACCESS_TOKEN") == "pst_test_token"
+        monkeypatch.delenv("PROTON_PASS_PERSONAL_ACCESS_TOKEN", raising=False)
 
-    def test_pass_token_env_var_takes_precedence(self, addon_cls, monkeypatch):
-        monkeypatch.setenv("PASS_ACCESS_TOKEN", "from_env")
-        addon_cls._configure_pass_token("from_settings")
-        assert os.environ["PASS_ACCESS_TOKEN"] == "from_env"
+    def test_proton_pass_token_env_var_takes_precedence(self, addon_cls, monkeypatch):
+        monkeypatch.setenv("PROTON_PASS_PERSONAL_ACCESS_TOKEN", "from_env")
+        addon_cls._configure_proton_pass_token("from_settings")
+        assert os.environ["PROTON_PASS_PERSONAL_ACCESS_TOKEN"] == "from_env"
+
+    def test_pass_login_called_once_on_load_with_pass_secrets(self, addon_cls, tmp_path, monkeypatch):
+        monkeypatch.setenv("PROTON_PASS_PERSONAL_ACCESS_TOKEN", "pst_test")
+        settings = {
+            "secrets": {
+                "A": {"pass": "pass://vault/item/a", "hosts": ["a.com"]},
+                "B": {"pass": "pass://vault/item/b", "hosts": ["b.com"]},
+            }
+        }
+        p = tmp_path / "settings.json"
+        p.write_text(json.dumps(settings))
+        env_path = tmp_path / "sandcat.env"
+        addon = addon_cls()
+        login_calls = []
+
+        def mock_run_side_effect(cmd, **kwargs):
+            if cmd[0] == "pass-cli" and cmd[1] == "login":
+                login_calls.append(True)
+                return MagicMock(returncode=0, stdout="", stderr="")
+            if cmd[0] == "pass-cli" and cmd[1] == "info":
+                return MagicMock(returncode=0, stdout="Personal Access Token: test\n", stderr="")
+            return MagicMock(returncode=0, stdout="secret\n", stderr="")
+
+        with patch(f"{_COMMON}.SETTINGS_PATHS", [str(p)]), \
+             patch(f"{_COMMON}.SANDCAT_ENV_PATH", str(env_path)), \
+             patch(f"{_COMMON}.subprocess.run", side_effect=mock_run_side_effect):
+            addon.load(MagicMock())
+
+        assert len(login_calls) == 1, "pass-cli login must be called exactly once"
+
+    def test_pass_login_skipped_when_no_pass_secrets(self, addon_cls, tmp_path, monkeypatch):
+        monkeypatch.setenv("PROTON_PASS_PERSONAL_ACCESS_TOKEN", "pst_test")
+        settings = {
+            "secrets": {"KEY": {"value": "plain", "hosts": ["a.com"]}},
+        }
+        p = tmp_path / "settings.json"
+        p.write_text(json.dumps(settings))
+        env_path = tmp_path / "sandcat.env"
+        addon = addon_cls()
+        login_calls = []
+
+        def mock_run_side_effect(cmd, **kwargs):
+            if cmd[0] == "pass-cli" and cmd[1] == "login":
+                login_calls.append(True)
+            return MagicMock(returncode=0, stdout="", stderr="")
+
+        with patch(f"{_COMMON}.SETTINGS_PATHS", [str(p)]), \
+             patch(f"{_COMMON}.SANDCAT_ENV_PATH", str(env_path)), \
+             patch(f"{_COMMON}.subprocess.run", side_effect=mock_run_side_effect):
+            addon.load(MagicMock())
+
+        assert login_calls == [], "pass-cli login must not be called when there are no pass:// secrets"
+
+    def test_pass_login_failure_all_pass_secrets_empty(self, addon_cls, tmp_path, monkeypatch):
+        monkeypatch.setenv("PROTON_PASS_PERSONAL_ACCESS_TOKEN", "pst_test")
+        settings = {
+            "secrets": {
+                "BAD": {"pass": "pass://vault/item/field", "hosts": []},
+                "GOOD": {"value": "plain", "hosts": []},
+            }
+        }
+        p = tmp_path / "settings.json"
+        p.write_text(json.dumps(settings))
+        env_path = tmp_path / "sandcat.env"
+        addon = addon_cls()
+
+        def mock_run_side_effect(cmd, **kwargs):
+            if cmd[0] == "pass-cli" and cmd[1] == "login":
+                return MagicMock(returncode=1, stdout="", stderr="authentication failed")
+            return MagicMock(returncode=0, stdout="", stderr="")
+
+        with patch(f"{_COMMON}.SETTINGS_PATHS", [str(p)]), \
+             patch(f"{_COMMON}.SANDCAT_ENV_PATH", str(env_path)), \
+             patch(f"{_COMMON}.subprocess.run", side_effect=mock_run_side_effect):
+            addon.load(MagicMock())
+
+        assert addon.secrets["BAD"]["value"] == "", "pass:// secret must be empty when login failed"
+        assert addon.secrets["GOOD"]["value"] == "plain", "value secret must still resolve when pass login failed"
+
+    def test_pat_verification_passes_for_pat_session(self, addon_cls, tmp_path, monkeypatch):
+        monkeypatch.setenv("PROTON_PASS_PERSONAL_ACCESS_TOKEN", "pst_test")
+        settings = {
+            "secrets": {"KEY": {"pass": "pass://vault/item/field", "hosts": ["a.com"]}},
+        }
+        p = tmp_path / "settings.json"
+        p.write_text(json.dumps(settings))
+        env_path = tmp_path / "sandcat.env"
+        addon = addon_cls()
+
+        def mock_run_side_effect(cmd, **kwargs):
+            if cmd[0] == "pass-cli" and cmd[1] == "login":
+                return MagicMock(returncode=0, stdout="", stderr="")
+            if cmd[0] == "pass-cli" and cmd[1] == "info":
+                return MagicMock(returncode=0, stdout="Personal Access Token: sandcat\n", stderr="")
+            return MagicMock(returncode=0, stdout="resolved\n", stderr="")
+
+        with patch(f"{_COMMON}.SETTINGS_PATHS", [str(p)]), \
+             patch(f"{_COMMON}.SANDCAT_ENV_PATH", str(env_path)), \
+             patch(f"{_COMMON}.subprocess.run", side_effect=mock_run_side_effect):
+            addon.load(MagicMock())  # must not raise
+
+        assert addon.secrets["KEY"]["value"] == "resolved"
+
+    def test_pat_verification_hard_blocks_user_account_session(self, addon_cls, tmp_path, monkeypatch):
+        monkeypatch.setenv("PROTON_PASS_PERSONAL_ACCESS_TOKEN", "account-password")
+        settings = {
+            "secrets": {"KEY": {"pass": "pass://vault/item/field", "hosts": []}},
+        }
+        p = tmp_path / "settings.json"
+        p.write_text(json.dumps(settings))
+        env_path = tmp_path / "sandcat.env"
+        addon = addon_cls()
+        logout_calls = []
+
+        def mock_run_side_effect(cmd, **kwargs):
+            if cmd[0] == "pass-cli" and cmd[1] == "login":
+                return MagicMock(returncode=0, stdout="", stderr="")
+            if cmd[0] == "pass-cli" and cmd[1] == "info":
+                # Simulates a full account session — no PAT indicator
+                return MagicMock(returncode=0, stdout="Logged in as: user@example.com\n", stderr="")
+            if cmd[0] == "pass-cli" and cmd[1] == "logout":
+                logout_calls.append(True)
+                return MagicMock(returncode=0, stdout="", stderr="")
+            return MagicMock(returncode=0, stdout="", stderr="")
+
+        with patch(f"{_COMMON}.SETTINGS_PATHS", [str(p)]), \
+             patch(f"{_COMMON}.SANDCAT_ENV_PATH", str(env_path)), \
+             patch(f"{_COMMON}.subprocess.run", side_effect=mock_run_side_effect):
+            with pytest.raises(RuntimeError, match="SECURITY"):
+                addon.load(MagicMock())
+
+        assert len(logout_calls) == 1, "pass-cli logout must be called once to wipe the non-PAT session"
+
+    def test_pat_verification_skipped_when_no_pass_secrets(self, addon_cls, tmp_path, monkeypatch):
+        monkeypatch.setenv("PROTON_PASS_PERSONAL_ACCESS_TOKEN", "anything")
+        settings = {
+            "secrets": {"KEY": {"op": "op://vault/item/field", "hosts": ["a.com"]}},
+        }
+        p = tmp_path / "settings.json"
+        p.write_text(json.dumps(settings))
+        env_path = tmp_path / "sandcat.env"
+        addon = addon_cls()
+        info_calls = []
+
+        def mock_run_side_effect(cmd, **kwargs):
+            if cmd[0] == "pass-cli" and cmd[1] == "info":
+                info_calls.append(True)
+            if cmd[0] == "op":
+                return MagicMock(returncode=0, stdout="resolved\n", stderr="")
+            return MagicMock(returncode=0, stdout="", stderr="")
+
+        with patch(f"{_COMMON}.SETTINGS_PATHS", [str(p)]), \
+             patch(f"{_COMMON}.SANDCAT_ENV_PATH", str(env_path)), \
+             patch(f"{_COMMON}.subprocess.run", side_effect=mock_run_side_effect):
+            addon.load(MagicMock())
+
+        assert info_calls == [], "pass-cli info must not be called when there are no pass:// secrets"
 
 
 # ---------------------------------------------------------------------------
@@ -1247,7 +1413,7 @@ class TestSettingsMerging:
         assert merged["secrets"] == {}
         assert merged["network"] == [{"action": "allow", "host": "*"}]
         assert merged["op_service_account_token"] is None
-        assert merged["pass_access_token"] is None
+        assert merged["proton_pass_token"] is None
 
     def test_op_token_highest_precedence_wins(self):
         layers = [
@@ -1269,23 +1435,23 @@ class TestSettingsMerging:
         layers = [{"env": {"A": "1"}}]
         merged = BaseAddon._merge_settings(layers)
         assert merged["op_service_account_token"] is None
-        assert merged["pass_access_token"] is None
+        assert merged["proton_pass_token"] is None
 
-    def test_pass_token_highest_precedence_wins(self):
+    def test_proton_pass_token_highest_precedence_wins(self):
         layers = [
-            {"pass_access_token": "user_pass"},
-            {"pass_access_token": "project_pass"},
+            {"proton_pass_token": "user_pass"},
+            {"proton_pass_token": "project_pass"},
         ]
         merged = BaseAddon._merge_settings(layers)
-        assert merged["pass_access_token"] == "project_pass"
+        assert merged["proton_pass_token"] == "project_pass"
 
-    def test_pass_token_skips_empty(self):
+    def test_proton_pass_token_skips_empty(self):
         layers = [
-            {"pass_access_token": "user_pass"},
-            {"pass_access_token": ""},
+            {"proton_pass_token": "user_pass"},
+            {"proton_pass_token": ""},
         ]
         merged = BaseAddon._merge_settings(layers)
-        assert merged["pass_access_token"] == "user_pass"
+        assert merged["proton_pass_token"] == "user_pass"
 
     def test_empty_layers_list(self):
         merged = BaseAddon._merge_settings([])
@@ -1295,7 +1461,7 @@ class TestSettingsMerging:
             "network": [],
             "op_service_account_token": None,
             "dns_servers": None,
-            "pass_access_token": None,
+            "proton_pass_token": None,
         }
 
     def test_dns_servers_highest_precedence_wins(self):

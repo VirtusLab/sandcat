@@ -24,6 +24,19 @@ Agent variants override a small set of hook methods to customise behaviour:
 
 The defaults are tuned to match the simplest "Claude" behaviour (no streaming,
 no Basic Auth handling, body substitution always permitted).
+
+Proton Pass authentication
+--------------------------
+``pass://`` secrets require a Personal Access Token (PAT), **not** a full
+Proton account credential.  A PAT is created with ``pass-cli pat create``
+and scoped to specific vaults/items via ``pass-cli pat access grant``.
+A PAT starts with zero access by default, which limits the blast radius if
+the token is ever compromised.
+
+Using a full account credential is rejected: after ``pass-cli login`` the
+addon runs ``pass-cli info`` and checks for ``"Personal Access Token"`` in
+the output.  If instead a user e-mail is shown the session is wiped with
+``pass-cli logout`` and the addon load fails, refusing to start mitmproxy.
 """
 
 import base64
@@ -66,6 +79,7 @@ class SandcatAddon:
         self.env: dict[str, str] = {}  # non-secret env vars (e.g. git identity)
         self.dns_servers: list[str] = []  # custom upstream DNS for wg-client
         self.debug_enabled = False  # subclasses may flip this in _on_settings_merged
+        self._pass_cli_logged_in = False  # True only after a successful pass-cli login
 
     # ------------------------------------------------------------------ load
 
@@ -88,7 +102,13 @@ class SandcatAddon:
         self._on_settings_merged(merged)
 
         self._configure_op_token(merged.get("op_service_account_token"))
-        self._configure_pass_token(merged.get("pass_access_token"))
+        self._configure_proton_pass_token(merged.get("proton_pass_token"))
+
+        has_pass_secrets = any("pass" in e for e in merged["secrets"].values())
+        self._pass_cli_logged_in = self._pass_cli_login_if_needed(merged["secrets"])
+        if has_pass_secrets and self._pass_cli_logged_in:
+            self._verify_pat_auth_or_die()
+
         self.env = merged["env"]
         self._load_secrets(merged["secrets"])
         self._load_network_rules(merged["network"])
@@ -112,29 +132,108 @@ class SandcatAddon:
             os.environ["OP_SERVICE_ACCOUNT_TOKEN"] = token
 
     @staticmethod
-    def _configure_pass_token(token: str | None):
-        """Set PASS_ACCESS_TOKEN from settings if not already in the environment."""
-        if token and "PASS_ACCESS_TOKEN" not in os.environ:
-            os.environ["PASS_ACCESS_TOKEN"] = token
+    def _configure_proton_pass_token(token: str | None):
+        """Set PROTON_PASS_PERSONAL_ACCESS_TOKEN from settings if not already in the environment.
+
+        The value must be a Proton Pass Personal Access Token (PAT) created with
+        ``pass-cli pat create``.  Full account credentials are rejected at login
+        time by ``_verify_pat_auth_or_die``.
+        """
+        if token and "PROTON_PASS_PERSONAL_ACCESS_TOKEN" not in os.environ:
+            os.environ["PROTON_PASS_PERSONAL_ACCESS_TOKEN"] = token
+
+    def _pass_cli_login_if_needed(self, secrets: dict) -> bool:
+        """Attempt ``pass-cli login`` when at least one ``pass://`` secret is present.
+
+        Returns ``True`` if login succeeded or there are no ``pass://`` secrets
+        (login not needed).  Returns ``False`` if login failed for any reason —
+        callers should treat all ``pass://`` secrets as unresolvable.
+        """
+        if not any("pass" in e for e in secrets.values()):
+            return True  # no pass:// secrets — login not needed
+
+        if not os.environ.get("PROTON_PASS_PERSONAL_ACCESS_TOKEN"):
+            ctx.log.warn(
+                "PROTON_PASS_PERSONAL_ACCESS_TOKEN not set; "
+                "all pass:// secrets will be skipped"
+            )
+            return False
+
+        try:
+            result = subprocess.run(
+                ["pass-cli", "login"],
+                capture_output=True, text=True, timeout=30,
+            )
+        except FileNotFoundError:
+            ctx.log.warn(
+                "pass-cli not found in PATH; "
+                "ensure the sandcat-mitmproxy-pass image is in use"
+            )
+            return False
+
+        if result.returncode != 0:
+            ctx.log.warn(f"pass-cli login failed: {result.stderr.strip()}")
+            return False
+
+        return True
+
+    def _verify_pat_auth_or_die(self):
+        """Confirm the active session is a PAT, not a full account credential.
+
+        Runs ``pass-cli info`` and looks for ``"Personal Access Token"`` in the
+        output.  If a user e-mail is found instead the session is immediately
+        wiped with ``pass-cli logout`` and the addon load fails with a security
+        error, preventing mitmproxy from starting.
+
+        This check is only called when at least one ``pass://`` secret exists,
+        so op-only or value-only projects are unaffected.
+        """
+        try:
+            info = subprocess.run(
+                ["pass-cli", "info"],
+                capture_output=True, text=True, timeout=10,
+            )
+        except FileNotFoundError:
+            raise RuntimeError(
+                "pass-cli not found while verifying PAT authentication"
+            ) from None
+
+        if info.returncode != 0 or "Personal Access Token" not in info.stdout:
+            subprocess.run(
+                ["pass-cli", "logout"],
+                capture_output=True, text=True, timeout=10,
+            )
+            msg = (
+                "SECURITY: proton_pass_token does not authenticate as a Proton Pass "
+                "Personal Access Token. Using a full account credential would give "
+                "this mitmproxy container access to every vault on your account. "
+                "Create a scoped PAT with `pass-cli pat create` and grant it "
+                "read-only access to only the vaults/items this project needs with "
+                "`pass-cli pat access grant --role viewer`. "
+                "See https://protonpass.github.io/pass-cli/commands/personal-access-token/"
+            )
+            ctx.log.error(msg)
+            raise RuntimeError(msg)
 
     @staticmethod
     def _merge_settings(layers: list[dict]) -> dict:
-        """        Merge settings from multiple layers (lowest to highest precedence).
+        """Merge settings from multiple layers (lowest to highest precedence).
 
         - env: dict merge, higher precedence overwrites.
         - secrets: dict merge, higher precedence overwrites.
         - network: concatenated, highest precedence first (top-to-bottom matching).
         - op_service_account_token: highest precedence non-empty value wins.
         - dns_servers: highest-precedence layer that sets the key wins (last-wins).
-        - pass_access_token: highest precedence non-empty value wins.
-        - pass_access_token: highest precedence non-empty value wins.
+        - proton_pass_token: highest precedence non-empty value wins.
+          Must be a Proton Pass Personal Access Token (PAT); full account
+          credentials are rejected at startup by ``_verify_pat_auth_or_die``.
         """
         env: dict[str, str] = {}
         secrets: dict[str, dict] = {}
         network: list[dict] = []
         op_token: str | None = None
         dns_servers = None
-        pass_token: str | None = None
+        proton_pass_token: str | None = None
 
         for layer in layers:
             env.update(layer.get("env", {}))
@@ -144,9 +243,9 @@ class SandcatAddon:
                 op_token = layer_token
             if "dns_servers" in layer:
                 dns_servers = layer["dns_servers"]
-            layer_pass_token = layer.get("pass_access_token")
-            if layer_pass_token:
-                pass_token = layer_pass_token
+            layer_proton_pass_token = layer.get("proton_pass_token")
+            if layer_proton_pass_token:
+                proton_pass_token = layer_proton_pass_token
 
         # Network rules: highest-precedence layer's rules come first.
         for layer in reversed(layers):
@@ -158,7 +257,7 @@ class SandcatAddon:
             "network": network,
             "op_service_account_token": op_token,
             "dns_servers": dns_servers,
-            "pass_access_token": pass_token,
+            "proton_pass_token": proton_pass_token,
         }
 
     # --------------------------------------------------------------- secrets
@@ -166,12 +265,21 @@ class SandcatAddon:
     def _load_secrets(self, raw_secrets: dict):
         for name, entry in raw_secrets.items():
             placeholder = f"SANDCAT_PLACEHOLDER_{name}"
-            try:
-                value = self._resolve_secret_value(name, entry)
-            except (RuntimeError, ValueError) as e:
-                ctx.log.warn(str(e))
-                print(f"WARNING: {e}", file=sys.stderr)
+            if "pass" in entry and not self._pass_cli_logged_in:
+                msg = (
+                    f"Secret {name!r}: pass-cli login did not succeed; "
+                    "skipping pass:// resolution"
+                )
+                ctx.log.warn(msg)
+                print(f"WARNING: {msg}", file=sys.stderr)
                 value = ""
+            else:
+                try:
+                    value = self._resolve_secret_value(name, entry)
+                except (RuntimeError, ValueError) as e:
+                    ctx.log.warn(str(e))
+                    print(f"WARNING: {e}", file=sys.stderr)
+                    value = ""
             self.secrets[name] = {
                 "value": self._normalize_secret_value(value),
                 "hosts": entry.get("hosts", []),

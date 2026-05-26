@@ -70,15 +70,26 @@ teardown() {
 	assert_output --partial "Do not combine --1password with --secret-provider"
 }
 
-@test "init adds pass_access_token when protonpass selected" {
+@test "init adds proton_pass_token when protonpass selected" {
 	stub settings "$PROJECT_DIR/.sandcat/settings.json claude vscode : :"
 	stub devcontainer \
 		"--settings-file .sandcat/settings.json --project-path * --agent claude --ide vscode --name test --stacks * --proxy web --secret-provider protonpass : :"
 
 	run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" --stacks "" --proxy web --features "" --secret-provider protonpass
 	assert_success
-	run yq -r '.pass_access_token' "$SCT_HOME_DIR/settings.json"
+	run yq -r '.proton_pass_token' "$SCT_HOME_DIR/settings.json"
 	assert_output ""
+}
+
+@test "init summary for protonpass shows pat create and pat access grant guidance" {
+	stub settings "$PROJECT_DIR/.sandcat/settings.json claude vscode : :"
+	stub devcontainer \
+		"--settings-file .sandcat/settings.json --project-path * --agent claude --ide vscode --name test --stacks * --proxy web --secret-provider protonpass : :"
+
+	run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" --stacks "" --proxy web --features "" --secret-provider protonpass
+	assert_success
+	assert_output --partial "pass-cli pat create"
+	assert_output --partial "pat access grant"
 }
 
 @test "init accepts valid --stacks value" {

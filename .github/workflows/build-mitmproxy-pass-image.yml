@@ -1,0 +1,60 @@
+name: Build mitmproxy-pass image
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'images/mitmproxy-pass/**'
+      - '.github/workflows/build-mitmproxy-pass-image.yml'
+  pull_request:
+    paths:
+      - 'images/mitmproxy-pass/**'
+      - '.github/workflows/build-mitmproxy-pass-image.yml'
+  schedule:
+    - cron: '0 6 * * 1' # Weekly Monday 6am — rebuild against latest mitmproxy
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/virtuslab/sandcat-mitmproxy-pass
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=sha
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: images/mitmproxy-pass
+          file: images/mitmproxy-pass/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # Skip cache on scheduled builds to pick up upstream mitmproxy:latest changes
+          cache-from: ${{ github.event_name != 'schedule' && 'type=gha' || '' }}
+          cache-to: type=gha,mode=max

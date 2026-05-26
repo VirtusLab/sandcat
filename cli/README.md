@@ -41,18 +41,36 @@ sandcat init --agent claude --ide vscode --secret-provider 1password --name mypr
 sandcat init --agent claude --ide vscode --secret-provider protonpass --name myproject
 ```
 
-Example Proton Pass secret entry in `~/.config/sandcat/settings.json` (under `"secrets"`):
+#### Proton Pass setup (scoped Personal Access Token)
+
+Proton Pass uses a **Personal Access Token (PAT)** — not your account password. A PAT starts with zero access and you explicitly grant it read-only access to only the vaults or items sandcat needs. This means the mitmproxy container can only see the secrets you chose, nothing else.
+
+```bash
+# 1. Create a PAT with zero access (valid 3 months)
+pass-cli pat create --name "sandcat" --expiration 3m
+# → prints: PROTON_PASS_PERSONAL_ACCESS_TOKEN=pst_xxxx...xxxx::TOKENKEY
+
+# 2. Grant read-only access to ONLY the vault(s) this project needs
+pass-cli pat access grant --pat-name "sandcat" --vault-name "MyVault" --role viewer
+# Or restrict to a single item:
+# pass-cli pat access grant --pat-name "sandcat" --vault-name "MyVault" --item-title "Anthropic Key" --role viewer
+
+# 3. Add the pst_... token to ~/.config/sandcat/settings.json
+```
 
 ```json
 {
+  "proton_pass_token": "pst_xxxx...xxxx::TOKENKEY",
   "secrets": {
     "GITHUB_TOKEN": {
-      "pass": "pass://vault/GitHub Token/credential",
+      "pass": "pass://MyVault/GitHub Token/credential",
       "hosts": ["github.com", "*.github.com", "*.githubusercontent.com"]
     }
   }
 }
 ```
+
+At startup, sandcat logs into `pass-cli` using the PAT and verifies the session is scoped (not a full account credential). If a full account credential is detected, mitmproxy refuses to start with a security error.
 
 Note: Cursor agent support currently uses compatibility defaults for auth/network
 settings while provider-specific hardening is being expanded.

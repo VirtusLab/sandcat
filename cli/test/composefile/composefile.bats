@@ -336,7 +336,7 @@ YAML
 	apply_secret_provider "$proxy_compose" "protonpass"
 
 	yq -e '.services.mitmproxy.image == "ghcr.io/virtuslab/sandcat-mitmproxy-pass:latest"' "$proxy_compose"
-	yq -e '.services.mitmproxy.environment[] | select(. == "PASS_ACCESS_TOKEN")' "$proxy_compose"
+	yq -e '.services.mitmproxy.environment[] | select(. == "PROTON_PASS_PERSONAL_ACCESS_TOKEN")' "$proxy_compose"
 }
 
 @test "apply_secret_provider leaves default image for none" {

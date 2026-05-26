@@ -93,7 +93,7 @@ add_secret_provider_tokens_to_user_settings() {
 		yq -i -o json '.op_service_account_token = (.op_service_account_token // "")' "$user_settings"
 		;;
 	protonpass)
-		yq -i -o json '.pass_access_token = (.pass_access_token // "")' "$user_settings"
+		yq -i -o json '.proton_pass_token = (.proton_pass_token // "")' "$user_settings"
 		;;
 	esac
 }
@@ -383,7 +383,17 @@ init() {
 	protonpass)
 		echo "    $(sct_agent_api_key_help "$agent")" | info
 		echo "    GITHUB_TOKEN       \"pass\": \"pass://vault/GitHub Token/credential\"" | info
-		echo "       \"pass_access_token\": \"...\"" | info
+		echo "" >&2
+		echo "  Proton Pass setup (scoped Personal Access Token):" | info
+		echo "    1. Create a PAT with zero access:" | info
+		echo "         pass-cli pat create --name \"sandcat\" --expiration 3m" | info
+		echo "    2. Grant read-only access to ONLY the vaults/items this project needs:" | info
+		echo "         pass-cli pat access grant --pat-name \"sandcat\" \\" | info
+		echo "           --vault-name \"<YourVault>\" --role viewer" | info
+		echo "       (or restrict to a single item with --item-title \"<ItemName>\")" | info
+		echo "    3. Paste the printed pst_... token into ~/.config/sandcat/settings.json:" | info
+		echo "         \"proton_pass_token\": \"pst_...\"" | info
+		echo "    4. Reference items with \"pass\": \"pass://<YourVault>/<Item>/<field>\"" | info
 		;;
 	none)
 		echo "    $(sct_agent_api_key_help "$agent")" | info

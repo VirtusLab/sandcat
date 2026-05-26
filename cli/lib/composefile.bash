@@ -92,7 +92,7 @@ apply_secret_provider() {
 	protonpass)
 		yq -i '
 			.services.mitmproxy.image = "ghcr.io/virtuslab/sandcat-mitmproxy-pass:latest" |
-			.services.mitmproxy.environment = ["PASS_ACCESS_TOKEN"]
+			.services.mitmproxy.environment = ["PROTON_PASS_PERSONAL_ACCESS_TOKEN"]
 		' "$compose_file"
 		;;
 	*)
