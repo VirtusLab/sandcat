@@ -3,7 +3,7 @@
 # Extends the upstream mitmproxy image with the Proton Pass CLI (pass-cli),
 # enabling pass:// secret references in sandcat settings files.
 # The mitmproxy addon resolves these references at startup via
-# `pass-cli secret get`, authenticated with a scoped Personal Access Token
+# `pass-cli item view`, authenticated with a scoped Personal Access Token
 # set through PROTON_PASS_PERSONAL_ACCESS_TOKEN.
 #
 # IMPORTANT: use a Proton Pass Personal Access Token (PAT), NOT your account

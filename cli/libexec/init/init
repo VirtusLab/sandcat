@@ -248,6 +248,9 @@ init() {
 		if [[ -f "$existing_settings" ]] && \
 		   yq -e '.op_service_account_token // "" | select(. != "")' "$existing_settings" &>/dev/null; then
 			secret_provider=$(select_option "Select secret provider:" 1password none protonpass)
+		elif [[ -f "$existing_settings" ]] && \
+		     yq -e '.proton_pass_token // "" | select(. != "")' "$existing_settings" &>/dev/null; then
+			secret_provider=$(select_option "Select secret provider:" protonpass none 1password)
 		else
 			secret_provider=$(select_option "Select secret provider:" none 1password protonpass)
 		fi

@@ -1059,7 +1059,7 @@ class TestOpSecretResolution:
             value = addon_cls._resolve_secret_value("KEY", entry)
         assert value == "secret-value"
         mock_run.assert_called_once_with(
-            ["pass-cli", "secret", "get", "pass://vault/item/field"],
+            ["pass-cli", "item", "view", "pass://vault/item/field"],
             capture_output=True, text=True, timeout=30,
         )
 
@@ -1186,7 +1186,7 @@ class TestOpSecretResolution:
                 return MagicMock(returncode=0, stdout="", stderr="")
             if cmd[0] == "pass-cli" and cmd[1] == "info":
                 return MagicMock(returncode=0, stdout="Personal Access Token: pst_test_token\n", stderr="")
-            if cmd[0] == "pass-cli" and cmd[1] == "secret":
+            if cmd[0] == "pass-cli" and cmd[1] == "item" and cmd[2] == "view":
                 return MagicMock(returncode=0, stdout="secret\n", stderr="")
             return MagicMock(returncode=0, stdout="", stderr="")
 
@@ -1358,6 +1358,230 @@ class TestOpSecretResolution:
             addon.load(MagicMock())
 
         assert info_calls == [], "pass-cli info must not be called when there are no pass:// secrets"
+
+
+# ---------------------------------------------------------------------------
+# Startup diagnostics — warnings and per-secret summaries that help users
+# spot misconfigurations such as putting a ``pass://`` reference under the
+# ``value`` field instead of the ``pass`` field.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("addon_cls", ADDONS)
+class TestStartupDiagnostics:
+    """Locks in the diagnostic logging emitted at addon load time."""
+
+    def test_secret_source_helper_identifies_known_sources(self, addon_cls):
+        assert addon_cls._secret_source({"value": "x"}) == "value"
+        assert addon_cls._secret_source({"op": "op://a/b/c"}) == "op"
+        assert addon_cls._secret_source({"pass": "pass://a/b/c"}) == "pass"
+
+    def test_secret_source_helper_flags_invalid_entries(self, addon_cls):
+        assert addon_cls._secret_source({}) == "invalid(missing)"
+        assert "invalid(multiple:" in addon_cls._secret_source(
+            {"value": "x", "pass": "pass://a/b/c"}
+        )
+
+    def test_value_field_with_pass_reference_emits_warning(
+        self, addon_cls, tmp_path, monkeypatch
+    ):
+        monkeypatch.delenv("PROTON_PASS_PERSONAL_ACCESS_TOKEN", raising=False)
+        settings = {
+            "secrets": {
+                "API_KEY": {
+                    "value": "pass://Vault/Item/secret",
+                    "hosts": ["api.example.com"],
+                },
+            },
+        }
+        p = tmp_path / "settings.json"
+        p.write_text(json.dumps(settings))
+        env_path = tmp_path / "sandcat.env"
+        addon = addon_cls()
+
+        log = MagicMock()
+        with patch(f"{_COMMON}.SETTINGS_PATHS", [str(p)]), \
+             patch(f"{_COMMON}.SANDCAT_ENV_PATH", str(env_path)), \
+             patch(f"{_COMMON}.ctx.log", log):
+            addon.load(MagicMock())
+
+        warn_msgs = [c.args[0] for c in log.warn.call_args_list]
+        assert any(
+            "'value' field starts with 'pass://'" in m
+            and "API_KEY" in m
+            and '"pass":' in m
+            for m in warn_msgs
+        ), f"expected pass:// misuse warning, got: {warn_msgs}"
+
+    def test_value_field_with_op_reference_emits_warning(
+        self, addon_cls, tmp_path
+    ):
+        settings = {
+            "secrets": {
+                "API_KEY": {"value": "op://Vault/Item/field", "hosts": []},
+            },
+        }
+        p = tmp_path / "settings.json"
+        p.write_text(json.dumps(settings))
+        env_path = tmp_path / "sandcat.env"
+        addon = addon_cls()
+
+        log = MagicMock()
+        with patch(f"{_COMMON}.SETTINGS_PATHS", [str(p)]), \
+             patch(f"{_COMMON}.SANDCAT_ENV_PATH", str(env_path)), \
+             patch(f"{_COMMON}.ctx.log", log):
+            addon.load(MagicMock())
+
+        warn_msgs = [c.args[0] for c in log.warn.call_args_list]
+        assert any(
+            "'value' field starts with 'op://'" in m and '"op":' in m
+            for m in warn_msgs
+        ), f"expected op:// misuse warning, got: {warn_msgs}"
+
+    def test_plain_value_does_not_emit_misuse_warning(
+        self, addon_cls, tmp_path
+    ):
+        settings = {
+            "secrets": {"API_KEY": {"value": "plain-secret", "hosts": []}},
+        }
+        p = tmp_path / "settings.json"
+        p.write_text(json.dumps(settings))
+        env_path = tmp_path / "sandcat.env"
+        addon = addon_cls()
+
+        log = MagicMock()
+        with patch(f"{_COMMON}.SETTINGS_PATHS", [str(p)]), \
+             patch(f"{_COMMON}.SANDCAT_ENV_PATH", str(env_path)), \
+             patch(f"{_COMMON}.ctx.log", log):
+            addon.load(MagicMock())
+
+        warn_msgs = [c.args[0] for c in log.warn.call_args_list]
+        assert not any("'value' field starts with" in m for m in warn_msgs), \
+            f"unexpected misuse warning: {warn_msgs}"
+
+    def test_per_secret_summary_includes_source_and_length(
+        self, addon_cls, tmp_path
+    ):
+        settings = {
+            "secrets": {
+                "PLAIN": {"value": "abcdef", "hosts": ["a.com", "b.com"]},
+            },
+        }
+        p = tmp_path / "settings.json"
+        p.write_text(json.dumps(settings))
+        env_path = tmp_path / "sandcat.env"
+        addon = addon_cls()
+
+        log = MagicMock()
+        with patch(f"{_COMMON}.SETTINGS_PATHS", [str(p)]), \
+             patch(f"{_COMMON}.SANDCAT_ENV_PATH", str(env_path)), \
+             patch(f"{_COMMON}.ctx.log", log):
+            addon.load(MagicMock())
+
+        info_msgs = [c.args[0] for c in log.info.call_args_list]
+        assert any(
+            "Secret 'PLAIN':" in m and "source=value" in m
+            and "resolved_len=6" in m and "hosts=2" in m
+            for m in info_msgs
+        ), f"expected per-secret summary, got: {info_msgs}"
+
+    def test_per_secret_summary_does_not_leak_value(
+        self, addon_cls, tmp_path
+    ):
+        settings = {
+            "secrets": {
+                "PLAIN": {"value": "super-secret-shibboleth", "hosts": []},
+            },
+        }
+        p = tmp_path / "settings.json"
+        p.write_text(json.dumps(settings))
+        env_path = tmp_path / "sandcat.env"
+        addon = addon_cls()
+
+        log = MagicMock()
+        with patch(f"{_COMMON}.SETTINGS_PATHS", [str(p)]), \
+             patch(f"{_COMMON}.SANDCAT_ENV_PATH", str(env_path)), \
+             patch(f"{_COMMON}.ctx.log", log):
+            addon.load(MagicMock())
+
+        all_msgs = (
+            [c.args[0] for c in log.info.call_args_list]
+            + [c.args[0] for c in log.warn.call_args_list]
+        )
+        assert not any("shibboleth" in m for m in all_msgs), \
+            f"secret value leaked into logs: {all_msgs}"
+
+    def test_proton_pass_token_applied_from_settings_logged(
+        self, addon_cls, monkeypatch
+    ):
+        monkeypatch.delenv("PROTON_PASS_PERSONAL_ACCESS_TOKEN", raising=False)
+        log = MagicMock()
+        with patch(f"{_COMMON}.ctx.log", log):
+            addon_cls._configure_proton_pass_token("pst_abc")
+        info_msgs = [c.args[0] for c in log.info.call_args_list]
+        assert any(
+            "proton_pass_token: applied from settings" in m and "len=7" in m
+            for m in info_msgs
+        ), f"expected applied log, got: {info_msgs}"
+        monkeypatch.delenv("PROTON_PASS_PERSONAL_ACCESS_TOKEN", raising=False)
+
+    def test_proton_pass_token_env_precedence_logged(
+        self, addon_cls, monkeypatch
+    ):
+        monkeypatch.setenv("PROTON_PASS_PERSONAL_ACCESS_TOKEN", "from_env")
+        log = MagicMock()
+        with patch(f"{_COMMON}.ctx.log", log):
+            addon_cls._configure_proton_pass_token("from_settings")
+        info_msgs = [c.args[0] for c in log.info.call_args_list]
+        assert any(
+            "using existing PROTON_PASS_PERSONAL_ACCESS_TOKEN from environment"
+            in m for m in info_msgs
+        ), f"expected env-precedence log, got: {info_msgs}"
+
+    def test_proton_pass_token_missing_logged(self, addon_cls, monkeypatch):
+        monkeypatch.delenv("PROTON_PASS_PERSONAL_ACCESS_TOKEN", raising=False)
+        log = MagicMock()
+        with patch(f"{_COMMON}.ctx.log", log):
+            addon_cls._configure_proton_pass_token(None)
+        info_msgs = [c.args[0] for c in log.info.call_args_list]
+        assert any(
+            "proton_pass_token: not configured" in m for m in info_msgs
+        ), f"expected missing-token log, got: {info_msgs}"
+
+    def test_pass_cli_login_success_emits_info(
+        self, addon_cls, tmp_path, monkeypatch
+    ):
+        monkeypatch.setenv("PROTON_PASS_PERSONAL_ACCESS_TOKEN", "pst_test")
+        settings = {
+            "secrets": {"K": {"pass": "pass://v/i/f", "hosts": ["a.com"]}},
+        }
+        p = tmp_path / "settings.json"
+        p.write_text(json.dumps(settings))
+        env_path = tmp_path / "sandcat.env"
+        addon = addon_cls()
+
+        def mock_run(cmd, **kwargs):
+            if cmd[:2] == ["pass-cli", "info"]:
+                return MagicMock(
+                    returncode=0,
+                    stdout="Personal Access Token: pst_test\n",
+                    stderr="",
+                )
+            return MagicMock(returncode=0, stdout="ok\n", stderr="")
+
+        log = MagicMock()
+        with patch(f"{_COMMON}.SETTINGS_PATHS", [str(p)]), \
+             patch(f"{_COMMON}.SANDCAT_ENV_PATH", str(env_path)), \
+             patch(f"{_COMMON}.subprocess.run", side_effect=mock_run), \
+             patch(f"{_COMMON}.ctx.log", log):
+            addon.load(MagicMock())
+
+        info_msgs = [c.args[0] for c in log.info.call_args_list]
+        assert any("pass-cli login: succeeded" in m for m in info_msgs), \
+            f"expected pass-cli login success log, got: {info_msgs}"
+        assert any(
+            "pass-cli info: confirmed Personal Access Token (PAT) session" in m
+            for m in info_msgs
+        ), f"expected PAT verification log, got: {info_msgs}"
 
 
 # ---------------------------------------------------------------------------
