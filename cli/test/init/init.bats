@@ -70,6 +70,17 @@ teardown() {
 	assert_output --partial "Do not combine --1password with --secret-provider"
 }
 
+@test "init accepts --sp as alias for --secret-provider" {
+	stub settings "$PROJECT_DIR/.sandcat/settings.json claude vscode : :"
+	stub devcontainer \
+		"--settings-file .sandcat/settings.json --project-path * --agent claude --ide vscode --name test --stacks * --proxy web --secret-provider protonpass : :"
+
+	run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" --stacks "" --proxy web --features "" --sp protonpass
+	assert_success
+	run yq -r '.proton_pass_token' "$SCT_HOME_DIR/settings.json"
+	assert_output ""
+}
+
 @test "init adds proton_pass_token when protonpass selected" {
 	stub settings "$PROJECT_DIR/.sandcat/settings.json claude vscode : :"
 	stub devcontainer \

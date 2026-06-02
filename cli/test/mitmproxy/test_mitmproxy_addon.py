@@ -1360,6 +1360,64 @@ class TestOpSecretResolution:
         assert info_calls == [], "pass-cli info must not be called when there are no pass:// secrets"
 
 
+class TestPassCliPatSessionDetection:
+    """Unit tests for PAT session detection from pass-cli info output."""
+
+    @pytest.mark.parametrize(
+        "stdout",
+        [
+            "Personal Access Token: sandcat\n",
+            "PERSONAL ACCESS TOKEN: pst_test\n",
+            "personal access token: pst_test\n",
+            "Personal\tAccess\tToken: sandcat\n",
+            "Type: Personal  Access   Token\nName: sandcat\n",
+        ],
+    )
+    def test_pass_cli_session_is_pat_accepts_varied_casing_and_spacing(self, stdout):
+        assert common._pass_cli_session_is_pat(stdout) is True
+
+    @pytest.mark.parametrize(
+        "stdout",
+        [
+            "",
+            "Logged in as: user@example.com\n",
+            "- Email: user@proton.me\n- Username: alice\n",
+            "Release track: stable\nID: abc\n",
+        ],
+    )
+    def test_pass_cli_session_is_pat_rejects_account_session_output(self, stdout):
+        assert common._pass_cli_session_is_pat(stdout) is False
+
+    @pytest.mark.parametrize("addon_cls", ADDONS)
+    def test_pat_verification_accepts_odd_casing_info_output(self, addon_cls, tmp_path, monkeypatch):
+        monkeypatch.setenv("PROTON_PASS_PERSONAL_ACCESS_TOKEN", "pst_test")
+        settings = {
+            "secrets": {"KEY": {"pass": "pass://vault/item/field", "hosts": []}},
+        }
+        p = tmp_path / "settings.json"
+        p.write_text(json.dumps(settings))
+        env_path = tmp_path / "sandcat.env"
+        addon = addon_cls()
+
+        def mock_run_side_effect(cmd, **kwargs):
+            if cmd[0] == "pass-cli" and cmd[1] == "login":
+                return MagicMock(returncode=0, stdout="", stderr="")
+            if cmd[0] == "pass-cli" and cmd[1] == "info":
+                return MagicMock(
+                    returncode=0,
+                    stdout="PERSONAL\tACCESS\tTOKEN: sandcat\n",
+                    stderr="",
+                )
+            return MagicMock(returncode=0, stdout="resolved\n", stderr="")
+
+        with patch(f"{_COMMON}.SETTINGS_PATHS", [str(p)]), \
+             patch(f"{_COMMON}.SANDCAT_ENV_PATH", str(env_path)), \
+             patch(f"{_COMMON}.subprocess.run", side_effect=mock_run_side_effect):
+            addon.load(MagicMock())
+
+        assert addon.secrets["KEY"]["value"] == "resolved"
+
+
 # ---------------------------------------------------------------------------
 # Startup diagnostics — warnings and per-secret summaries that help users
 # spot misconfigurations such as putting a ``pass://`` reference under the

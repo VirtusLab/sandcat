@@ -70,9 +70,12 @@ SANDCAT_DNS_CONF_PATH = "/home/mitmproxy/.mitmproxy/dns.conf"
 logger = logging.getLogger(__name__)
 
 
+_PAT_SESSION_MARKER = re.compile(r"personal\s+access\s+token", re.IGNORECASE)
+
+
 def _pass_cli_session_is_pat(stdout: str) -> bool:
     """Return True when ``pass-cli info`` output indicates a PAT session."""
-    return "personal access token" in (stdout or "").lower()
+    return bool(_PAT_SESSION_MARKER.search(stdout or ""))
 
 
 class SandcatAddon:
@@ -209,8 +212,9 @@ class SandcatAddon:
     def _verify_pat_auth_or_die(self):
         """Confirm the active session is a PAT, not a full account credential.
 
-        Runs ``pass-cli info`` and looks for ``"Personal Access Token"`` in the
-        output.  If a user e-mail is found instead the session is immediately
+        Runs ``pass-cli info`` and checks for a Personal Access Token session
+        marker (case- and whitespace-insensitive).  If a user e-mail is shown
+        instead the session is immediately
         wiped with ``pass-cli logout`` and the addon load fails with a security
         error, preventing mitmproxy from starting.
 
