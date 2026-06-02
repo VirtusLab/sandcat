@@ -17,7 +17,7 @@
 
 FROM mitmproxy/mitmproxy:latest
 
-ARG PASS_CLI_VERSION=2.1.0
+ARG PASS_CLI_VERSION=2.1.2
 
 # Proton Pass CLI distributes binaries directly from proton.me (no GitHub releases).
 # dpkg architecture names (amd64, arm64) differ from the download URL naming
