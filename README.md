@@ -100,7 +100,7 @@ development stacks to install. You can also pass flags to skip prompts:
 sandcat init --agent claude --ide vscode --stacks "python,node"
 
 # With optional features (proxy TUI, 1Password integration)
-sandcat init --features "1password" --agent claude --ide vscode
+sandcat init --secret-provider 1password --agent claude --ide vscode
 ```
 
 Available stacks: `node`, `python`, `java`, `rust`, `go`, `scala`, `ruby`,
@@ -436,7 +436,7 @@ To enable 1Password during project setup, select it from the optional features
 prompt, or pass the flag:
 
 ```bash
-sandcat init --features 1password
+sandcat init --secret-provider 1password
 ```
 
 This switches the mitmproxy service to

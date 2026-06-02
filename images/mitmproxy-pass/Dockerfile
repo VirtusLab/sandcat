@@ -17,7 +17,10 @@
 
 FROM mitmproxy/mitmproxy:latest
 
+# Keep checksums in sync with PASS_CLI_VERSION from Proton's versions listing.
 ARG PASS_CLI_VERSION=2.1.2
+ARG PASS_CLI_SHA256_X86_64=5291edd21d85d222538b91341345ae3b0a1479e254d42920c2bbbd34012c6243
+ARG PASS_CLI_SHA256_AARCH64=0562625812f940bd4b7abd664b3bbcfefdeaf79d2f9b12f2d0a73be1ffc551ff
 
 # Proton Pass CLI distributes binaries directly from proton.me (no GitHub releases).
 # dpkg architecture names (amd64, arm64) differ from the download URL naming
@@ -26,14 +29,16 @@ ARG PASS_CLI_VERSION=2.1.2
 # privileges to the mitmproxy user. Do not add USER mitmproxy here.
 RUN DPKG_ARCH=$(dpkg --print-architecture) \
     && case "$DPKG_ARCH" in \
-         amd64)   DL_ARCH=x86_64   ;; \
-         arm64)   DL_ARCH=aarch64  ;; \
+         amd64)   DL_ARCH=x86_64;  PASS_CLI_SHA256="$PASS_CLI_SHA256_X86_64" ;; \
+         arm64)   DL_ARCH=aarch64; PASS_CLI_SHA256="$PASS_CLI_SHA256_AARCH64" ;; \
          *)       echo "Unsupported architecture: $DPKG_ARCH" >&2; exit 1 ;; \
        esac \
+    && test -n "$PASS_CLI_SHA256" \
     && apt-get update \
     && apt-get install -y --no-install-recommends curl \
     && curl -sSfLo /usr/local/bin/pass-cli \
         "https://proton.me/download/pass-cli/${PASS_CLI_VERSION}/pass-cli-linux-${DL_ARCH}" \
+    && echo "${PASS_CLI_SHA256}  /usr/local/bin/pass-cli" | sha256sum -c - \
     && chmod +x /usr/local/bin/pass-cli \
     && apt-get purge -y curl \
     && apt-get autoremove -y \
