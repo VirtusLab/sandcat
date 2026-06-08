@@ -35,6 +35,7 @@ RUN curl https://mise.run | sh
 # Make mise available in login shells (su - vscode) and Docker CMD/RUN.
 RUN echo 'export PATH="/home/vscode/.local/bin:/home/vscode/.local/share/mise/shims:$PATH"' >> /home/vscode/.profile
 ENV PATH="/home/vscode/.local/bin:/home/vscode/.local/share/mise/shims:$PATH"
+ENV LANG="en_US.UTF-8"
 
 # Development stacks (managed by sandcat init --stacks):
 # END STACKS
