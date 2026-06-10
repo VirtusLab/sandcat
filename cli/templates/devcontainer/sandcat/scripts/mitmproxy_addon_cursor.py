@@ -35,10 +35,15 @@ class SandcatAddon(_SandcatAddonBase):
     # ---------------------------------------------------------- settings hook
 
     def _on_settings_merged(self, merged: dict):
-        raw_debug = merged.get("env", {}).get(
+        env = merged.setdefault("env", {})
+        raw_debug = env.pop(
             "SANDCAT_MITM_DEBUG", os.environ.get("SANDCAT_MITM_DEBUG", "")
         )
         self.debug_enabled = self._is_truthy(raw_debug)
+        if self.debug_enabled:
+            self._debug(
+                "enabled — per-request auth/substitution logging active"
+            )
 
     # --------------------------------------------------- secret normalization
 

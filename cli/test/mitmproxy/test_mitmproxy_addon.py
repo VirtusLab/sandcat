@@ -14,6 +14,7 @@ This file covers:
 import importlib
 import json
 import os
+import re
 import sys
 import types
 from pathlib import Path
@@ -1334,6 +1335,41 @@ class TestOpSecretResolution:
 
         assert len(logout_calls) == 1, "pass-cli logout must be called once to wipe the non-PAT session"
 
+    def test_pat_verification_reports_auth_failure_distinctly(self, addon_cls, tmp_path, monkeypatch):
+        # `pass-cli info` exiting non-zero means the session could not be
+        # verified (bad/expired token) — NOT a full-account credential. The
+        # error must say so rather than firing the misleading SECURITY message.
+        monkeypatch.setenv("PROTON_PASS_PERSONAL_ACCESS_TOKEN", "pst_expired")
+        settings = {
+            "secrets": {"KEY": {"pass": "pass://vault/item/field", "hosts": []}},
+        }
+        p = tmp_path / "settings.json"
+        p.write_text(json.dumps(settings))
+        env_path = tmp_path / "sandcat.env"
+        addon = addon_cls()
+        logout_calls = []
+
+        def mock_run_side_effect(cmd, **kwargs):
+            if cmd[0] == "pass-cli" and cmd[1] == "login":
+                return MagicMock(returncode=0, stdout="", stderr="")
+            if cmd[0] == "pass-cli" and cmd[1] == "info":
+                return MagicMock(returncode=1, stdout="", stderr="session expired")
+            if cmd[0] == "pass-cli" and cmd[1] == "logout":
+                logout_calls.append(True)
+                return MagicMock(returncode=0, stdout="", stderr="")
+            return MagicMock(returncode=0, stdout="", stderr="")
+
+        with patch(f"{_COMMON}.SETTINGS_PATHS", [str(p)]), \
+             patch(f"{_COMMON}.SANDCAT_ENV_PATH", str(env_path)), \
+             patch(f"{_COMMON}.subprocess.run", side_effect=mock_run_side_effect):
+            with pytest.raises(RuntimeError) as excinfo:
+                addon.load(MagicMock())
+
+        msg = str(excinfo.value)
+        assert "could not verify" in msg, "auth-failure error must explain the session could not be verified"
+        assert "SECURITY" not in msg, "auth failure must not masquerade as a full-account security error"
+        assert len(logout_calls) == 1, "pass-cli logout must wipe the unverifiable session"
+
     def test_pat_verification_skipped_when_no_pass_secrets(self, addon_cls, tmp_path, monkeypatch):
         monkeypatch.setenv("PROTON_PASS_PERSONAL_ACCESS_TOKEN", "anything")
         settings = {
@@ -1370,7 +1406,9 @@ class TestPassCliPatSessionDetection:
             "PERSONAL ACCESS TOKEN: pst_test\n",
             "personal access token: pst_test\n",
             "Personal\tAccess\tToken: sandcat\n",
-            "Type: Personal  Access   Token\nName: sandcat\n",
+            # Real output shape: leading "- " and surrounding whitespace.
+            "- Release track: stable\n- Personal Access Token: sandcat\n",
+            "-   personal access token  :  sandcat\n",
         ],
     )
     def test_pass_cli_session_is_pat_accepts_varied_casing_and_spacing(self, stdout):
@@ -1383,6 +1421,10 @@ class TestPassCliPatSessionDetection:
             "Logged in as: user@example.com\n",
             "- Email: user@proton.me\n- Username: alice\n",
             "Release track: stable\nID: abc\n",
+            # Hardening: the phrase appearing inside a field *value* (not as a
+            # line-start label) must NOT be read as a PAT session.
+            "- Username: personal access token\n- Email: a@b.com\n",
+            "- Username: personal access token: foo\n",
         ],
     )
     def test_pass_cli_session_is_pat_rejects_account_session_output(self, stdout):
@@ -1416,6 +1458,68 @@ class TestPassCliPatSessionDetection:
             addon.load(MagicMock())
 
         assert addon.secrets["KEY"]["value"] == "resolved"
+
+
+# ---------------------------------------------------------------------------
+# pass-cli PAT-detection contract — bump-gated against the pinned version.
+#
+# pass-cli is pinned by version + per-arch sha256 in
+# images/mitmproxy-pass/pass-cli.env, so its `pass-cli info` output cannot drift
+# under us without a deliberate bump. These tests lock the regex against golden
+# samples of that output and fail if the pin is bumped without re-capturing the
+# goldens (see cli/test/mitmproxy/fixtures/pass-cli/README.md).
+# ---------------------------------------------------------------------------
+
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+_PASS_CLI_ENV = _REPO_ROOT / "images" / "mitmproxy-pass" / "pass-cli.env"
+_PASS_CLI_FIXTURES = Path(__file__).resolve().parent / "fixtures" / "pass-cli"
+
+
+def _read_env_file(path: Path) -> dict:
+    """Parse a simple KEY=value .env file (ignores comments and blank lines)."""
+    out = {}
+    for line in path.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        key, sep, value = line.partition("=")
+        if sep:
+            out[key.strip()] = value.strip()
+    return out
+
+
+class TestPassCliPatContract:
+    """Locks the PAT-detection heuristic against the pinned pass-cli output."""
+
+    def test_pinned_env_has_version_and_checksums(self):
+        env = _read_env_file(_PASS_CLI_ENV)
+        assert env.get("PASS_CLI_VERSION"), "PASS_CLI_VERSION missing from pass-cli.env"
+        for arch in ("PASS_CLI_SHA256_X86_64", "PASS_CLI_SHA256_AARCH64"):
+            assert re.fullmatch(r"[0-9a-f]{64}", env.get(arch, "")), (
+                f"{arch} must be a 64-char sha256 hex digest"
+            )
+
+    def test_goldens_were_captured_against_pinned_version(self):
+        env = _read_env_file(_PASS_CLI_ENV)
+        golden_version = (_PASS_CLI_FIXTURES / "VERSION").read_text().strip()
+        assert golden_version == env["PASS_CLI_VERSION"], (
+            "pass-cli was bumped without re-capturing the golden `pass-cli info` "
+            "samples. See cli/test/mitmproxy/fixtures/pass-cli/README.md."
+        )
+
+    def test_pat_session_golden_is_detected_as_pat(self):
+        pat_output = (_PASS_CLI_FIXTURES / "info_pat.txt").read_text()
+        assert common._pass_cli_session_is_pat(pat_output) is True, (
+            "PAT-session `pass-cli info` golden no longer matches the detection "
+            "regex — upstream wording likely changed; update _PAT_SESSION_MARKER."
+        )
+
+    def test_full_account_golden_is_rejected(self):
+        account_output = (_PASS_CLI_FIXTURES / "info_full_account.txt").read_text()
+        assert common._pass_cli_session_is_pat(account_output) is False, (
+            "Full-account `pass-cli info` golden now matches the PAT detection "
+            "regex — the security guarantee is broken; tighten _PAT_SESSION_MARKER."
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -1782,42 +1886,6 @@ class TestSettingsMerging:
         merged = BaseAddon._merge_settings(layers)
         assert merged["dns_servers"] is None
 
-    def test_dns_servers_highest_precedence_wins(self):
-        layers = [
-            {"dns_servers": ["10.0.0.1"]},
-            {"dns_servers": ["10.0.0.2", "10.0.0.3"]},
-        ]
-        merged = BaseAddon._merge_settings(layers)
-        assert merged["dns_servers"] == ["10.0.0.2", "10.0.0.3"]
-
-    def test_dns_servers_explicit_empty_wins_over_lower_layer(self):
-        # Higher-precedence layer explicitly sets [] → resets to "no overrides",
-        # the wg-client falls back to its hardcoded defaults.
-        layers = [
-            {"dns_servers": ["10.0.0.1"]},
-            {"dns_servers": []},
-        ]
-        merged = BaseAddon._merge_settings(layers)
-        assert merged["dns_servers"] == []
-
-    def test_dns_servers_absent(self):
-        layers = [{"env": {"A": "1"}}]
-        merged = BaseAddon._merge_settings(layers)
-        assert merged["dns_servers"] is None
-
-    def test_dns_servers_lower_layer_used_when_higher_layer_omits_key(self):
-        # Most common shape: user sets corp DNS, project doesn't touch it.
-        layers = [{"dns_servers": ["10.0.0.1"]}, {"env": {"A": "1"}}]
-        merged = BaseAddon._merge_settings(layers)
-        assert merged["dns_servers"] == ["10.0.0.1"]
-
-    def test_dns_servers_explicit_null_overrides_lower_layer(self):
-        # A higher layer with explicit null resets the merge — wg-client falls
-        # back to defaults.
-        layers = [{"dns_servers": ["10.0.0.1"]}, {"dns_servers": None}]
-        merged = BaseAddon._merge_settings(layers)
-        assert merged["dns_servers"] is None
-
 
 # ---------------------------------------------------------------------------
 # Multi-file loading — exercises the shared layer-reading loop.
@@ -1993,6 +2061,43 @@ class TestCursorDebugFlag:
             addon.load(MagicMock())
         # Claude variant doesn't override _on_settings_merged → flag stays False.
         assert addon.debug_enabled is False
+
+    def test_debug_not_exported_to_sandcat_env(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("SANDCAT_MITM_DEBUG", raising=False)
+        settings = {
+            "env": {"SANDCAT_MITM_DEBUG": "1", "GIT_USER_NAME": "dev"},
+            "network": [{"action": "allow", "host": "*"}],
+        }
+        p = tmp_path / "settings.json"
+        p.write_text(json.dumps(settings))
+        env_path = tmp_path / "sandcat.env"
+        addon = CursorAddon()
+        with patch(f"{_COMMON}.SETTINGS_PATHS", [str(p)]), \
+             patch(f"{_COMMON}.SANDCAT_ENV_PATH", str(env_path)):
+            addon.load(MagicMock())
+        written = env_path.read_text()
+        assert "SANDCAT_MITM_DEBUG" not in written
+        assert 'export GIT_USER_NAME="dev"' in written
+
+    def test_debug_logs_to_stderr_on_request(self, tmp_path, monkeypatch, capsys):
+        monkeypatch.delenv("SANDCAT_MITM_DEBUG", raising=False)
+        settings = {
+            "env": {"SANDCAT_MITM_DEBUG": "1"},
+            "network": [{"action": "allow", "host": "*"}],
+        }
+        p = tmp_path / "settings.json"
+        p.write_text(json.dumps(settings))
+        env_path = tmp_path / "sandcat.env"
+        addon = CursorAddon()
+        with patch(f"{_COMMON}.SETTINGS_PATHS", [str(p)]), \
+             patch(f"{_COMMON}.SANDCAT_ENV_PATH", str(env_path)):
+            addon.load(MagicMock())
+        capsys.readouterr()  # discard startup debug line
+        flow = _make_flow(host="api2.cursor.sh", url="https://api2.cursor.sh/health")
+        addon.request(flow)
+        err = capsys.readouterr().err
+        assert "[sandcat-debug]" in err
+        assert "api2.cursor.sh/health" in err
 
 
 # ---------------------------------------------------------------------------

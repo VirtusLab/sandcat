@@ -1,0 +1,4 @@
+- Release track: stable
+- ID: YOUR_USER_ID
+- Username: your-username
+- Email: youruser@proton.me

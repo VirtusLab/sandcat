@@ -35,6 +35,11 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Load pinned pass-cli version
+        # Single source of truth — also consumed by the PAT-detection contract
+        # test. Strip comments/blank lines before exporting to $GITHUB_ENV.
+        run: grep -E '^[A-Za-z_][A-Za-z0-9_]*=' images/mitmproxy-pass/pass-cli.env >> "$GITHUB_ENV"
+
       - name: Extract metadata
         id: meta
         uses: docker/metadata-action@v5
@@ -55,6 +60,10 @@ jobs:
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            PASS_CLI_VERSION=${{ env.PASS_CLI_VERSION }}
+            PASS_CLI_SHA256_X86_64=${{ env.PASS_CLI_SHA256_X86_64 }}
+            PASS_CLI_SHA256_AARCH64=${{ env.PASS_CLI_SHA256_AARCH64 }}
           # Skip cache on scheduled builds to pick up upstream mitmproxy:latest changes
           cache-from: ${{ github.event_name != 'schedule' && 'type=gha' || '' }}
           cache-to: type=gha,mode=max

@@ -6,11 +6,13 @@ on:
     paths:
       - 'cli/templates/devcontainer/sandcat/scripts/**'
       - 'cli/test/mitmproxy/**'
+      - 'images/mitmproxy-pass/**'
       - '.github/workflows/test.yml'
   pull_request:
     paths:
       - 'cli/templates/devcontainer/sandcat/scripts/**'
       - 'cli/test/mitmproxy/**'
+      - 'images/mitmproxy-pass/**'
       - '.github/workflows/test.yml'
 
 jobs:

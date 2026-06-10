@@ -70,7 +70,15 @@ SANDCAT_DNS_CONF_PATH = "/home/mitmproxy/.mitmproxy/dns.conf"
 logger = logging.getLogger(__name__)
 
 
-_PAT_SESSION_MARKER = re.compile(r"personal\s+access\s+token", re.IGNORECASE)
+# PAT sessions print a `Personal Access Token: <name>` field; full accounts
+# print `ID`/`Username`/`Email` instead. Anchor to a line-start label (optional
+# leading `- ` and a trailing colon) so a full-account *value* that happens to
+# contain the phrase (e.g. a username "personal access token") can't be mistaken
+# for a PAT. Casing/spacing-tolerant; format drift is caught by the golden
+# contract test (see cli/test/mitmproxy/fixtures/pass-cli/).
+_PAT_SESSION_MARKER = re.compile(
+    r"^\s*-?\s*personal\s+access\s+token\s*:", re.IGNORECASE | re.MULTILINE
+)
 
 
 def _pass_cli_session_is_pat(stdout: str) -> bool:
@@ -113,7 +121,7 @@ class SandcatAddon:
         self._configure_proton_pass_token(merged.get("proton_pass_token"))
 
         has_pass_secrets = any("pass" in e for e in merged["secrets"].values())
-        self._pass_cli_logged_in = self._pass_cli_login_if_needed(merged["secrets"])
+        self._pass_cli_logged_in = self._pass_cli_login_if_needed(has_pass_secrets)
         if has_pass_secrets and self._pass_cli_logged_in:
             self._verify_pat_auth_or_die()
 
@@ -170,14 +178,16 @@ class SandcatAddon:
         else:
             ctx.log.info("proton_pass_token: not configured")
 
-    def _pass_cli_login_if_needed(self, secrets: dict) -> bool:
+    def _pass_cli_login_if_needed(self, has_pass_secrets: bool) -> bool:
         """Attempt ``pass-cli login`` when at least one ``pass://`` secret is present.
 
-        Returns ``True`` if login succeeded or there are no ``pass://`` secrets
-        (login not needed).  Returns ``False`` if login failed for any reason —
-        callers should treat all ``pass://`` secrets as unresolvable.
+        ``has_pass_secrets`` is computed once by the caller (``load``) from the
+        merged secrets.  Returns ``True`` if login succeeded or there are no
+        ``pass://`` secrets (login not needed).  Returns ``False`` if login
+        failed for any reason — callers should treat all ``pass://`` secrets as
+        unresolvable.
         """
-        if not any("pass" in e for e in secrets.values()):
+        if not has_pass_secrets:
             return True  # no pass:// secrets — login not needed
 
         if not os.environ.get("PROTON_PASS_PERSONAL_ACCESS_TOKEN"):
@@ -213,10 +223,13 @@ class SandcatAddon:
         """Confirm the active session is a PAT, not a full account credential.
 
         Runs ``pass-cli info`` and checks for a Personal Access Token session
-        marker (case- and whitespace-insensitive).  If a user e-mail is shown
-        instead the session is immediately
-        wiped with ``pass-cli logout`` and the addon load fails with a security
-        error, preventing mitmproxy from starting.
+        marker (case- and whitespace-insensitive).  Two distinct failure modes,
+        both fail-closed (logout + raise, preventing mitmproxy from starting):
+
+        - ``pass-cli info`` exits non-zero — the session could not be verified
+          (auth failed / session expired).  Reported as an auth error.
+        - the session is valid but shows no PAT marker — a full account
+          credential.  Reported as a security error.
 
         This check is only called when at least one ``pass://`` secret exists,
         so op-only or value-only projects are unaffected.
@@ -231,11 +244,20 @@ class SandcatAddon:
                 "pass-cli not found while verifying PAT authentication"
             ) from None
 
-        if info.returncode != 0 or not _pass_cli_session_is_pat(info.stdout):
-            subprocess.run(
-                ["pass-cli", "logout"],
-                capture_output=True, text=True, timeout=10,
+        if info.returncode != 0:
+            self._pass_cli_logout()
+            msg = (
+                f"pass-cli could not verify the Proton Pass session "
+                f"(`pass-cli info` exited {info.returncode}). The token is "
+                "invalid or the session expired; check "
+                "PROTON_PASS_PERSONAL_ACCESS_TOKEN. This is an authentication "
+                "failure, not necessarily a full-account credential."
             )
+            ctx.log.error(msg)
+            raise RuntimeError(msg)
+
+        if not _pass_cli_session_is_pat(info.stdout):
+            self._pass_cli_logout()
             msg = (
                 "SECURITY: proton_pass_token does not authenticate as a Proton Pass "
                 "Personal Access Token. Using a full account credential would give "
@@ -249,6 +271,14 @@ class SandcatAddon:
             raise RuntimeError(msg)
 
         ctx.log.info("pass-cli info: confirmed Personal Access Token (PAT) session")
+
+    @staticmethod
+    def _pass_cli_logout():
+        """Wipe the active pass-cli session (best-effort)."""
+        subprocess.run(
+            ["pass-cli", "logout"],
+            capture_output=True, text=True, timeout=10,
+        )
 
     @staticmethod
     def _merge_settings(layers: list[dict]) -> dict:
@@ -596,7 +626,11 @@ class SandcatAddon:
 
     def _debug(self, message: str):
         if self.debug_enabled:
-            ctx.log.info(f"[sandcat-debug] {message}")
+            msg = f"[sandcat-debug] {message}"
+            ctx.log.info(msg)
+            # Mirror warnings: ctx.log.info alone is often invisible in mitmweb
+            # Docker logs (buffering / termlog routing to the web UI).
+            print(msg, file=sys.stderr)
 
     @staticmethod
     def _is_truthy(value) -> bool:

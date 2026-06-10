@@ -102,15 +102,6 @@ apply_secret_provider() {
 	esac
 }
 
-# Enables 1Password integration in the mitmproxy service.
-# Switches to the pre-built mitmproxy image that includes the op CLI,
-# and forwards OP_SERVICE_ACCOUNT_TOKEN from the host environment.
-# Args:
-#   $1 - Path to the compose-proxy.yml file
-enable_1password() {
-	apply_secret_provider "$1" "1password"
-}
-
 # Switches the mitmproxy service from web UI to console (mitmdump) mode.
 # Replaces the mitmweb command with mitmdump, strips mitmweb-only flags
 # (--web-host and --set web_password), and removes the web UI port.

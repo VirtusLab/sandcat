@@ -17,17 +17,21 @@
 
 FROM mitmproxy/mitmproxy:latest
 
-# Keep checksums in sync with PASS_CLI_VERSION from Proton's versions listing.
-ARG PASS_CLI_VERSION=2.1.2
-ARG PASS_CLI_SHA256_X86_64=5291edd21d85d222538b91341345ae3b0a1479e254d42920c2bbbd34012c6243
-ARG PASS_CLI_SHA256_AARCH64=0562625812f940bd4b7abd664b3bbcfefdeaf79d2f9b12f2d0a73be1ffc551ff
+# Version + per-arch checksums are the single source of truth in
+# images/mitmproxy-pass/pass-cli.env and MUST be supplied as build args
+# (the build workflow and the local-build docs source that file). No defaults
+# here on purpose, so the pin lives in exactly one place.
+ARG PASS_CLI_VERSION
+ARG PASS_CLI_SHA256_X86_64
+ARG PASS_CLI_SHA256_AARCH64
 
 # Proton Pass CLI distributes binaries directly from proton.me (no GitHub releases).
 # dpkg architecture names (amd64, arm64) differ from the download URL naming
 # (x86_64, aarch64), so we map them explicitly.
 # The upstream image runs as root; the entrypoint uses gosu to drop
 # privileges to the mitmproxy user. Do not add USER mitmproxy here.
-RUN DPKG_ARCH=$(dpkg --print-architecture) \
+RUN test -n "$PASS_CLI_VERSION" || { echo "PASS_CLI_VERSION build arg is required (source pass-cli.env)" >&2; exit 1; } \
+    && DPKG_ARCH=$(dpkg --print-architecture) \
     && case "$DPKG_ARCH" in \
          amd64)   DL_ARCH=x86_64;  PASS_CLI_SHA256="$PASS_CLI_SHA256_X86_64" ;; \
          arm64)   DL_ARCH=aarch64; PASS_CLI_SHA256="$PASS_CLI_SHA256_AARCH64" ;; \

@@ -72,6 +72,24 @@ pass-cli pat access grant --pat-name "sandcat" --vault-name "MyVault" --role vie
 
 At startup, sandcat logs into `pass-cli` using the PAT and verifies the session is scoped (not a full account credential). If a full account credential is detected, mitmproxy refuses to start with a security error.
 
+> **Note:** This check is fail-closed and applies only when at least one `pass://` secret is configured. A misconfigured or non-scoped Proton Pass token prevents the mitmproxy proxy from starting **at all** — so `op://` secrets, plain-value secrets, and network policy will also be unavailable until the token is fixed. If the proxy fails to come up after adding a `pass://` secret, check the mitmproxy logs for the PAT security error rather than assuming a broader outage.
+
+##### Building the `mitmproxy-pass` image locally
+
+The published image (`ghcr.io/virtuslab/sandcat-mitmproxy-pass`) is built in CI, but you can build it locally. The pinned `pass-cli` version and per-arch checksums live in a single source of truth, [`images/mitmproxy-pass/pass-cli.env`](../images/mitmproxy-pass/pass-cli.env), and must be passed in as build args (the Dockerfile has no defaults on purpose):
+
+```bash
+set -a; . images/mitmproxy-pass/pass-cli.env; set +a
+docker build \
+  --build-arg PASS_CLI_VERSION \
+  --build-arg PASS_CLI_SHA256_X86_64 \
+  --build-arg PASS_CLI_SHA256_AARCH64 \
+  -t sandcat-mitmproxy-pass:local \
+  images/mitmproxy-pass
+```
+
+PAT detection relies on the wording of `pass-cli info` output. Because the binary is pinned by version **and** sha256, that output cannot change without a deliberate bump. A contract test (`TestPassCliPatContract`) locks the detection regex against golden samples tagged with `PASS_CLI_VERSION`. When you bump `pass-cli.env`, you must also re-capture those samples — see [`cli/test/mitmproxy/fixtures/pass-cli/README.md`](test/mitmproxy/fixtures/pass-cli/README.md) — or CI will fail.
+
 Note: Cursor agent support currently uses compatibility defaults for auth/network
 settings while provider-specific hardening is being expanded.
 Use `CURSOR_API_KEY` for Cursor authentication.
