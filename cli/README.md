@@ -21,8 +21,8 @@ Options:
 - `--netbird` - Enable dynamic WireGuard control via NetBird. The NetBird client
   daemon starts inside `wg-client` (the sole `NET_ADMIN` container) and manages
   a second interface `wt0` for the NetBird overlay mesh. `wg0` (the mitmproxy
-  inspection tunnel) is untouched. Seeds `netbird_enrollment_key` in
-  `~/.config/sandcat/settings.json`.
+  inspection tunnel) is untouched. Seeds `netbird_enrollment_key` and
+  `netbird_api_token` in `~/.config/sandcat/settings.json`.
 - `--1password` - Deprecated alias for `--secret-provider 1password`
 - `--features` - Comma-separated optional non-provider features: `tui` (proxy console mode; prefer `--proxy tui`)
 - `--name` - Project name for Docker Compose (default: derived from directory name)
@@ -210,24 +210,44 @@ docker build -f Dockerfile.wg-client \
 
 ### Setup
 
+NetBird uses **two separate credentials**. Both go in `~/.config/sandcat/settings.json`
+(created by `sandcat init`; edit with `sandcat edit user-settings`):
+
+| Setting key | Used for | Where to get it |
+|-------------|----------|-----------------|
+| `netbird_enrollment_key` | Enrolling `wg-client` as a mesh peer (`NB_SETUP_KEY`) | NetBird dashboard → **Setup Keys** |
+| `netbird_api_token` | `sandcat netbird` CLI commands on your host | NetBird dashboard → **API Keys** (Personal Access Token) |
+
+**Before `sandcat netbird status` works**, you must complete steps 1–4 below.
+Container enrollment (`netbird_enrollment_key`) is separate from host CLI control
+(`netbird_api_token`) — you need the API token even if the devcontainer is already running.
+
 1. Create a NetBird account at <https://app.netbird.io> or self-host the server.
-2. Generate a setup key (**Setup Keys** in the NetBird dashboard).
-3. Generate an API token (**API Keys** in the NetBird dashboard).
-4. Add the enrollment key to your sandcat user settings:
+2. In the dashboard, create a **Setup Key** (for peer enrollment).
+3. In the dashboard, create an **API Key** / personal access token (for `sandcat netbird` commands).
+4. Add both values to user settings:
 
 ```json
 {
-  "netbird_enrollment_key": "your-setup-key-here"
+  "netbird_enrollment_key": "your-setup-key-here",
+  "netbird_api_token": "your-api-token-here"
 }
 ```
 
-5. Set `NB_SETUP_KEY` in your environment before starting the devcontainer:
+Or edit interactively:
 
 ```bash
-export NB_SETUP_KEY="your-setup-key-here"
-export NB_API_TOKEN="your-api-token"           # for sandcat netbird commands
-export NB_MANAGEMENT_URL="https://api.netbird.io"  # or self-hosted URL
+sandcat edit user-settings
 ```
+
+`sandcat compose` and `sandcat run` read `netbird_enrollment_key` and export
+`NB_SETUP_KEY` automatically when starting containers. `sandcat netbird`
+commands read `netbird_api_token` from the same settings layers (project
+settings override user settings when non-empty). Environment variables
+`NB_SETUP_KEY` and `NB_API_TOKEN` override settings when set.
+
+Optional: set `NB_MANAGEMENT_URL` when using a self-hosted NetBird server
+(default: `https://api.netbird.io`).
 
 ### Runtime control
 

@@ -5,6 +5,8 @@ set -euo pipefail
 source "$SCT_LIBDIR/require.bash"
 # shellcheck source=../../lib/path.bash
 source "$SCT_LIBDIR/path.bash"
+# shellcheck source=../../lib/netbird.bash
+source "$SCT_LIBDIR/netbird.bash"
 
 # Helper that automatically locates the docker compose file
 # All arguments are passed to docker compose
@@ -13,6 +15,8 @@ compose() {
 
 	local compose_file
 	compose_file="$(find_compose_file)"
+
+	export_netbird_compose_env
 
 	exec docker compose -f "$compose_file" "$@"
 }

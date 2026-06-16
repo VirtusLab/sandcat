@@ -7,6 +7,8 @@ source "$SCT_LIBDIR/require.bash"
 source "$SCT_LIBDIR/path.bash"
 # shellcheck source=../../lib/volume.bash
 source "$SCT_LIBDIR/volume.bash"
+# shellcheck source=../../lib/netbird.bash
+source "$SCT_LIBDIR/netbird.bash"
 
 # Run a command in the agent container.
 # Starts dependencies, runs the command, then tears everything down.
@@ -36,6 +38,8 @@ run() {
 	done
 
 	warn_stale_home_volume "$compose_file"
+
+	export_netbird_compose_env
 
 	local rc=0
 	docker compose -f "$compose_file" run --rm "${run_opts[@]+"${run_opts[@]}"}" agent "${1-bash}" "${@:2}" || rc=$?

@@ -343,7 +343,10 @@ init() {
 		local user_settings
 		user_settings="$(sct_home)/settings.json"
 		if [[ -f "$user_settings" ]]; then
-			yq -i -o json '.netbird_enrollment_key = (.netbird_enrollment_key // "")' "$user_settings"
+			yq -i -o json '
+				.netbird_enrollment_key = (.netbird_enrollment_key // "") |
+				.netbird_api_token = (.netbird_api_token // "")
+			' "$user_settings"
 		fi
 	fi
 
@@ -420,6 +423,13 @@ init() {
 		echo "    GITHUB_TOKEN       a GitHub personal access token (for git push, gh cli)" | info
 		;;
 	esac
+	if [[ "$netbird" == "true" ]]; then
+		echo "" >&2
+		echo "  NetBird setup:" | info
+		echo "    Add keys to ~/.config/sandcat/settings.json:" | info
+		echo "      \"netbird_enrollment_key\": \"<setup-key>\"  (wg-client enrollment)" | info
+		echo "      \"netbird_api_token\": \"<api-token>\"      (sandcat netbird commands)" | info
+	fi
 	echo "  Then run: sandcat run, or reopen the project using the dev container" | info
 }
 
