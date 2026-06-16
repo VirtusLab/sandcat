@@ -117,6 +117,7 @@ devcontainer() {
 	fi
 
 	apply_secret_provider "$devcontainer_dir/sandcat/compose-proxy.yml" "$secret_provider"
+	apply_netbird_build_args "$devcontainer_dir/sandcat/compose-proxy.yml"
 
 	if [[ "$netbird" == "true" ]]; then
 		if ! declare -f enable_netbird &>/dev/null; then

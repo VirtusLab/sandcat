@@ -192,6 +192,22 @@ All NetBird traffic (control plane and data plane) routes through `wg0` → mitm
 maintaining the full inspection guarantee. `wg-client` remains the only container
 with `NET_ADMIN`.
 
+The NetBird client binary is pinned by version and per-arch sha256 in
+[`templates/devcontainer/sandcat/netbird.env`](templates/devcontainer/sandcat/netbird.env)
+(the same pattern as [`images/mitmproxy-pass/pass-cli.env`](../images/mitmproxy-pass/pass-cli.env)).
+`sandcat init` injects these as compose build args for `wg-client` automatically.
+To build the image manually:
+
+```bash
+cd cli/templates/devcontainer/sandcat
+set -a; . netbird.env; set +a
+docker build -f Dockerfile.wg-client \
+  --build-arg NETBIRD_VERSION \
+  --build-arg NETBIRD_SHA256_AMD64 \
+  --build-arg NETBIRD_SHA256_ARM64 \
+  -t wg-client-test .
+```
+
 ### Setup
 
 1. Create a NetBird account at <https://app.netbird.io> or self-host the server.

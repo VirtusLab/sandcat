@@ -311,6 +311,35 @@ add_jetbrains_capabilities() {
 	yq -i '(.services.agent.cap_add[] | select(. == "FOWNER")) head_comment = "JetBrains IDE: bypass ownership checks on IDE-managed files"' "$compose_file"
 }
 
+# Injects NetBird version and per-arch checksum build args into wg-client's
+# compose build section, sourced from netbird.env (sibling to compose-proxy.yml).
+# Args:
+#   $1 - Path to compose-proxy.yml
+apply_netbird_build_args() {
+	require yq
+	local compose_file=$1
+	local netbird_env
+	netbird_env="$(dirname "$compose_file")/netbird.env"
+
+	if [[ ! -f "$netbird_env" ]]; then
+		echo "netbird.env not found beside compose file: $netbird_env" >&2
+		return 1
+	fi
+
+	# shellcheck disable=SC1090
+	source "$netbird_env"
+
+	: "${NETBIRD_VERSION:?NETBIRD_VERSION missing from $netbird_env}"
+	: "${NETBIRD_SHA256_AMD64:?NETBIRD_SHA256_AMD64 missing from $netbird_env}"
+	: "${NETBIRD_SHA256_ARM64:?NETBIRD_SHA256_ARM64 missing from $netbird_env}"
+
+	yq -i "
+		.services.\"wg-client\".build.args.NETBIRD_VERSION = \"${NETBIRD_VERSION}\" |
+		.services.\"wg-client\".build.args.NETBIRD_SHA256_AMD64 = \"${NETBIRD_SHA256_AMD64}\" |
+		.services.\"wg-client\".build.args.NETBIRD_SHA256_ARM64 = \"${NETBIRD_SHA256_ARM64}\"
+	" "$compose_file"
+}
+
 # Adds NB_SETUP_KEY to the wg-client service's environment in the deployed
 # compose-proxy.yml. wg-client-init.sh reads this at startup to enroll the
 # container as a NetBird peer and start the daemon on wt0.

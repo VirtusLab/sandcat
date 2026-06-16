@@ -27,3 +27,13 @@ setup() {
     run grep -c "netbird" "$COMPOSE_ALL"
     assert_output "0"
 }
+
+@test "netbird.env pins version and per-arch sha256 checksums" {
+    local env_file="$SCT_TEMPLATEDIR/devcontainer/sandcat/netbird.env"
+    # shellcheck disable=SC1090
+    source "$env_file"
+
+    [[ -n "$NETBIRD_VERSION" ]]
+    [[ "$NETBIRD_SHA256_AMD64" =~ ^[0-9a-f]{64}$ ]]
+    [[ "$NETBIRD_SHA256_ARM64" =~ ^[0-9a-f]{64}$ ]]
+}
