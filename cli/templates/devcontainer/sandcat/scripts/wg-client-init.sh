@@ -276,10 +276,86 @@ main() {
     mkdir -p "$(dirname "$SHARED_RESOLV_CONF")"
     write_resolv_conf "$SHARED_RESOLV_CONF" "${search_domains[@]}"
 
+    # ── NetBird overlay mesh (optional) ─────────────────────────────────────────
+    # Enroll and start the NetBird daemon if NB_SETUP_KEY is set. wt0 is created
+    # by the daemon in this network namespace alongside wg0. fwmark 51821 ensures
+    # wt0 traffic routes through wg0 → mitmproxy (not eth0 directly).
+    trust_mitmproxy_ca "/mitmproxy-config/mitmproxy-ca-cert.pem"
+    start_netbird "wt0"
+    set_netbird_fwmark "wt0"
+    supervise_netbird_daemon "wt0" &
+
     # Signal readiness to containers waiting on the healthcheck.
     touch /tmp/wg-ready
 
     supervise_dnsmasq "$DNSMASQ_CONF"
+}
+
+# Trust the mitmproxy CA cert so the netbird daemon can verify TLS connections
+# to the NetBird management and signal servers. Those connections transit wg0 →
+# mitmproxy just like all other outbound traffic; without this step the daemon
+# would reject the MITM certificate and fail to enroll.
+# Args:
+#   $1 - Path to the mitmproxy CA cert (from the mitmproxy-config volume)
+#   $2 - System CA directory (default: /usr/local/share/ca-certificates)
+trust_mitmproxy_ca() {
+    local ca_cert="$1"
+    local ca_dir="${2:-/usr/local/share/ca-certificates}"
+    [[ -f "$ca_cert" ]] || return 0
+    cp "$ca_cert" "$ca_dir/mitmproxy.crt"
+    update-ca-certificates --fresh >/dev/null 2>&1
+}
+
+# Enroll this container as a NetBird peer and start the daemon in the background.
+# Does nothing if NB_SETUP_KEY is unset (NetBird disabled for this environment).
+# After the daemon starts it waits until the overlay interface appears.
+# Args:
+#   $1 - WireGuard interface name for the NetBird overlay (default: wt0)
+start_netbird() {
+    local iface="${1:-wt0}"
+    [[ -n "${NB_SETUP_KEY:-}" ]] || return 0
+
+    echo "[wg-client] Starting NetBird daemon on ${iface}." >&2
+    netbird up \
+        --setup-key "${NB_SETUP_KEY}" \
+        --management-url "${NB_MANAGEMENT_URL:-https://api.netbird.io}" \
+        --interface-name "${iface}" \
+        &
+
+    wait_until 30 1 \
+        "[wg-client] Timed out waiting for NetBird to bring up ${iface}" \
+        ip link show "${iface}" >/dev/null 2>&1
+}
+
+# Override the WireGuard fwmark on the NetBird interface so its encapsulation
+# packets (fwmark 51821) are NOT exempt from the wg0 policy routing rule
+# (`not fwmark 51820 → table 51820 → wg0`). This ensures NetBird peer traffic
+# transits wg0 → mitmproxy, preserving the inspection guarantee.
+# Must be called after start_netbird has brought the interface up.
+# Args:
+#   $1 - NetBird WireGuard interface name (default: wt0)
+set_netbird_fwmark() {
+    local iface="${1:-wt0}"
+    ip link show "${iface}" >/dev/null 2>&1 || return 0
+    wg set "${iface}" fwmark 51821
+}
+
+# Supervise the NetBird daemon: poll every 10 s and restart if unresponsive.
+# Returns immediately (no-op) if NB_SETUP_KEY is unset.
+# Args:
+#   $1 - NetBird WireGuard interface name (default: wt0)
+supervise_netbird_daemon() {
+    local iface="${1:-wt0}"
+    [[ -n "${NB_SETUP_KEY:-}" ]] || return 0
+
+    while true; do
+        sleep 10
+        if ! netbird status >/dev/null 2>&1; then
+            echo "[wg-client] NetBird daemon not responding; restarting." >&2
+            start_netbird "${iface}" || true
+            set_netbird_fwmark "${iface}" || true
+        fi
+    done
 }
 
 # Keep dnsmasq alive in-place. Sibling containers share this container's
