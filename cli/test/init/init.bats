@@ -349,6 +349,8 @@ EOF
 	assert_success
 	run yq '.netbird_enrollment_key' "$SCT_HOME_DIR/settings.json"
 	assert_output '""'
+	run yq '.netbird_api_token' "$SCT_HOME_DIR/settings.json"
+	assert_output '""'
 }
 
 @test "init interactive flow (devcontainer mode)" {
