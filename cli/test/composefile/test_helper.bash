@@ -21,3 +21,4 @@ bats_load_library bats-mock-ext
 
 export SCT_ROOT
 export SCT_LIBDIR="$SCT_ROOT/lib"
+export SCT_TEMPLATEDIR="$SCT_ROOT/templates"
