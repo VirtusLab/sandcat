@@ -1,0 +1,88 @@
+#!/usr/bin/env bats
+
+setup() {
+    load test_helper
+    source "$SCT_LIBDIR/netbird.bash"
+
+    export HOME="$BATS_TEST_TMPDIR/home"
+    mkdir -p "$HOME/.config/sandcat"
+    PROJECT_DIR="$BATS_TEST_TMPDIR/project"
+    mkdir -p "$PROJECT_DIR/.sandcat"
+    cd "$PROJECT_DIR" || return 1
+}
+
+teardown() {
+    unstub_all
+}
+
+@test "netbird_read_setting returns empty when no settings exist" {
+    run netbird_read_setting netbird_api_token
+    assert_success
+    assert_output ""
+}
+
+@test "netbird_read_setting reads netbird_api_token from user settings" {
+    echo '{"netbird_api_token": "user-token"}' > "$HOME/.config/sandcat/settings.json"
+
+    run netbird_read_setting netbird_api_token
+    assert_output "user-token"
+}
+
+@test "netbird_read_setting prefers project settings over user settings" {
+    echo '{"netbird_api_token": "user-token"}' > "$HOME/.config/sandcat/settings.json"
+    echo '{"netbird_api_token": "project-token"}' > "$PROJECT_DIR/.sandcat/settings.json"
+
+    run netbird_read_setting netbird_api_token
+    assert_output "project-token"
+}
+
+@test "netbird_read_setting prefers local project settings over project settings" {
+    echo '{"netbird_api_token": "user-token"}' > "$HOME/.config/sandcat/settings.json"
+    echo '{"netbird_api_token": "project-token"}' > "$PROJECT_DIR/.sandcat/settings.json"
+    echo '{"netbird_api_token": "local-token"}' > "$PROJECT_DIR/.sandcat/settings.local.json"
+
+    run netbird_read_setting netbird_api_token
+    assert_output "local-token"
+}
+
+@test "export_netbird_compose_env exports enrollment key from user settings" {
+    echo '{"netbird_enrollment_key": "setup-key-123"}' > "$HOME/.config/sandcat/settings.json"
+    unset NB_SETUP_KEY
+
+    export_netbird_compose_env
+
+    [[ "$NB_SETUP_KEY" == "setup-key-123" ]]
+}
+
+@test "export_netbird_compose_env does not override existing NB_SETUP_KEY" {
+    echo '{"netbird_enrollment_key": "from-settings"}' > "$HOME/.config/sandcat/settings.json"
+    export NB_SETUP_KEY="from-env"
+
+    export_netbird_compose_env
+
+    [[ "$NB_SETUP_KEY" == "from-env" ]]
+}
+
+@test "netbird_api reads netbird_api_token from user settings" {
+    echo '{"netbird_api_token": "settings-token"}' > "$HOME/.config/sandcat/settings.json"
+    unset NB_API_TOKEN
+    export NB_MANAGEMENT_URL="https://api.netbird.io"
+
+    stub curl \
+        "-sS -f -X GET -H 'Authorization: Token settings-token' -H 'Accept: application/json' -H 'Content-Type: application/json' https://api.netbird.io/api/peers : echo '[]'"
+
+    run netbird_api "GET" "/api/peers"
+    assert_success
+}
+
+@test "netbird_api prefers NB_API_TOKEN env over settings" {
+    echo '{"netbird_api_token": "settings-token"}' > "$HOME/.config/sandcat/settings.json"
+    export NB_API_TOKEN="env-token"
+    export NB_MANAGEMENT_URL="https://api.netbird.io"
+
+    stub curl \
+        "-sS -f -X GET -H 'Authorization: Token env-token' -H 'Accept: application/json' -H 'Content-Type: application/json' https://api.netbird.io/api/peers : echo '[]'"
+
+    run netbird_api "GET" "/api/peers"
+    assert_success
+}

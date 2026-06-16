@@ -11,15 +11,27 @@ usage() {
 Usage: sandcat netbird <subcommand> [options]
 
 Subcommands:
-  status                                    List peers from the NetBird management server
-  peer remove --peer-id <id>                Remove a peer (triggers wg syncconf in wg-client)
+  status                                        List peers from the NetBird management server
+  peer remove --peer-id <id>                    Remove a peer; wg-client drops the route from wt0
   route add   --network <cidr> --peer-id <id>   Add a network route
-  route remove --route-id <id>              Remove a route by ID
+  route remove --route-id <id>                  Remove a route by ID
 EOF
 }
 
 cmd_status() {
-    netbird_status
+	local peers
+	peers=$(netbird_status) || return 1
+
+	if [[ -z "$peers" || "$peers" == "[]" || "$peers" == "null" ]]; then
+		echo "No peers registered in NetBird (check app.netbird.io dashboard)."
+		return 0
+	fi
+
+	if command -v jq &>/dev/null; then
+		echo "$peers" | jq .
+	else
+		echo "$peers"
+	fi
 }
 
 cmd_peer() {
@@ -65,7 +77,17 @@ cmd_route() {
         if [[ -z "$peer_id" ]]; then
             echo "Missing required option: --peer-id" | error; return 1
         fi
-        netbird_route_add "$network" "$peer_id"
+        if [[ ! "$network" =~ ^[0-9]+(\.[0-9]+){3}/[0-9]+$ ]]; then
+            echo "--network must be a CIDR (e.g. 10.8.0.0/24), not an interface name" | error
+            return 1
+        fi
+        local response
+        response=$(netbird_route_add "$network" "$peer_id") || return 1
+        if command -v jq &>/dev/null; then
+            echo "$response" | jq .
+        else
+            echo "$response"
+        fi
         ;;
     remove)
         local route_id=""
