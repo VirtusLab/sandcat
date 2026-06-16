@@ -590,3 +590,20 @@ apply_upstream_ca_bundles() {
 		'.services.mitmproxy.entrypoint = ["/bin/sh", "-c", strenv(new_entrypoint), "sh"]' \
 		"$compose_file"
 }
+
+# Adds NB_SETUP_KEY to the wg-client service's environment in the deployed
+# compose-proxy.yml. wg-client-init.sh reads this at startup to enroll the
+# container as a NetBird peer and start the daemon on wt0.
+# Args:
+#   $1 - Path to compose-proxy.yml
+enable_netbird() {
+	require yq
+	local compose_file=$1
+
+	local already_set
+	already_set=$(yq '[.services."wg-client".environment[] | select(. == "NB_SETUP_KEY")] | length' "$compose_file")
+
+	if [[ "$already_set" -eq 0 ]]; then
+		yq -i '.services."wg-client".environment += ["NB_SETUP_KEY"]' "$compose_file"
+	fi
+}
