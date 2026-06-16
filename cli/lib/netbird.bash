@@ -51,8 +51,8 @@ netbird_route_remove() {
 }
 
 # Removes a peer from the NetBird management server.
-# Causes netbird-sync.sh to write an updated peers.conf that omits this peer,
-# which wg-client then applies via wg syncconf — removing the route to that peer.
+# The netbird daemon running in wg-client detects the removal and drops the
+# peer from wt0, which removes the route to that endpoint for the agent.
 # Args:
 #   $1 - Peer ID
 netbird_peer_remove() {
