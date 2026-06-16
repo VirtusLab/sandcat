@@ -24,6 +24,7 @@ devcontainer() {
 	local stacks=""
 	local proxy_mode="web"
 	local secret_provider="none"
+	local netbird="false"
 
 	while [[ $# -gt 0 ]]
 	do
@@ -72,6 +73,10 @@ devcontainer() {
 			secret_provider="1password"
 			shift 1
 			;;
+		--netbird)
+			netbird="true"
+			shift 1
+			;;
 		*)
 			echo "Unknown option: $1" | error
 			return 1
@@ -112,6 +117,14 @@ devcontainer() {
 	fi
 
 	apply_secret_provider "$devcontainer_dir/sandcat/compose-proxy.yml" "$secret_provider"
+
+	if [[ "$netbird" == "true" ]]; then
+		if ! declare -f enable_netbird &>/dev/null; then
+			# shellcheck source=../../lib/composefile.bash
+			source "$SCT_LIBDIR/composefile.bash"
+		fi
+		enable_netbird "$devcontainer_dir/sandcat/compose-proxy.yml"
+	fi
 
 	customize_compose_file "$rel_settings_file" "$compose_file" "$agent" "$ide" "$project_name"
 	set_project_name "$compose_file" "$project_name"

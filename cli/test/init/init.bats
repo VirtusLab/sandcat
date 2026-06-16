@@ -198,6 +198,25 @@ teardown() {
 	[[ ! -e "$HOME/.cursor/AGENTS.md" ]]
 }
 
+@test "init --netbird passes netbird flag to devcontainer" {
+	stub settings "$PROJECT_DIR/.sandcat/settings.json claude vscode : :"
+	stub devcontainer \
+		"--settings-file .sandcat/settings.json --project-path * --agent claude --ide vscode --name test --stacks * --proxy web --secret-provider none --netbird : :"
+
+	run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" --stacks "" --proxy web --features "" --secret-provider none --netbird
+	assert_success
+}
+
+@test "init --netbird seeds netbird_enrollment_key in user settings" {
+	stub settings "$PROJECT_DIR/.sandcat/settings.json claude vscode : :"
+	stub devcontainer ":"
+
+	run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" --stacks "" --proxy web --features "" --secret-provider none --netbird
+	assert_success
+	run yq '.netbird_enrollment_key' "$SCT_HOME_DIR/settings.json"
+	assert_output '""'
+}
+
 @test "init interactive flow (devcontainer mode)" {
 	unset -f read_line
 	unset -f select_option

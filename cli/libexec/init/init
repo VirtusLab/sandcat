@@ -125,6 +125,7 @@ init() {
 	local onepassword_alias=false
 	local features_csv=""
 	local features_provided=false
+	local netbird="false"
 
 	while [[ $# -gt 0 ]]
 	do
@@ -175,6 +176,10 @@ init() {
 			features_csv="$2"
 			features_provided=true
 			shift 2
+			;;
+		--netbird)
+			netbird="true"
+			shift 1
 			;;
 		*)
 			echo "Unknown option: $1" | error
@@ -334,6 +339,14 @@ init() {
 
 	add_secret_provider_tokens_to_user_settings "$secret_provider"
 
+	if [[ "$netbird" == "true" ]]; then
+		local user_settings
+		user_settings="$(sct_home)/settings.json"
+		if [[ -f "$user_settings" ]]; then
+			yq -i -o json '.netbird_enrollment_key = (.netbird_enrollment_key // "")' "$user_settings"
+		fi
+	fi
+
 	settings "$project_path/$settings_file" "${services[@]}"
 	local devcontainer_args=(
 		--settings-file "$settings_file"
@@ -345,7 +358,11 @@ init() {
 		--proxy "$proxy_mode"
 		--secret-provider "$secret_provider"
 	)
-	devcontainer "${devcontainer_args[@]}"
+	if [[ "$netbird" == "true" ]]; then
+		devcontainer "${devcontainer_args[@]}" --netbird
+	else
+		devcontainer "${devcontainer_args[@]}"
+	fi
 
 	# Summary
 	echo "" >&2
