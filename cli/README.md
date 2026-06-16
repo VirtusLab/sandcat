@@ -18,6 +18,11 @@ Options:
 - `--stacks` - Comma-separated development stacks to install: `node`, `python`, `java`, `rust`, `go`, `scala`, `ruby`, `dotnet`, `zig` (skips prompt)
 - `--proxy` - Proxy UI mode: `web` (default, mitmweb browser UI) or `tui` (mitmproxy console, use with `sandcat proxy` to attach)
 - `--secret-provider` / `--sp` - Secret backend: `none` (default), `1password`, `protonpass` (skips prompt when set)
+- `--netbird` - Enable dynamic WireGuard control via NetBird. The NetBird client
+  daemon starts inside `wg-client` (the sole `NET_ADMIN` container) and manages
+  a second interface `wt0` for the NetBird overlay mesh. `wg0` (the mitmproxy
+  inspection tunnel) is untouched. Seeds `netbird_enrollment_key` in
+  `~/.config/sandcat/settings.json`.
 - `--1password` - Deprecated alias for `--secret-provider 1password`
 - `--features` - Comma-separated optional non-provider features: `tui` (proxy console mode; prefer `--proxy tui`)
 - `--name` - Project name for Docker Compose (default: derived from directory name)
@@ -39,6 +44,9 @@ sandcat init --agent claude --ide vscode --secret-provider 1password --name mypr
 
 # With Proton Pass integration
 sandcat init --agent claude --ide vscode --secret-provider protonpass --name myproject
+
+# With NetBird dynamic WireGuard
+sandcat init --agent claude --ide vscode --netbird --name myproject
 ```
 
 #### Proton Pass setup (scoped Personal Access Token)
@@ -171,6 +179,55 @@ shell, `sandcat run npm install` runs npm inside the container.
 
 Options:
 - `--build` — Rebuild images before running (e.g. after editing `Dockerfile.app`)
+
+## Dynamic networking (NetBird)
+
+When initialized with `--netbird`, sandcat enrolls `wg-client` as a NetBird peer.
+The NetBird client daemon runs inside the existing `NET_ADMIN` container and manages
+`wt0` — a second WireGuard interface alongside `wg0`. Removing a peer from the
+NetBird management server causes the daemon to drop it from `wt0` within seconds,
+removing the agent's route to that endpoint without restarting any container.
+
+All NetBird traffic (control plane and data plane) routes through `wg0` → mitmproxy,
+maintaining the full inspection guarantee. `wg-client` remains the only container
+with `NET_ADMIN`.
+
+### Setup
+
+1. Create a NetBird account at <https://app.netbird.io> or self-host the server.
+2. Generate a setup key (**Setup Keys** in the NetBird dashboard).
+3. Generate an API token (**API Keys** in the NetBird dashboard).
+4. Add the enrollment key to your sandcat user settings:
+
+```json
+{
+  "netbird_enrollment_key": "your-setup-key-here"
+}
+```
+
+5. Set `NB_SETUP_KEY` in your environment before starting the devcontainer:
+
+```bash
+export NB_SETUP_KEY="your-setup-key-here"
+export NB_API_TOKEN="your-api-token"           # for sandcat netbird commands
+export NB_MANAGEMENT_URL="https://api.netbird.io"  # or self-hosted URL
+```
+
+### Runtime control
+
+```bash
+# List current peers
+sandcat netbird status
+
+# Remove a peer (wg-client drops the route within one daemon poll interval)
+sandcat netbird peer remove --peer-id <peer-id>
+
+# Add a network route served by a peer
+sandcat netbird route add --network 10.8.0.0/24 --peer-id <peer-id>
+
+# Remove a route
+sandcat netbird route remove --route-id <route-id>
+```
 
 ## Directory Structure
 
