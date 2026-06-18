@@ -17,6 +17,7 @@ compose() {
 	compose_file="$(find_compose_file)"
 
 	export_netbird_compose_env
+	export_netbird_management_url
 
 	exec docker compose -f "$compose_file" "$@"
 }

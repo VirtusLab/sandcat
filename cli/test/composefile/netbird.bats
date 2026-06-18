@@ -35,6 +35,41 @@ teardown() {
     assert_output "1"
 }
 
+@test "enable_netbird adds NB_MANAGEMENT_URL when provided" {
+    local management_url="https://netbird.internal"
+    enable_netbird "$COMPOSE_FILE" "$management_url"
+
+    run yq -r '.services."wg-client".environment[] | select(test("^NB_MANAGEMENT_URL="))' "$COMPOSE_FILE"
+    assert_output "NB_MANAGEMENT_URL=$management_url"
+}
+
+@test "enable_netbird with management URL is idempotent" {
+    local management_url="https://netbird.internal"
+    enable_netbird "$COMPOSE_FILE" "$management_url"
+    enable_netbird "$COMPOSE_FILE" "$management_url"
+
+    run yq '[.services."wg-client".environment[] | select(. == "NB_SETUP_KEY")] | length' "$COMPOSE_FILE"
+    assert_output "1"
+
+    run yq '[.services."wg-client".environment[] | select(test("^NB_MANAGEMENT_URL="))] | length' "$COMPOSE_FILE"
+    assert_output "1"
+}
+
+@test "enable_netbird updates existing NB_MANAGEMENT_URL when provided" {
+    enable_netbird "$COMPOSE_FILE" "https://old.example.com"
+    enable_netbird "$COMPOSE_FILE" "https://new.example.com"
+
+    run yq -r '.services."wg-client".environment[] | select(test("^NB_MANAGEMENT_URL="))' "$COMPOSE_FILE"
+    assert_output "NB_MANAGEMENT_URL=https://new.example.com"
+}
+
+@test "enable_netbird with empty management URL does not add NB_MANAGEMENT_URL" {
+    enable_netbird "$COMPOSE_FILE" ""
+
+    run yq '[.services."wg-client".environment[] | select(test("^NB_MANAGEMENT_URL="))] | length' "$COMPOSE_FILE"
+    assert_output "0"
+}
+
 @test "apply_netbird_build_args injects version and checksum build args" {
     apply_netbird_build_args "$COMPOSE_FILE"
 
