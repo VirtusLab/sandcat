@@ -42,7 +42,14 @@ cmd_peer() {
         local peer_id=""
         while [[ $# -gt 0 ]]; do
             case $1 in
-            --peer-id) peer_id="$2"; shift 2 ;;
+            --peer-id)
+                if [[ $# -lt 2 || "$2" == --* ]]; then
+                    echo "Option --peer-id requires a value" | error
+                    return 1
+                fi
+                peer_id="$2"
+                shift 2
+                ;;
             *) echo "Unknown option: $1" | error; return 1 ;;
             esac
         done
@@ -66,8 +73,22 @@ cmd_route() {
         local network="" peer_id=""
         while [[ $# -gt 0 ]]; do
             case $1 in
-            --network) network="$2"; shift 2 ;;
-            --peer-id) peer_id="$2"; shift 2 ;;
+            --network)
+                if [[ $# -lt 2 || "$2" == --* ]]; then
+                    echo "Option --network requires a value" | error
+                    return 1
+                fi
+                network="$2"
+                shift 2
+                ;;
+            --peer-id)
+                if [[ $# -lt 2 || "$2" == --* ]]; then
+                    echo "Option --peer-id requires a value" | error
+                    return 1
+                fi
+                peer_id="$2"
+                shift 2
+                ;;
             *) echo "Unknown option: $1" | error; return 1 ;;
             esac
         done
@@ -93,7 +114,14 @@ cmd_route() {
         local route_id=""
         while [[ $# -gt 0 ]]; do
             case $1 in
-            --route-id) route_id="$2"; shift 2 ;;
+            --route-id)
+                if [[ $# -lt 2 || "$2" == --* ]]; then
+                    echo "Option --route-id requires a value" | error
+                    return 1
+                fi
+                route_id="$2"
+                shift 2
+                ;;
             *) echo "Unknown option: $1" | error; return 1 ;;
             esac
         done

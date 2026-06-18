@@ -57,3 +57,17 @@ teardown() {
 	assert_success
 	assert_output --partial "not running"
 }
+
+@test "restart exports management URL from settings when env is unset" {
+	export HOME="$BATS_TEST_TMPDIR/home"
+	mkdir -p "$HOME/.config/sandcat"
+	echo '{"netbird_management_url": "https://management.settings.example.com"}' > "$HOME/.config/sandcat/settings.json"
+	unset NB_MANAGEMENT_URL
+
+	stub docker \
+		"compose -f $COMPOSE_FILE ps mitmproxy --status running --quiet : :"
+
+	cd "$BATS_TEST_TMPDIR"
+	restart
+	[[ "$NB_MANAGEMENT_URL" == "https://management.settings.example.com" ]]
+}

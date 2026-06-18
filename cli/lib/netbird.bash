@@ -4,6 +4,8 @@
 source "${BASH_SOURCE%/*}/constants.bash"
 # shellcheck source=path.bash
 source "${BASH_SOURCE%/*}/path.bash"
+# shellcheck source=logging.bash
+source "${BASH_SOURCE%/*}/logging.bash"
 # shellcheck source=require.bash
 source "${BASH_SOURCE%/*}/require.bash"
 
@@ -48,6 +50,54 @@ export_netbird_compose_env() {
 	fi
 }
 
+# Export NB_MANAGEMENT_URL from settings when not already set in environment.
+export_netbird_management_url() {
+	[[ -n "${NB_MANAGEMENT_URL:-}" ]] && return 0
+
+	local management_url
+	management_url=$(netbird_read_setting netbird_management_url)
+	if [[ -n "$management_url" ]]; then
+		export NB_MANAGEMENT_URL="$management_url"
+	fi
+}
+
+# Creates ~/.config/sandcat/netbird-server from template when missing.
+# Idempotent: if destination exists, logs and skips.
+provision_netbird_server_template() {
+	local destination_dir template_dir
+	destination_dir="$(sct_home)/netbird-server"
+	template_dir="$SCT_TEMPLATEDIR/netbird-server"
+	local required_file
+	local -a required_files=(
+		docker-compose.yml
+		netbird-server.env
+		management.json
+		turnserver.conf
+		README.md
+	)
+
+	if [[ -e "$destination_dir" ]]; then
+		echo "NetBird server template already exists at $destination_dir; skipping." | info
+		return 0
+	fi
+
+	if [[ ! -d "$template_dir" ]]; then
+		echo "Missing NetBird server template directory: $template_dir" | error
+		return 1
+	fi
+
+	for required_file in "${required_files[@]}"; do
+		if [[ ! -f "$template_dir/$required_file" ]]; then
+			echo "Incomplete NetBird server template: missing $required_file in $template_dir" | error
+			return 1
+		fi
+	done
+
+	mkdir -p "$destination_dir"
+	# Use rsync-style copy to include dotfiles (glob * skips them)
+	cp -R "$template_dir/." "$destination_dir/"
+}
+
 # Resolve NB_API_TOKEN from settings when unset. Env always wins.
 _ensure_netbird_api_token() {
 	[[ -n "${NB_API_TOKEN:-}" ]] && return 0
@@ -80,6 +130,7 @@ netbird_api() {
 	local body=${3:-}
 
 	_ensure_netbird_api_token || return 1
+	export_netbird_management_url
 
 	local url="${NB_MANAGEMENT_URL:-https://api.netbird.io}${path}"
 	local -a args=(-sS -f -X "$method"
