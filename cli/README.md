@@ -23,6 +23,9 @@ Options:
   a second interface `wt0` for the NetBird overlay mesh. `wg0` (the mitmproxy
   inspection tunnel) is untouched. Seeds `netbird_enrollment_key` and
   `netbird_api_token` in `~/.config/sandcat/settings.json`.
+- `--netbird-server` - NetBird management server mode (requires `--netbird`):
+  `cloud` | `new` | `<http(s)://url>`. In non-interactive flag mode, `new` defaults
+  management URL to `http://localhost:33073`.
 - `--1password` - Deprecated alias for `--secret-provider 1password`
 - `--features` - Comma-separated optional non-provider features: `tui` (proxy console mode; prefer `--proxy tui`)
 - `--name` - Project name for Docker Compose (default: derived from directory name)
@@ -246,8 +249,41 @@ commands read `netbird_api_token` from the same settings layers (project
 settings override user settings when non-empty). Environment variables
 `NB_SETUP_KEY` and `NB_API_TOKEN` override settings when set.
 
-Optional: set `NB_MANAGEMENT_URL` when using a self-hosted NetBird server
-(default: `https://api.netbird.io`).
+### Management server
+
+Choose one management server mode during `sandcat init --netbird`:
+
+- `cloud` — uses NetBird Cloud (`https://api.netbird.io`).
+- Existing self-hosted URL — pass `--netbird-server <http(s)://url>`.
+- New self-hosted template — pass `--netbird-server new`; template path:
+  `~/.config/sandcat/netbird-server/`. In flag mode this is non-interactive,
+  does not prompt for URL, and persists `http://localhost:33073` as the
+  management URL.
+
+Canonical non-interactive invocations:
+
+```bash
+# Cloud
+sandcat init --agent claude --ide vscode --netbird --netbird-server cloud --name myproject
+
+# Existing self-hosted management server
+sandcat init --agent claude --ide vscode --netbird --netbird-server https://netbird.example.com --name myproject
+
+# New self-hosted template
+sandcat init --agent claude --ide vscode --netbird --netbird-server new --name myproject
+```
+
+For `new`, the generated directory is a starter skeleton. Review/update config
+files first, then start the stack:
+
+```bash
+cd ~/.config/sandcat/netbird-server
+# required before first run:
+# - netbird-server.env
+# - management.json
+# - turnserver.conf
+docker compose --env-file netbird-server.env up -d
+```
 
 ### Runtime control
 

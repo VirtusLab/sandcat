@@ -15,6 +15,8 @@ source "$SCT_LIBDIR/path.bash"
 source "$SCT_LIBDIR/stacks.bash"
 # shellcheck source=../../lib/agents.bash
 source "$SCT_LIBDIR/agents.bash"
+# shellcheck source=../../lib/netbird.bash
+source "$SCT_LIBDIR/netbird.bash"
 
 # Returns the user settings template path for a selected agent.
 # Args:
@@ -126,11 +128,15 @@ init() {
 	local features_csv=""
 	local features_provided=false
 	local netbird="false"
+	local netbird_server=""
+	local netbird_server_provided=false
+	local netbird_management_url=""
+	local provisioned_netbird_server="false"
 
 	while [[ $# -gt 0 ]]
 	do
 		case $1 in
-		--name|--path|--agent|--ide|--stacks|--proxy|--features|--secret-provider|--sp)
+		--name|--path|--agent|--ide|--stacks|--proxy|--features|--secret-provider|--sp|--netbird-server)
 			if [[ $# -lt 2 ]]; then
 				echo "Option $1 requires a value" | error
 				return 1
@@ -181,6 +187,11 @@ init() {
 			netbird="true"
 			shift 1
 			;;
+		--netbird-server)
+			netbird_server="$2"
+			netbird_server_provided=true
+			shift 2
+			;;
 		*)
 			echo "Unknown option: $1" | error
 			return 1
@@ -195,6 +206,21 @@ init() {
 	if [[ "$onepassword_alias" == "true" ]]; then
 		secret_provider="1password"
 		secret_provider_provided=true
+	fi
+	if [[ "$netbird_server_provided" == "true" && "$netbird" != "true" ]]; then
+		echo "--netbird-server requires --netbird" | error
+		return 1
+	fi
+	if [[ "$netbird_server_provided" == "true" ]]; then
+		case "$netbird_server" in
+		cloud|new|http://*|https://*)
+			:
+			;;
+		*)
+			echo "Invalid NetBird server mode: $netbird_server (expected: cloud, new, or http(s)://... URL)" | error
+			return 1
+			;;
+		esac
 	fi
 
 	if [[ -z "$project_path" ]]
@@ -342,12 +368,94 @@ init() {
 	if [[ "$netbird" == "true" ]]; then
 		local user_settings
 		user_settings="$(sct_home)/settings.json"
+		persist_netbird_management_url() {
+			local selected_management_url=${1:-}
+			if [[ -f "$user_settings" ]]; then
+				netbird_management_url="$selected_management_url" yq -i -o json '
+					.netbird_management_url = strenv(netbird_management_url)
+				' "$user_settings"
+			fi
+		}
 		if [[ -f "$user_settings" ]]; then
 			yq -i -o json '
 				.netbird_enrollment_key = (.netbird_enrollment_key // "") |
-				.netbird_api_token = (.netbird_api_token // "")
+				.netbird_api_token = (.netbird_api_token // "") |
+				.netbird_management_url = (.netbird_management_url // "")
 			' "$user_settings"
 		fi
+
+		if [[ "$netbird_server_provided" == "true" ]]; then
+			case "$netbird_server" in
+			cloud)
+				netbird_management_url=""
+				;;
+			new)
+				provision_netbird_server_template
+				provisioned_netbird_server="true"
+				netbird_management_url="http://localhost:33073"
+				persist_netbird_management_url "$netbird_management_url"
+				;;
+			http://*|https://*)
+				netbird_management_url="$netbird_server"
+				persist_netbird_management_url "$netbird_management_url"
+				;;
+			esac
+		else
+			local netbird_server_selection=""
+			while true; do
+				echo "NetBird management server [cloud]:" | info
+				echo "  1) cloud (api.netbird.io)" | info
+				echo "  2) self-hosted — I have a server running" | info
+				echo "  3) self-hosted — provision a new server from template" | info
+				netbird_server_selection=$(read_line ">")
+				case "$netbird_server_selection" in
+				""|1|cloud)
+					netbird_server_selection="cloud"
+					break
+					;;
+				2|existing|self-hosted-existing|self-hosted\ existing\ URL|self-hosted\ —\ I\ have\ a\ server\ running)
+					netbird_server_selection="existing"
+					break
+					;;
+				3|new|self-hosted-new|self-hosted\ new\ template|self-hosted\ —\ provision\ a\ new\ server\ from\ template)
+					netbird_server_selection="new"
+					break
+					;;
+				*)
+					echo "Invalid NetBird management server selection: $netbird_server_selection (expected: cloud, existing, or new)" | error
+					;;
+				esac
+			done
+			case "$netbird_server_selection" in
+			cloud)
+				netbird_management_url=""
+				;;
+			existing)
+				while true; do
+					netbird_management_url=$(read_line "Management URL:")
+					if [[ -z "$netbird_management_url" ]]; then
+						echo "URL is required" | error
+						continue
+					fi
+					persist_netbird_management_url "$netbird_management_url"
+					break
+				done
+				;;
+			new)
+				provision_netbird_server_template
+				provisioned_netbird_server="true"
+				echo "    Self-hosted template: ~/.config/sandcat/netbird-server" | info
+				echo "    Template is a starter skeleton; configure before first start:" | info
+				echo "      netbird-server.env, management.json, turnserver.conf" | info
+				echo "    Start hint: cd ~/.config/sandcat/netbird-server && docker compose --env-file netbird-server.env up -d" | info
+				netbird_management_url=$(read_line "Management URL [http://localhost:33073]:")
+				netbird_management_url="${netbird_management_url:-http://localhost:33073}"
+				persist_netbird_management_url "$netbird_management_url"
+				;;
+			esac
+		fi
+
+		persist_netbird_management_url "$netbird_management_url"
 	fi
 
 	settings "$project_path/$settings_file" "${services[@]}"
@@ -361,6 +469,9 @@ init() {
 		--proxy "$proxy_mode"
 		--secret-provider "$secret_provider"
 	)
+	if [[ -n "$netbird_management_url" ]]; then
+		devcontainer_args+=(--netbird-management-url "$netbird_management_url")
+	fi
 	if [[ "$netbird" == "true" ]]; then
 		devcontainer "${devcontainer_args[@]}" --netbird
 	else
@@ -426,9 +537,19 @@ init() {
 	if [[ "$netbird" == "true" ]]; then
 		echo "" >&2
 		echo "  NetBird setup:" | info
+		if [[ -n "$netbird_management_url" ]]; then
+			echo "    Management server: $netbird_management_url" | info
+		else
+			echo "    Management server: cloud (https://api.netbird.io)" | info
+		fi
 		echo "    Add keys to ~/.config/sandcat/settings.json:" | info
 		echo "      \"netbird_enrollment_key\": \"<setup-key>\"  (wg-client enrollment)" | info
 		echo "      \"netbird_api_token\": \"<api-token>\"      (sandcat netbird commands)" | info
+		if [[ "$provisioned_netbird_server" == "true" ]]; then
+			echo "    Self-hosted server template: ~/.config/sandcat/netbird-server/" | info
+			echo "    Start it:  docker compose -f ~/.config/sandcat/netbird-server/docker-compose.yml up -d" | info
+			echo "    (Future:   sandcat netbird server start)" | info
+		fi
 	fi
 	echo "  Then run: sandcat run, or reopen the project using the dev container" | info
 }

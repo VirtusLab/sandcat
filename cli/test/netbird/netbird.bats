@@ -34,6 +34,12 @@ teardown() {
     assert_output --partial "peer-id"
 }
 
+@test "netbird peer remove errors when --peer-id has no value" {
+    run bash "$NETBIRD_CMD" peer remove --peer-id
+    assert_failure
+    assert_output --partial "Option --peer-id requires a value"
+}
+
 @test "netbird peer remove calls netbird_peer_remove" {
     stub curl \
         "-sS -f -X DELETE -H 'Authorization: Token test-token' -H 'Accept: application/json' -H 'Content-Type: application/json' https://api.netbird.io/api/peers/abc123 : :"
@@ -45,6 +51,18 @@ teardown() {
     run bash "$NETBIRD_CMD" route add --network 10.8.0.0/24
     assert_failure
     assert_output --partial "peer-id"
+}
+
+@test "netbird route add errors when --network has no value" {
+    run bash "$NETBIRD_CMD" route add --network
+    assert_failure
+    assert_output --partial "Option --network requires a value"
+}
+
+@test "netbird route add errors when --peer-id has no value" {
+    run bash "$NETBIRD_CMD" route add --network 10.8.0.0/24 --peer-id
+    assert_failure
+    assert_output --partial "Option --peer-id requires a value"
 }
 
 @test "netbird route add rejects non-CIDR network" {
@@ -65,6 +83,12 @@ teardown() {
     run bash "$NETBIRD_CMD" route remove
     assert_failure
     assert_output --partial "route-id"
+}
+
+@test "netbird route remove errors when --route-id has no value" {
+    run bash "$NETBIRD_CMD" route remove --route-id
+    assert_failure
+    assert_output --partial "Option --route-id requires a value"
 }
 
 @test "netbird route remove calls netbird_route_remove" {

@@ -345,14 +345,26 @@ apply_netbird_build_args() {
 # container as a NetBird peer and start the daemon on wt0.
 # Args:
 #   $1 - Path to compose-proxy.yml
+#   $2 - Optional NetBird management server URL
 enable_netbird() {
 	require yq
 	local compose_file=$1
+	local netbird_management_url=${2:-}
 
 	local already_set
-	already_set=$(yq '[.services."wg-client".environment[] | select(. == "NB_SETUP_KEY")] | length' "$compose_file")
+	already_set=$(yq '[(.services."wg-client".environment // [])[] | select(. == "NB_SETUP_KEY")] | length' "$compose_file")
 
 	if [[ "$already_set" -eq 0 ]]; then
 		yq -i '.services."wg-client".environment += ["NB_SETUP_KEY"]' "$compose_file"
+	fi
+
+	if [[ -n "$netbird_management_url" ]]; then
+		netbird_management_url="$netbird_management_url" \
+			yq -i '
+				.services."wg-client".environment = (
+					(.services."wg-client".environment // [])
+					| map(select(test("^NB_MANAGEMENT_URL=") | not))
+				) + ["NB_MANAGEMENT_URL=" + env(netbird_management_url)]
+			' "$compose_file"
 	fi
 }

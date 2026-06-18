@@ -15,6 +15,7 @@ source "$SCT_LIBDIR/devcontainer.bash"
 #   --project-path - Path to the project directory
 #   --agent - The agent name (e.g., "claude")
 #   --ide - The IDE name (e.g., "vscode", "jetbrains", "none") (optional)
+#   --netbird-management-url - NetBird management server URL for wg-client (optional)
 devcontainer() {
 	local settings_file=""
 	local project_path=""
@@ -25,11 +26,12 @@ devcontainer() {
 	local proxy_mode="web"
 	local secret_provider="none"
 	local netbird="false"
+	local netbird_management_url=""
 
 	while [[ $# -gt 0 ]]
 	do
 		case $1 in
-		--settings-file|--project-path|--agent|--ide|--name|--stacks|--proxy|--secret-provider)
+		--settings-file|--project-path|--agent|--ide|--name|--stacks|--proxy|--secret-provider|--netbird-management-url)
 			if [[ $# -lt 2 ]]; then
 				echo "Option $1 requires a value" | error
 				return 1
@@ -76,6 +78,10 @@ devcontainer() {
 		--netbird)
 			netbird="true"
 			shift 1
+			;;
+		--netbird-management-url)
+			netbird_management_url="$2"
+			shift 2
 			;;
 		*)
 			echo "Unknown option: $1" | error
@@ -124,7 +130,7 @@ devcontainer() {
 			# shellcheck source=../../lib/composefile.bash
 			source "$SCT_LIBDIR/composefile.bash"
 		fi
-		enable_netbird "$devcontainer_dir/sandcat/compose-proxy.yml"
+		enable_netbird "$devcontainer_dir/sandcat/compose-proxy.yml" "$netbird_management_url"
 	fi
 
 	customize_compose_file "$rel_settings_file" "$compose_file" "$agent" "$ide" "$project_name"
