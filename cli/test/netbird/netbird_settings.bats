@@ -113,6 +113,27 @@ teardown() {
     assert_failure
 }
 
+@test "netbird_sync_local_server_exposed_address updates config.yaml from enrollment URL" {
+    echo '{"netbird_enrollment_management_url": "http://192.168.5.2:33073"}' > "$HOME/.config/sandcat/settings.json"
+    mkdir -p "$HOME/.config/sandcat/netbird-server"
+    echo 'server: { exposedAddress: "http://localhost:33073" }' > "$HOME/.config/sandcat/netbird-server/config.yaml"
+
+    netbird_sync_local_server_exposed_address
+
+    run yq -r '.server.exposedAddress' "$HOME/.config/sandcat/netbird-server/config.yaml"
+    assert_output "http://192.168.5.2:33073"
+}
+
+@test "netbird_sync_local_server_exposed_address is a no-op when already aligned" {
+    echo '{"netbird_enrollment_management_url": "http://192.168.5.2:33073"}' > "$HOME/.config/sandcat/settings.json"
+    mkdir -p "$HOME/.config/sandcat/netbird-server"
+    echo 'server: { exposedAddress: "http://192.168.5.2:33073" }' > "$HOME/.config/sandcat/netbird-server/config.yaml"
+
+    run netbird_sync_local_server_exposed_address
+    assert_success
+    refute_output --partial "Updated netbird-server exposedAddress"
+}
+
 @test "provision_netbird_server_template copies template and skips when already provisioned" {
     export SCT_TEMPLATEDIR="$BATS_TEST_TMPDIR/templates"
     mkdir -p "$SCT_TEMPLATEDIR/netbird-server"
