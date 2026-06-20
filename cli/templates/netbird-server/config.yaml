@@ -1,0 +1,25 @@
+# Combined NetBird server — localhost defaults. Secrets and URLs are filled
+# when sandcat provisions this template.
+server:
+  listenAddress: ":80"
+  exposedAddress: "http://localhost:33073"
+  stunPorts:
+    - 3478
+  metricsPort: 9090
+  healthcheckAddress: ":9000"
+  logLevel: info
+  logFile: console
+  disableAnonymousMetrics: true
+  authSecret: ""
+  dataDir: /var/lib/netbird
+  auth:
+    issuer: http://localhost:33073/oauth2
+    signKeyRefreshEnabled: true
+    dashboardRedirectURIs:
+      - http://localhost:8080/nb-auth
+      - http://localhost:8080/nb-silent-auth
+    cliRedirectURIs:
+      - http://localhost:53000/
+  store:
+    engine: sqlite
+    encryptionKey: ""
