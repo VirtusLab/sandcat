@@ -41,13 +41,14 @@ netbird_read_setting() {
 # Export NB_SETUP_KEY from settings when not already set in the environment.
 # Used before docker compose so wg-client receives the enrollment key on create.
 export_netbird_compose_env() {
-	[[ -n "${NB_SETUP_KEY:-}" ]] && return 0
-
-	local enrollment_key
-	enrollment_key=$(netbird_read_setting netbird_enrollment_key)
-	if [[ -n "$enrollment_key" ]]; then
-		export NB_SETUP_KEY="$enrollment_key"
+	if [[ -z "${NB_SETUP_KEY:-}" ]]; then
+		local enrollment_key
+		enrollment_key=$(netbird_read_setting netbird_enrollment_key)
+		if [[ -n "$enrollment_key" ]]; then
+			export NB_SETUP_KEY="$enrollment_key"
+		fi
 	fi
+	netbird_sync_local_server_exposed_address
 }
 
 # Export NB_MANAGEMENT_URL from settings when not already set in environment.
@@ -93,6 +94,31 @@ netbird_enrollment_management_url_from() {
 netbird_enrollment_url_uses_host_bypass() {
 	local url=$1
 	[[ "$url" =~ ^https?://([0-9]{1,3}\.){3}[0-9]{1,3}([:/]|$) ]]
+}
+
+# Aligns netbird-server exposedAddress with netbird_enrollment_management_url so
+# enrolled peers keep dialing the Docker-host IP instead of localhost.
+netbird_sync_local_server_exposed_address() {
+	local enrollment_url config_file dest_dir current
+
+	enrollment_url=$(netbird_read_setting netbird_enrollment_management_url)
+	[[ -n "$enrollment_url" ]] || return 0
+	netbird_enrollment_url_uses_host_bypass "$enrollment_url" || return 0
+
+	dest_dir="$(sct_home)/netbird-server"
+	config_file="$dest_dir/config.yaml"
+	[[ -f "$config_file" ]] || return 0
+
+	require yq
+	current=$(yq -r '.server.exposedAddress // ""' "$config_file")
+	if [[ "$current" == "$enrollment_url" ]]; then
+		return 0
+	fi
+
+	NB_EXPOSED="$enrollment_url" \
+		yq -i '.server.exposedAddress = strenv(NB_EXPOSED)' "$config_file"
+	echo "Updated netbird-server exposedAddress to $enrollment_url." | info
+	echo "Restart netbird-server: cd $(sct_home)/netbird-server && docker compose --env-file netbird-server.env up -d --force-recreate netbird-server" | info
 }
 
 # Resolves the NetBird embedded-IdP encryption key.

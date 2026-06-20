@@ -660,6 +660,7 @@ enable_netbird() {
 					) + ["NB_USE_LEGACY_ROUTING=true"]
 				' "$compose_file"
 			fi
+			netbird_sync_local_server_exposed_address
 		fi
 	fi
 }
