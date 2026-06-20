@@ -3,3 +3,4 @@ __pycache__/
 .sandcat/settings.local.json
 .devcontainer
 .orca
+.worktrees/
