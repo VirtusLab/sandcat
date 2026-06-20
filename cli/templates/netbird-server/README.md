@@ -68,9 +68,23 @@ Host tools and the browser use `localhost`. wg-client needs the Docker host IP
 ```
 
 Replace `192.168.5.2` with your Docker host IP (`colima status -j` on Colima).
-Then recreate wg-client: `sandcat run --force-recreate wg-client`.
+Then restart **both** netbird-server and wg-client (server `exposedAddress` must match
+the enrollment URL or peers dial `localhost` / `[::1]` inside the container):
+
+```bash
+cd ~/.config/sandcat/netbird-server
+docker compose --env-file netbird-server.env up -d --force-recreate netbird-server
+sandcat run --force-recreate wg-client
+```
 
 ## Troubleshooting
+
+### wg-client dials `[::1]:33073` after enrollment
+
+The management server was still advertising `http://localhost:33073` in
+`config.yaml` `server.exposedAddress`. Set `netbird_enrollment_management_url` to your
+Docker host IP, run `sandcat init` or `sandcat run` once (syncs `exposedAddress`), then
+restart netbird-server and recreate wg-client as above.
 
 ### Port clash with sandcat devcontainers
 

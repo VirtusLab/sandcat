@@ -414,6 +414,48 @@ netbird_verify_host_management_reachable() {
         curl -sf --max-time 5 "$check_url" >/dev/null
 }
 
+# Writes /var/lib/netbird/default.json so the daemon keeps the enrollment URL
+# instead of switching to localhost after the server registers the peer.
+netbird_prepare_local_management_profile() {
+    local mgmt_url="${NB_MANAGEMENT_URL:-}"
+    local host profile_file="/var/lib/netbird/default.json"
+
+    [[ -n "${NB_SETUP_KEY:-}" ]] || return 0
+    host=$(netbird_management_url_host "$mgmt_url") || return 0
+    netbird_management_url_host_is_literal_ipv4 "$host" || return 0
+
+    mkdir -p "$(dirname "$profile_file")"
+    if [[ -f "$profile_file" ]] && command -v jq >/dev/null 2>&1; then
+        local tmp
+        tmp=$(mktemp)
+        jq --arg url "$mgmt_url" '.ManagementURL = $url | .AdminURL = $url' "$profile_file" >"$tmp"
+        mv "$tmp" "$profile_file"
+        return 0
+    fi
+
+    cat >"$profile_file" <<EOF
+{
+  "ManagementURL": "$mgmt_url",
+  "AdminURL": "$mgmt_url",
+  "WgIface": "wt0",
+  "IFaceBlackList": ["docker", "br-", "veth", "wg0"],
+  "BlockInbound": false,
+  "BlockLANAccess": false,
+  "RosenpassEnabled": false,
+  "PrivateKey": ""
+}
+EOF
+}
+
+# Exports NetBird daemon env vars for local host-IP enrollment.
+netbird_export_service_env() {
+    local mgmt_url="${NB_MANAGEMENT_URL:-https://api.netbird.io}"
+    export NB_MANAGEMENT_URL="$mgmt_url"
+    if netbird_management_url_host_is_literal_ipv4 "$(netbird_management_url_host "$mgmt_url" 2>/dev/null)"; then
+        export NB_USE_LEGACY_ROUTING=true
+    fi
+}
+
 netbird_daemon_ready() {
     netbird status >/dev/null 2>&1
 }
@@ -421,6 +463,8 @@ netbird_daemon_ready() {
 # Starts the NetBird background service (required for client 0.28+).
 ensure_netbird_service() {
     [[ -n "${NB_SETUP_KEY:-}" ]] || return 0
+    netbird_prepare_local_management_profile
+    netbird_export_service_env
     if netbird_daemon_ready; then
         return 0
     fi
@@ -448,6 +492,12 @@ start_netbird() {
     ensure_netbird_service
     configure_netbird_host_management_access "$docker_gateway"
     netbird_verify_host_management_reachable
+    netbird_prepare_local_management_profile
+    if [[ -f /var/lib/netbird/default.json ]] \
+        && grep -qE 'localhost|127\.0\.0\.1|\[::1\]' /var/lib/netbird/default.json 2>/dev/null; then
+        netbird down 2>/dev/null || true
+    fi
+    netbird_export_service_env
 
     echo "[wg-client] Enrolling NetBird peer on ${iface}." >&2
     netbird up \
@@ -485,6 +535,7 @@ supervise_netbird_daemon() {
         sleep 10
         if ! netbird_daemon_ready; then
             echo "[wg-client] NetBird service daemon not responding; restarting." >&2
+            netbird_export_service_env
             netbird service run --log-file console &
             wait_until 15 1 \
                 "[wg-client] Timed out waiting for NetBird service daemon" \
@@ -494,6 +545,8 @@ supervise_netbird_daemon() {
             echo "[wg-client] NetBird interface ${iface} down; re-enrolling." >&2
             docker_gateway=$(ip -4 route show default dev eth0 2>/dev/null | awk '{print $3}')
             configure_netbird_host_management_access "$docker_gateway"
+            netbird_prepare_local_management_profile
+            netbird_export_service_env
             netbird up \
                 --setup-key "${NB_SETUP_KEY}" \
                 --management-url "${NB_MANAGEMENT_URL:-https://api.netbird.io}" \

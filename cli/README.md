@@ -323,6 +323,16 @@ Use that IP in `netbird_enrollment_management_url`, then recreate wg-client:
 sandcat run --force-recreate wg-client
 ```
 
+Sandcat also syncs `~/.config/sandcat/netbird-server/config.yaml` `exposedAddress` to
+match `netbird_enrollment_management_url`. **Restart netbird-server** after the first
+sync (or when you change the enrollment IP):
+
+```bash
+cd ~/.config/sandcat/netbird-server
+docker compose --env-file netbird-server.env up -d --force-recreate netbird-server
+sandcat run --force-recreate wg-client
+```
+
 ### Remote self-hosted (NetBird quickstart)
 
 For a VM with a public domain, sandcat does **not** run the installer. Use the
