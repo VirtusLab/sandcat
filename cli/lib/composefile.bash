@@ -348,8 +348,12 @@ apply_netbird_build_args() {
 #   $2 - Optional NetBird management server URL
 enable_netbird() {
 	require yq
+	# shellcheck source=netbird.bash
+	source "$SCT_LIBDIR/netbird.bash"
+
 	local compose_file=$1
 	local netbird_management_url=${2:-}
+	local enrollment_url
 
 	local already_set
 	already_set=$(yq '[(.services."wg-client".environment // [])[] | select(. == "NB_SETUP_KEY")] | length' "$compose_file")
@@ -359,12 +363,23 @@ enable_netbird() {
 	fi
 
 	if [[ -n "$netbird_management_url" ]]; then
-		netbird_management_url="$netbird_management_url" \
-			yq -i '
-				.services."wg-client".environment = (
-					(.services."wg-client".environment // [])
-					| map(select(test("^NB_MANAGEMENT_URL=") | not))
-				) + ["NB_MANAGEMENT_URL=" + env(netbird_management_url)]
-			' "$compose_file"
+		enrollment_url=$(netbird_enrollment_management_url_from "$netbird_management_url")
+		if [[ -n "$enrollment_url" ]]; then
+			enrollment_url="$enrollment_url" \
+				yq -i '
+					.services."wg-client".environment = (
+						(.services."wg-client".environment // [])
+						| map(select(test("^NB_MANAGEMENT_URL=") | not))
+					) + ["NB_MANAGEMENT_URL=" + env(enrollment_url)]
+				' "$compose_file"
+			if netbird_enrollment_url_uses_host_bypass "$enrollment_url"; then
+				yq -i '
+					.services."wg-client".environment = (
+						(.services."wg-client".environment // [])
+						| map(select(test("^NB_USE_LEGACY_ROUTING=") | not))
+					) + ["NB_USE_LEGACY_ROUTING=true"]
+				' "$compose_file"
+			fi
+		fi
 	fi
 }

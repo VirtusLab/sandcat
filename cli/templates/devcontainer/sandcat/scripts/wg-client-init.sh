@@ -276,6 +276,9 @@ main() {
     mkdir -p "$(dirname "$SHARED_RESOLV_CONF")"
     write_resolv_conf "$SHARED_RESOLV_CONF" "${search_domains[@]}"
 
+    # Host routing/iptables for local NetBird enrollment (literal host IP in URL).
+    configure_netbird_host_management_access "$docker_gateway"
+
     # ── NetBird overlay mesh (optional) ─────────────────────────────────────────
     # Enroll and start the NetBird daemon if NB_SETUP_KEY is set. wt0 is created
     # by the daemon in this network namespace alongside wg0. fwmark 51821 ensures
@@ -306,6 +309,130 @@ trust_mitmproxy_ca() {
     update-ca-certificates --fresh >/dev/null 2>&1
 }
 
+# Extracts the host from an http(s) management URL.
+# Args:
+#   $1 - URL (e.g. http://192.168.5.2:33073)
+netbird_management_url_host() {
+    local url=$1
+
+    [[ "$url" =~ ^https?://([^/:]+) ]] || return 1
+    printf '%s' "${BASH_REMATCH[1]}"
+}
+
+# Returns 0 when the URL host is a literal IPv4 address.
+# Args:
+#   $1 - Hostname or IP
+netbird_management_url_host_is_literal_ipv4() {
+    local host=$1
+    [[ "$host" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]
+}
+
+# Extracts the TCP port from an http(s) management URL. Defaults to 443/80.
+# Args:
+#   $1 - URL (e.g. http://192.168.5.2:33073)
+netbird_management_url_port() {
+    local url=$1
+    if [[ "$url" =~ :([0-9]+)(/|$|\?) ]]; then
+        printf '%s' "${BASH_REMATCH[1]}"
+        return 0
+    fi
+    if [[ "$url" =~ ^https:// ]]; then
+        printf '443'
+    else
+        printf '80'
+    fi
+}
+
+# Returns 0 when the Docker host is off the bridge subnet and must be reached
+# via the bridge gateway (e.g. Colima host 192.168.5.2 on sandcat 172.23.0.0/16).
+# Args:
+#   $1 - Resolved host IPv4
+#   $2 - Docker bridge gateway IPv4
+netbird_host_route_uses_gateway() {
+    local host_ip=$1
+    local docker_gateway=$2
+
+    [[ -n "$host_ip" && -n "$docker_gateway" ]] || return 1
+    [[ "$host_ip" != "$docker_gateway" ]]
+}
+
+# Allow enrollment against a NetBird management server on the Docker host.
+# wg-client routes most traffic through wg0; management traffic to a literal
+# host IP must bypass mitmproxy via eth0. Re-apply after netbird service start
+# (it may add routing rules that steal host-bound traffic).
+# Args:
+#   $1 - Docker bridge gateway IP
+configure_netbird_host_management_access() {
+    local docker_gateway=$1
+    local mgmt_url="${NB_MANAGEMENT_URL:-}"
+    local host_ip port
+
+    [[ -n "${NB_SETUP_KEY:-}" ]] || return 0
+    [[ -n "$docker_gateway" ]] || return 0
+
+    host_ip=$(netbird_management_url_host "$mgmt_url") || return 0
+    netbird_management_url_host_is_literal_ipv4 "$host_ip" || return 0
+
+    port=$(netbird_management_url_port "$mgmt_url")
+
+    if netbird_host_route_uses_gateway "$host_ip" "$docker_gateway"; then
+        echo "[wg-client] Allowing NetBird management traffic to ${host_ip}:${port} via eth0 (via ${docker_gateway})." >&2
+    else
+        echo "[wg-client] Allowing NetBird management traffic to ${host_ip}:${port} via eth0." >&2
+    fi
+
+    # Prefer main table for host management (sandcat policy routing uses 51820 → wg0).
+    ip -4 rule add to "${host_ip}/32" lookup main priority 50 2>/dev/null || true
+    if netbird_host_route_uses_gateway "$host_ip" "$docker_gateway"; then
+        ip -4 route add "${host_ip}/32" via "${docker_gateway}" dev eth0 table main 2>/dev/null || true
+        ip -4 route add "${host_ip}/32" via "${docker_gateway}" dev eth0 table 51820 2>/dev/null || true
+    else
+        ip -4 route add "${host_ip}/32" dev eth0 table main 2>/dev/null || true
+        ip -4 route add "${host_ip}/32" dev eth0 table 51820 2>/dev/null || true
+    fi
+
+    iptables -C OUTPUT -o eth0 -d "$host_ip" -p tcp --dport "$port" -j ACCEPT 2>/dev/null \
+        || iptables -I OUTPUT 1 -o eth0 -d "$host_ip" -p tcp --dport "$port" -j ACCEPT
+    iptables -C OUTPUT -o eth0 -d "$host_ip" -p udp --dport 3478 -j ACCEPT 2>/dev/null \
+        || iptables -I OUTPUT 1 -o eth0 -d "$host_ip" -p udp --dport 3478 -j ACCEPT
+}
+
+# Verifies HTTP reachability to a self-hosted management server on the Docker host.
+netbird_verify_host_management_reachable() {
+    local mgmt_url="${NB_MANAGEMENT_URL:-}"
+    local host_ip port check_url
+
+    host_ip=$(netbird_management_url_host "$mgmt_url") || return 0
+    netbird_management_url_host_is_literal_ipv4 "$host_ip" || return 0
+
+    port=$(netbird_management_url_port "$mgmt_url")
+    command -v curl >/dev/null 2>&1 || return 0
+
+    check_url="${mgmt_url%/}/api/instance"
+    wait_until 15 1 \
+        "[wg-client] Cannot reach NetBird management at ${mgmt_url} from wg-client; is netbird-server running on the host (port ${port})?" \
+        curl -sf --max-time 5 "$check_url" >/dev/null
+}
+
+netbird_daemon_ready() {
+    netbird status >/dev/null 2>&1
+}
+
+# Starts the NetBird background service (required for client 0.28+).
+ensure_netbird_service() {
+    [[ -n "${NB_SETUP_KEY:-}" ]] || return 0
+    if netbird_daemon_ready; then
+        return 0
+    fi
+
+    echo "[wg-client] Starting NetBird service daemon." >&2
+    netbird service run --log-file console &
+
+    wait_until 30 1 \
+        "[wg-client] Timed out waiting for NetBird service daemon" \
+        netbird_daemon_ready
+}
+
 # Enroll this container as a NetBird peer and start the daemon in the background.
 # Does nothing if NB_SETUP_KEY is unset (NetBird disabled for this environment).
 # After the daemon starts it waits until the overlay interface appears.
@@ -313,14 +440,20 @@ trust_mitmproxy_ca() {
 #   $1 - WireGuard interface name for the NetBird overlay (default: wt0)
 start_netbird() {
     local iface="${1:-wt0}"
+    local docker_gateway
     [[ -n "${NB_SETUP_KEY:-}" ]] || return 0
 
-    echo "[wg-client] Starting NetBird daemon on ${iface}." >&2
+    docker_gateway=$(ip -4 route show default dev eth0 2>/dev/null | awk '{print $3}')
+
+    ensure_netbird_service
+    configure_netbird_host_management_access "$docker_gateway"
+    netbird_verify_host_management_reachable
+
+    echo "[wg-client] Enrolling NetBird peer on ${iface}." >&2
     netbird up \
         --setup-key "${NB_SETUP_KEY}" \
         --management-url "${NB_MANAGEMENT_URL:-https://api.netbird.io}" \
-        --interface-name "${iface}" \
-        &
+        --interface-name "${iface}"
 
     wait_until 30 1 \
         "[wg-client] Timed out waiting for NetBird to bring up ${iface}" \
@@ -350,9 +483,21 @@ supervise_netbird_daemon() {
 
     while true; do
         sleep 10
-        if ! netbird status >/dev/null 2>&1; then
-            echo "[wg-client] NetBird daemon not responding; restarting." >&2
-            start_netbird "${iface}" || true
+        if ! netbird_daemon_ready; then
+            echo "[wg-client] NetBird service daemon not responding; restarting." >&2
+            netbird service run --log-file console &
+            wait_until 15 1 \
+                "[wg-client] Timed out waiting for NetBird service daemon" \
+                netbird_daemon_ready || true
+        fi
+        if ! ip link show "${iface}" >/dev/null 2>&1; then
+            echo "[wg-client] NetBird interface ${iface} down; re-enrolling." >&2
+            docker_gateway=$(ip -4 route show default dev eth0 2>/dev/null | awk '{print $3}')
+            configure_netbird_host_management_access "$docker_gateway"
+            netbird up \
+                --setup-key "${NB_SETUP_KEY}" \
+                --management-url "${NB_MANAGEMENT_URL:-https://api.netbird.io}" \
+                --interface-name "${iface}" || true
             set_netbird_fwmark "${iface}" || true
         fi
     done

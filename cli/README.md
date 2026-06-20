@@ -24,8 +24,9 @@ Options:
   inspection tunnel) is untouched. Seeds `netbird_enrollment_key` and
   `netbird_api_token` in `~/.config/sandcat/settings.json`.
 - `--netbird-server` - NetBird management server mode (requires `--netbird`):
-  `cloud` | `new` | `<http(s)://url>`. In non-interactive flag mode, `new` defaults
-  management URL to `http://localhost:33073`.
+  `cloud` | `new` | `quickstart` | `<http(s)://url>`. `new` provisions a local
+  localhost template; `quickstart` prints the official NetBird install command for
+  a VM with a public domain.
 - `--1password` - Deprecated alias for `--secret-provider 1password`
 - `--features` - Comma-separated optional non-provider features: `tui` (proxy console mode; prefer `--proxy tui`)
 - `--name` - Project name for Docker Compose (default: derived from directory name)
@@ -220,6 +221,8 @@ NetBird uses **two separate credentials**. Both go in `~/.config/sandcat/setting
 |-------------|----------|-----------------|
 | `netbird_enrollment_key` | Enrolling `wg-client` as a mesh peer (`NB_SETUP_KEY`) | NetBird dashboard → **Setup Keys** |
 | `netbird_api_token` | `sandcat netbird` CLI commands on your host | NetBird dashboard → **API Keys** (Personal Access Token) |
+| `netbird_management_url` | Host-side management API (`sandcat netbird`, browser) | `http://localhost:33073` for local template |
+| `netbird_enrollment_management_url` | wg-client enrollment URL (container cannot use `localhost`) | See [local self-hosted](#local-self-hosted-sandcat-template) below |
 
 **Before `sandcat netbird status` works**, you must complete steps 1–4 below.
 Container enrollment (`netbird_enrollment_key`) is separate from host CLI control
@@ -255,10 +258,11 @@ Choose one management server mode during `sandcat init --netbird`:
 
 - `cloud` — uses NetBird Cloud (`https://api.netbird.io`).
 - Existing self-hosted URL — pass `--netbird-server <http(s)://url>`.
-- New self-hosted template — pass `--netbird-server new`; template path:
-  `~/.config/sandcat/netbird-server/`. In flag mode this is non-interactive,
-  does not prompt for URL, and persists `http://localhost:33073` as the
-  management URL.
+- **Local** — `--netbird-server new` provisions a localhost template to
+  `~/.config/sandcat/netbird-server/` (dashboard on **http://localhost:8080**,
+  management API on **http://localhost:33073**).
+- **Remote (VM + domain)** — `--netbird-server quickstart` prints the official
+  NetBird install command; you run it yourself, then point sandcat at your server URL.
 
 Canonical non-interactive invocations:
 
@@ -269,21 +273,88 @@ sandcat init --agent claude --ide vscode --netbird --netbird-server cloud --name
 # Existing self-hosted management server
 sandcat init --agent claude --ide vscode --netbird --netbird-server https://netbird.example.com --name myproject
 
-# New self-hosted template
+# Local self-hosted (provisions localhost template)
 sandcat init --agent claude --ide vscode --netbird --netbird-server new --name myproject
+
+# Remote self-hosted (prints quickstart install command)
+sandcat init --agent claude --ide vscode --netbird --netbird-server quickstart --name myproject
+sandcat init --agent claude --ide vscode --netbird --netbird-server https://netbird.example.com --name myproject
 ```
 
-For `new`, the generated directory is a starter skeleton. Review/update config
-files first, then start the stack:
+### Local self-hosted (sandcat template)
+
+For development on your machine without a public domain:
 
 ```bash
+sandcat init --netbird --netbird-server new ...
 cd ~/.config/sandcat/netbird-server
-# required before first run:
-# - netbird-server.env
-# - management.json
-# - turnserver.conf
 docker compose --env-file netbird-server.env up -d
 ```
+
+1. Bootstrap admin: `POST http://localhost:33073/api/setup` (see
+   `~/.config/sandcat/netbird-server/README.md`).
+2. Open **http://localhost:8080** and sign in.
+3. Create setup key + API token in the dashboard.
+4. Set credentials in `~/.config/sandcat/settings.json` (or project
+   `.sandcat/settings.local.json`):
+
+```json
+{
+  "netbird_management_url": "http://localhost:33073",
+  "netbird_enrollment_management_url": "http://<docker-host-ip>:33073",
+  "netbird_enrollment_key": "<setup-key>",
+  "netbird_api_token": "<api-token>"
+}
+```
+
+**Finding the Docker host IP** (wg-client cannot use `localhost`):
+
+```bash
+# Colima
+colima status -j | jq -r '.network.gateway_address'
+
+# Docker Desktop (macOS) — often 192.168.65.2; verify with:
+docker run --rm alpine getent ahostsv4 host.docker.internal | awk '{print $1; exit}'
+```
+
+Use that IP in `netbird_enrollment_management_url`, then recreate wg-client:
+
+```bash
+sandcat run --force-recreate wg-client
+```
+
+### Remote self-hosted (NetBird quickstart)
+
+For a VM with a public domain, sandcat does **not** run the installer. Use the
+[official quickstart](https://docs.netbird.io/selfhosted/selfhosted-quickstart#installation-script):
+
+```bash
+curl -fsSL https://github.com/netbirdio/netbird/releases/latest/download/getting-started.sh | bash
+```
+
+The script generates `docker-compose.yml`, `config.yaml`, and `dashboard.env`
+with embedded IdP support. Follow the prompts (Traefik `[0]` is the default).
+
+**First-time onboarding** (from the [quickstart guide](https://docs.netbird.io/selfhosted/selfhosted-quickstart#installation-script)):
+
+1. Open `https://<your-domain>` in a browser.
+2. You are redirected to `/setup` while no users exist.
+3. Create the admin account (email, name, password).
+4. In the dashboard, create a **Setup Key** and an **API Key** (PAT).
+
+For scripted bootstrap instead of the dashboard setup page, see
+[Automated setup with a Personal Access Token](https://docs.netbird.io/selfhosted/automated-setup).
+
+**Wire sandcat** after the server is running:
+
+```json
+"netbird_management_url": "https://netbird.example.com",
+"netbird_enrollment_key": "<setup-key>",
+"netbird_api_token": "<api-token>"
+```
+
+Re-run `sandcat init --netbird --netbird-server https://netbird.example.com ...`
+or edit `~/.config/sandcat/settings.json` directly, then `sandcat run`.
 
 ### Runtime control
 

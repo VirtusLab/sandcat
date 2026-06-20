@@ -18,6 +18,22 @@ source "$SCT_LIBDIR/agents.bash"
 # shellcheck source=../../lib/netbird.bash
 source "$SCT_LIBDIR/netbird.bash"
 
+# Prints instructions for the local template provisioned under ~/.config/sandcat/netbird-server.
+_print_netbird_local_template_hint() {
+	echo "    Local template: ~/.config/sandcat/netbird-server/" | info
+	echo "    Start:  cd ~/.config/sandcat/netbird-server && docker compose --env-file netbird-server.env up -d" | info
+	echo "    Dashboard: http://localhost:8080  (bootstrap via /api/setup first — see README.md there)" | info
+}
+
+# Prints instructions for installing a self-hosted NetBird server via the
+# official quickstart script (sandcat does not run the installer).
+_print_netbird_selfhosted_install_hint() {
+	echo "    Remote install (VM + public domain) — run yourself:" | info
+	echo "      curl -fsSL https://github.com/netbirdio/netbird/releases/latest/download/getting-started.sh | bash" | info
+	echo "    Docs: https://docs.netbird.io/selfhosted/selfhosted-quickstart#installation-script" | info
+	echo "    After install: open https://<your-domain>/setup to create the admin account" | info
+}
+
 # Returns the user settings template path for a selected agent.
 # Args:
 #   $1 - Agent name (claude, cursor)
@@ -132,6 +148,7 @@ init() {
 	local netbird_server_provided=false
 	local netbird_management_url=""
 	local provisioned_netbird_server="false"
+	local netbird_selfhosted_quickstart="false"
 
 	while [[ $# -gt 0 ]]
 	do
@@ -213,11 +230,11 @@ init() {
 	fi
 	if [[ "$netbird_server_provided" == "true" ]]; then
 		case "$netbird_server" in
-		cloud|new|http://*|https://*)
+		cloud|new|quickstart|http://*|https://*)
 			:
 			;;
 		*)
-			echo "Invalid NetBird server mode: $netbird_server (expected: cloud, new, or http(s)://... URL)" | error
+			echo "Invalid NetBird server mode: $netbird_server (expected: cloud, new, quickstart, or http(s)://... URL)" | error
 			return 1
 			;;
 		esac
@@ -294,13 +311,15 @@ init() {
 
 	# Optional non-provider features (tui → mitmproxy console)
 	if [[ "$features_provided" != "true" ]]; then
-		local available_features=("tui (mitmproxy console instead of web UI)")
+		local available_features=("tui")
 		local selected_features
-		selected_features=$(select_multiple "Select optional features (comma-separated numbers, empty for none):" "${available_features[@]}")
+		selected_features=$(select_multiple \
+			"Select optional features (comma-separated numbers, empty for none; tui = mitmproxy console instead of web UI):" \
+			"${available_features[@]}")
 		if [[ -n "$selected_features" ]]; then
 			for f in $selected_features; do
 				case "$f" in
-					tui*) proxy_mode="tui" ;;
+					tui) proxy_mode="tui" ;;
 					*) echo "Unknown feature: $f (expected: tui)" | error; return 1 ;;
 				esac
 			done
@@ -395,6 +414,11 @@ init() {
 				netbird_management_url="http://localhost:33073"
 				persist_netbird_management_url "$netbird_management_url"
 				;;
+			quickstart)
+				netbird_selfhosted_quickstart="true"
+				_print_netbird_selfhosted_install_hint
+				netbird_management_url=""
+				;;
 			http://*|https://*)
 				netbird_management_url="$netbird_server"
 				persist_netbird_management_url "$netbird_management_url"
@@ -406,7 +430,8 @@ init() {
 				echo "NetBird management server [cloud]:" | info
 				echo "  1) cloud (api.netbird.io)" | info
 				echo "  2) self-hosted — I have a server running" | info
-				echo "  3) self-hosted — provision a new server from template" | info
+				echo "  3) self-hosted — local template (localhost)" | info
+				echo "  4) self-hosted — NetBird quickstart (VM + domain)" | info
 				netbird_server_selection=$(read_line ">")
 				case "$netbird_server_selection" in
 				""|1|cloud)
@@ -417,12 +442,16 @@ init() {
 					netbird_server_selection="existing"
 					break
 					;;
-				3|new|self-hosted-new|self-hosted\ new\ template|self-hosted\ —\ provision\ a\ new\ server\ from\ template)
+				3|new|local|self-hosted-local|self-hosted\ —\ local\ template|self-hosted\ new\ template|self-hosted\ —\ provision\ a\ new\ server\ from\ template)
 					netbird_server_selection="new"
 					break
 					;;
+				4|quickstart|self-hosted-quickstart|self-hosted\ —\ NetBird\ quickstart|self-hosted\ —\ install\ with\ NetBird\ quickstart)
+					netbird_server_selection="quickstart"
+					break
+					;;
 				*)
-					echo "Invalid NetBird management server selection: $netbird_server_selection (expected: cloud, existing, or new)" | error
+					echo "Invalid NetBird management server selection: $netbird_server_selection (expected: cloud, existing, new, or quickstart)" | error
 					;;
 				esac
 			done
@@ -444,13 +473,18 @@ init() {
 			new)
 				provision_netbird_server_template
 				provisioned_netbird_server="true"
-				echo "    Self-hosted template: ~/.config/sandcat/netbird-server" | info
-				echo "    Template is a starter skeleton; configure before first start:" | info
-				echo "      netbird-server.env, management.json, turnserver.conf" | info
-				echo "    Start hint: cd ~/.config/sandcat/netbird-server && docker compose --env-file netbird-server.env up -d" | info
+				_print_netbird_local_template_hint
 				netbird_management_url=$(read_line "Management URL [http://localhost:33073]:")
 				netbird_management_url="${netbird_management_url:-http://localhost:33073}"
 				persist_netbird_management_url "$netbird_management_url"
+				;;
+			quickstart)
+				netbird_selfhosted_quickstart="true"
+				_print_netbird_selfhosted_install_hint
+				netbird_management_url=$(read_line "Management URL [https://netbird.example.com]:")
+				if [[ -n "$netbird_management_url" ]]; then
+					persist_netbird_management_url "$netbird_management_url"
+				fi
 				;;
 			esac
 		fi
@@ -546,9 +580,11 @@ init() {
 		echo "      \"netbird_enrollment_key\": \"<setup-key>\"  (wg-client enrollment)" | info
 		echo "      \"netbird_api_token\": \"<api-token>\"      (sandcat netbird commands)" | info
 		if [[ "$provisioned_netbird_server" == "true" ]]; then
-			echo "    Self-hosted server template: ~/.config/sandcat/netbird-server/" | info
-			echo "    Start it:  docker compose -f ~/.config/sandcat/netbird-server/docker-compose.yml up -d" | info
-			echo "    (Future:   sandcat netbird server start)" | info
+			_print_netbird_local_template_hint
+		fi
+		if [[ "$netbird_selfhosted_quickstart" == "true" ]]; then
+			_print_netbird_selfhosted_install_hint
+			echo "    Then set netbird_management_url or re-run init with --netbird-server https://<your-domain>" | info
 		fi
 	fi
 	echo "  Then run: sandcat run, or reopen the project using the dev container" | info

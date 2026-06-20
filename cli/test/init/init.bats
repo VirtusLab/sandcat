@@ -141,7 +141,7 @@ teardown() {
 		"'Select IDE:' vscode jetbrains none : echo vscode" \
 		"'Select secret provider:' 1password none protonpass : echo 1password"
 	stub select_multiple \
-		"'Select optional features (comma-separated numbers, empty for none):' 'tui (mitmproxy console instead of web UI)' : echo ''" \
+		"'Select optional features (comma-separated numbers, empty for none; tui = mitmproxy console instead of web UI):' tui : echo ''" \
 		"'Select development stacks (comma-separated numbers, empty for none):' node python java rust go scala ruby dotnet zig : echo ''"
 
 	local expected_name
@@ -265,9 +265,9 @@ teardown() {
 	assert_output ""
 }
 
-@test "init --netbird-server new provisions template and uses default URL" {
-	unset -f provision_netbird_server_template
+@test "init --netbird-server new provisions local template and uses default URL" {
 	unset -f read_line
+	unset -f provision_netbird_server_template
 
 	stub settings "$PROJECT_DIR/.sandcat/settings.json claude vscode : :"
 	stub devcontainer \
@@ -282,11 +282,71 @@ teardown() {
 	run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" --stacks "" --proxy web --features "" --secret-provider none --netbird --netbird-server new
 	assert_success
 	assert_output --partial "Management server: http://localhost:33073"
-	assert_output --partial "Self-hosted server template: ~/.config/sandcat/netbird-server/"
-	assert_output --partial "Start it:  docker compose -f ~/.config/sandcat/netbird-server/docker-compose.yml up -d"
-	assert_output --partial "(Future:   sandcat netbird server start)"
+	assert_output --partial "Local template: ~/.config/sandcat/netbird-server/"
+	assert_output --partial "docker compose --env-file netbird-server.env up -d"
+	assert_output --partial "http://localhost:8080"
 	run yq -r '.netbird_management_url' "$SCT_HOME_DIR/settings.json"
 	assert_output "http://localhost:33073"
+}
+
+@test "init --netbird-server quickstart prints install hint without provisioning" {
+	unset -f read_line
+	unset -f provision_netbird_server_template
+
+	stub settings "$PROJECT_DIR/.sandcat/settings.json claude vscode : :"
+	stub devcontainer \
+		"--settings-file .sandcat/settings.json --project-path * --agent claude --ide vscode --name test --stacks * --proxy web --secret-provider none --netbird : :"
+	provision_netbird_server_template() {
+		echo "provision_netbird_server_template should not be called for quickstart" >&2
+		return 88
+	}
+	export -f provision_netbird_server_template
+
+	run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" --stacks "" --proxy web --features "" --secret-provider none --netbird --netbird-server quickstart
+	assert_success
+	assert_output --partial "getting-started.sh"
+	assert_output --partial "selfhosted-quickstart"
+	run yq -r '.netbird_management_url' "$SCT_HOME_DIR/settings.json"
+	assert_output ""
+}
+
+@test "init interactive netbird server new provisions local template" {
+	unset -f read_line
+	unset -f provision_netbird_server_template
+
+	stub settings "$PROJECT_DIR/.sandcat/settings.json claude vscode : :"
+	stub devcontainer \
+		"--settings-file .sandcat/settings.json --project-path * --agent claude --ide vscode --name test --stacks * --proxy web --secret-provider none --netbird-management-url http://localhost:33073 --netbird : :"
+	stub provision_netbird_server_template ":"
+	stub read_line \
+		"'>' : echo 3" \
+		"'Management URL [http://localhost:33073]:' : echo ''"
+
+	run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" --stacks "" --proxy web --features "" --secret-provider none --netbird
+	assert_success
+	assert_output --partial "3) self-hosted — local template (localhost)"
+	assert_output --partial "Local template: ~/.config/sandcat/netbird-server/"
+	run yq -r '.netbird_management_url' "$SCT_HOME_DIR/settings.json"
+	assert_output "http://localhost:33073"
+}
+
+@test "init interactive netbird quickstart prints install hint and accepts URL" {
+	unset -f read_line
+	unset -f provision_netbird_server_template
+
+	stub settings "$PROJECT_DIR/.sandcat/settings.json claude vscode : :"
+	stub devcontainer \
+		"--settings-file .sandcat/settings.json --project-path * --agent claude --ide vscode --name test --stacks * --proxy web --secret-provider none --netbird-management-url https://netbird.example.com --netbird : :"
+	stub read_line \
+		"'>' : echo 4" \
+		"'Management URL [https://netbird.example.com]:' : echo 'https://netbird.example.com'"
+
+	run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" --stacks "" --proxy web --features "" --secret-provider none --netbird
+	assert_success
+	assert_output --partial "4) self-hosted — NetBird quickstart (VM + domain)"
+	assert_output --partial "getting-started.sh"
+	run yq -r '.netbird_management_url' "$SCT_HOME_DIR/settings.json"
+	assert_output "https://netbird.example.com"
 }
 
 @test "init interactive netbird server existing re-prompts for non-empty URL" {
@@ -323,31 +383,6 @@ teardown() {
 	assert_output "management.example.com"
 }
 
-@test "init interactive netbird server new provisions template and uses default URL" {
-	unset -f read_line
-	unset -f provision_netbird_server_template
-
-	stub settings "$PROJECT_DIR/.sandcat/settings.json claude vscode : :"
-	stub devcontainer \
-		"--settings-file .sandcat/settings.json --project-path * --agent claude --ide vscode --name test --stacks * --proxy web --secret-provider none --netbird-management-url http://localhost:33073 --netbird : :"
-	stub provision_netbird_server_template ":"
-	stub read_line \
-		"'>' : echo 3" \
-		"'Management URL [http://localhost:33073]:' : echo ''"
-
-	run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" --stacks "" --proxy web --features "" --secret-provider none --netbird
-	assert_success
-	assert_output --partial "NetBird management server [cloud]:"
-	assert_output --partial "1) cloud (api.netbird.io)"
-	assert_output --partial "2) self-hosted — I have a server running"
-	assert_output --partial "3) self-hosted — provision a new server from template"
-	assert_output --partial "Self-hosted server template: ~/.config/sandcat/netbird-server/"
-	assert_output --partial "Start it:  docker compose -f ~/.config/sandcat/netbird-server/docker-compose.yml up -d"
-	assert_output --partial "(Future:   sandcat netbird server start)"
-	run yq -r '.netbird_management_url' "$SCT_HOME_DIR/settings.json"
-	assert_output "http://localhost:33073"
-}
-
 @test "init interactive flow (devcontainer mode)" {
 	unset -f read_line
 	unset -f select_option
@@ -359,7 +394,7 @@ teardown() {
 		"'Select IDE:' vscode jetbrains none : echo vscode" \
 		"'Select secret provider:' none 1password protonpass : echo none"
 	stub select_multiple \
-		"'Select optional features (comma-separated numbers, empty for none):' 'tui (mitmproxy console instead of web UI)' : echo ''" \
+		"'Select optional features (comma-separated numbers, empty for none; tui = mitmproxy console instead of web UI):' tui : echo ''" \
 		"'Select development stacks (comma-separated numbers, empty for none):' node python java rust go scala ruby dotnet zig : echo ''"
 
 	local expected_name
@@ -369,6 +404,33 @@ teardown() {
 	stub settings "$PROJECT_DIR/$settings_file claude vscode : :"
 	stub devcontainer \
 		"--settings-file $settings_file --project-path $PROJECT_DIR --agent claude --ide vscode --name $expected_name --stacks '' --proxy web --secret-provider none : :"
+
+	run init --path "$PROJECT_DIR"
+
+	assert_success
+}
+
+@test "init interactive flow selects tui proxy mode" {
+	unset -f read_line
+	unset -f select_option
+	unset -f select_multiple
+
+	stub read_line "* : echo ''"
+	stub select_option \
+		"'Select agent:' claude cursor : echo claude" \
+		"'Select IDE:' vscode jetbrains none : echo none" \
+		"'Select secret provider:' none 1password protonpass : echo none"
+	stub select_multiple \
+		"'Select optional features (comma-separated numbers, empty for none; tui = mitmproxy console instead of web UI):' tui : echo tui" \
+		"'Select development stacks (comma-separated numbers, empty for none):' node python java rust go scala ruby dotnet zig : echo ''"
+
+	local expected_name
+	expected_name=$(basename "$PROJECT_DIR")-sandbox
+	local settings_file=".sandcat/settings.json"
+
+	stub settings "$PROJECT_DIR/$settings_file claude : :"
+	stub devcontainer \
+		"--settings-file $settings_file --project-path $PROJECT_DIR --agent claude --ide none --name $expected_name --stacks '' --proxy tui --secret-provider none : :"
 
 	run init --path "$PROJECT_DIR"
 
