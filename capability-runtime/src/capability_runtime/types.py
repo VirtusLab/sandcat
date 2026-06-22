@@ -44,6 +44,18 @@ class ToolCapability:
 
 
 @dataclass
+class NetworkCapability:
+    ref: CapabilityRef
+    name: str
+    peer_id: str
+    network: str
+    route_id: str | None
+    lease_id: LeaseId | None
+    quota: Quota = "unbounded"
+    expires_at: datetime | None = None
+
+
+@dataclass
 class RuleCapability:
     ref: CapabilityRef
     name: str
