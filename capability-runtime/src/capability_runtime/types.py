@@ -23,6 +23,18 @@ class LeaseId:
 
 
 @dataclass
+class LeaseDecision:
+    lease_id: LeaseId
+    capability_ref: CapabilityRef
+    agent_id: AgentIdentity
+    quota: int
+    token_budget: int
+    risk_envelope: str
+    expires_at: datetime
+    granted_at: datetime
+
+
+@dataclass
 class ToolCapability:
     ref: CapabilityRef
     name: str
