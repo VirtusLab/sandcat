@@ -285,6 +285,34 @@ class CapabilityRuntime:
                 }
             )
 
+    def revoke_from_physical(self, binding: NetworkBinding, reason: str) -> None:
+        """Perform logical revoke when physical route already disappeared.
+        
+        This is called by RouteDisappearanceWatcher when it detects that a peer
+        or route no longer exists in NetBird. Since the physical resource is
+        already gone, we only perform logical revocation without calling the
+        NetBird backend.
+        
+        Args:
+            binding: The network binding that disappeared
+            reason: Why the revocation occurred
+        """
+        # Perform logical revocation only (no NetBird API call)
+        self.revocation_manager.revoke_by_ref(binding.capability_ref, reason)
+        
+        # Invalidate agent bundle cache
+        self._bundle_version += 1
+        
+        # Emit event with physical_trigger flag
+        self.observability.emit_capability_event(
+            {
+                "event": "capability_revoked",
+                "capability_ref": binding.capability_ref.value,
+                "reason": reason,
+                "physical_trigger": True,
+            }
+        )
+
     def discover_capabilities(
         self, agent_id: AgentIdentity, intent: DiscoveryIntent
     ) -> DiscoveryResult:
