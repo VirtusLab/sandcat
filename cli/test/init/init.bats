@@ -283,7 +283,7 @@ teardown() {
 	assert_success
 	assert_output --partial "Management server: http://localhost:33073"
 	assert_output --partial "Local template: ~/.config/sandcat/netbird-server/"
-	assert_output --partial "docker compose --env-file netbird-server.env up -d"
+	assert_output --partial "sandcat netbird server start"
 	assert_output --partial "http://localhost:8080"
 	run yq -r '.netbird_management_url' "$SCT_HOME_DIR/settings.json"
 	assert_output "http://localhost:33073"

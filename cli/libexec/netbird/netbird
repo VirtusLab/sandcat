@@ -12,10 +12,34 @@ Usage: sandcat netbird <subcommand> [options]
 
 Subcommands:
   status                                        List peers from the NetBird management server
+  server start                                  Start the local self-hosted NetBird server stack
+  server stop                                   Stop the local self-hosted NetBird server stack
+  server status                                 Show docker compose status for the local server
   peer remove --peer-id <id>                    Remove a peer; wg-client drops the route from wt0
   route add   --network <cidr> --peer-id <id>   Add a network route
   route remove --route-id <id>                  Remove a route by ID
 EOF
+}
+
+cmd_server() {
+	local subcmd="${1:-}"
+	shift || true
+	case "$subcmd" in
+	start)
+		netbird_server_start "$@"
+		;;
+	stop)
+		netbird_server_stop "$@"
+		;;
+	status)
+		netbird_server_status
+		;;
+	*)
+		echo "Unknown server subcommand: ${subcmd:-<missing>}" | error
+		usage
+		return 1
+		;;
+	esac
 }
 
 cmd_status() {
@@ -28,7 +52,12 @@ cmd_status() {
 	fi
 
 	if command -v jq &>/dev/null; then
-		echo "$peers" | jq .
+		if echo "$peers" | jq -e . >/dev/null 2>&1; then
+			echo "$peers" | jq .
+		else
+			echo "$peers"
+			echo "NetBird API returned non-JSON output; showing raw response." | warning
+		fi
 	else
 		echo "$peers"
 	fi
@@ -142,6 +171,7 @@ main() {
     shift || true
     case "$subcmd" in
     status) cmd_status "$@" ;;
+    server) cmd_server "$@" ;;
     peer)   cmd_peer "$@" ;;
     route)  cmd_route "$@" ;;
     *)

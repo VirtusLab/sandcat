@@ -21,7 +21,7 @@ source "$SCT_LIBDIR/netbird.bash"
 # Prints instructions for the local template provisioned under ~/.config/sandcat/netbird-server.
 _print_netbird_local_template_hint() {
 	echo "    Local template: ~/.config/sandcat/netbird-server/" | info
-	echo "    Start:  cd ~/.config/sandcat/netbird-server && docker compose --env-file netbird-server.env up -d" | info
+	echo "    Start:  sandcat netbird server start" | info
 	echo "    Dashboard: http://localhost:8080  (bootstrap via /api/setup first — see README.md there)" | info
 }
 

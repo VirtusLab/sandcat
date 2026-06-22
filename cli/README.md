@@ -287,8 +287,7 @@ For development on your machine without a public domain:
 
 ```bash
 sandcat init --netbird --netbird-server new ...
-cd ~/.config/sandcat/netbird-server
-docker compose --env-file netbird-server.env up -d
+sandcat netbird server start
 ```
 
 1. Bootstrap admin: `POST http://localhost:33073/api/setup` (see
@@ -328,8 +327,7 @@ match `netbird_enrollment_management_url`. **Restart netbird-server** after the 
 sync (or when you change the enrollment IP):
 
 ```bash
-cd ~/.config/sandcat/netbird-server
-docker compose --env-file netbird-server.env up -d --force-recreate netbird-server
+sandcat netbird server start --force-recreate netbird-server
 sandcat run --force-recreate wg-client
 ```
 
@@ -369,6 +367,11 @@ or edit `~/.config/sandcat/settings.json` directly, then `sandcat run`.
 ### Runtime control
 
 ```bash
+# Local self-hosted server (after sandcat init --netbird-server new)
+sandcat netbird server start
+sandcat netbird server status
+sandcat netbird server stop
+
 # List current peers
 sandcat netbird status
 
