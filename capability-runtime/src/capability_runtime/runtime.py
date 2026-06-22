@@ -19,6 +19,7 @@ from capability_runtime.errors import (
 )
 from capability_runtime.lease import LeaseManager
 from capability_runtime.network import NetworkBinding
+from capability_runtime.netbird_backend import NetBirdRevocationBackend
 from capability_runtime.netbird_client import NetBirdClient
 from capability_runtime.observability import ObservabilityCollector
 from capability_runtime.revoke import RevocationManager
@@ -55,6 +56,9 @@ class CapabilityRuntime:
         self._bundle_version = 0
         self._current_bundles: dict[AgentIdentity, int] = {}
         self._netbird_client = netbird_client
+        self._netbird_backend = (
+            NetBirdRevocationBackend(netbird_client) if netbird_client is not None else None
+        )
 
         # Register create_pr as DECLARED (invisible until leased)
         self.catalog.register("create_pr", CapabilityRef("cap-create-pr"), LifecycleState.DECLARED)
@@ -247,6 +251,8 @@ class CapabilityRuntime:
         self, target: Union[LeaseId, CapabilityRef], reason: str
     ) -> None:
         """Revoke capability by lease ID or ref (spec §3.2.3)."""
+        physical_revocation = False
+        
         if isinstance(target, LeaseId):
             self.revocation_manager.revoke_by_lease(target, reason)
             self.observability.emit_capability_event(
@@ -257,12 +263,25 @@ class CapabilityRuntime:
                 }
             )
         else:
+            # Check if this is a network capability
+            binding = self.catalog.get_network_binding(target)
+            if binding is not None and self._netbird_backend is not None:
+                # Perform physical revocation via NetBird backend
+                self._netbird_backend.revoke_binding(binding, reason)
+                physical_revocation = True
+            
+            # Perform logical revocation
             self.revocation_manager.revoke_by_ref(target, reason)
+            
+            # Invalidate agent bundle cache
+            self._bundle_version += 1
+            
             self.observability.emit_capability_event(
                 {
                     "event": "capability_revoked",
                     "capability_ref": target.value,
                     "reason": reason,
+                    "physical_revocation": physical_revocation,
                 }
             )
 
