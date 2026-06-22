@@ -109,4 +109,5 @@ class CapabilityBundle:
     hooks: list[HookCapability]
     budgets: BudgetEnvelope
     provenance: ProvenanceRecord
+    networks: list[NetworkCapability] = field(default_factory=list)
     version: int = field(default=1)

@@ -18,6 +18,8 @@ from capability_runtime.errors import (
     CapabilityUnknown,
 )
 from capability_runtime.lease import LeaseManager
+from capability_runtime.network import NetworkBinding
+from capability_runtime.netbird_client import NetBirdClient
 from capability_runtime.observability import ObservabilityCollector
 from capability_runtime.revoke import RevocationManager
 from capability_runtime.types import (
@@ -27,6 +29,7 @@ from capability_runtime.types import (
     CapabilityRef,
     LeaseDecision,
     LeaseId,
+    NetworkCapability,
     ProvenanceRecord,
     ToolCapability,
 )
@@ -41,6 +44,7 @@ class CapabilityRuntime:
         trace_id: str,
         seed: int,
         policy_version: str = "1.0.0",
+        netbird_client: NetBirdClient | None = None,
     ):
         self.catalog = CapabilityCatalog()
         self.lease_manager = LeaseManager()
@@ -50,9 +54,21 @@ class CapabilityRuntime:
         self.trace_id = trace_id
         self._bundle_version = 0
         self._current_bundles: dict[AgentIdentity, int] = {}
+        self._netbird_client = netbird_client
 
         # Register create_pr as DECLARED (invisible until leased)
         self.catalog.register("create_pr", CapabilityRef("cap-create-pr"), LifecycleState.DECLARED)
+
+    def register_network_capability(
+        self,
+        name: str,
+        ref: CapabilityRef,
+        binding: NetworkBinding,
+        initial_state: LifecycleState = LifecycleState.DECLARED,
+    ) -> None:
+        """Register a network capability with its binding."""
+        self.catalog.register(name, ref, initial_state)
+        self.catalog.set_network_binding(ref, binding)
 
     def check_current_capabilities(
         self, agent_id: AgentIdentity, context: dict
@@ -63,6 +79,7 @@ class CapabilityRuntime:
 
         now = datetime.now(timezone.utc)
         tools: list[ToolCapability] = []
+        networks: list[NetworkCapability] = []
         earliest_expiry: datetime | None = None
 
         # Iterate through catalog to find visible capabilities
@@ -74,15 +91,31 @@ class CapabilityRuntime:
 
             # Include if Visible OR has active lease
             if state == LifecycleState.VISIBLE:
-                tools.append(
-                    ToolCapability(
-                        ref=ref,
-                        name=name,
-                        lease_id=None,
-                        quota="unbounded",
-                        expires_at=None,
+                # Check if this is a network capability
+                binding = self.catalog.get_network_binding(ref)
+                if binding is not None:
+                    networks.append(
+                        NetworkCapability(
+                            ref=ref,
+                            name=name,
+                            peer_id=binding.peer_id,
+                            network=binding.network,
+                            route_id=binding.route_id,
+                            lease_id=None,
+                            quota="unbounded",
+                            expires_at=None,
+                        )
                     )
-                )
+                else:
+                    tools.append(
+                        ToolCapability(
+                            ref=ref,
+                            name=name,
+                            lease_id=None,
+                            quota="unbounded",
+                            expires_at=None,
+                        )
+                    )
             elif state == LifecycleState.LEASED:
                 # Find active lease for this agent
                 for lease_id, lease in self.lease_manager._leases.items():
@@ -94,15 +127,31 @@ class CapabilityRuntime:
                         and not self.lease_manager.is_exhausted(lease_id)
                     ):
                         remaining = self.lease_manager._remaining_quota[lease_id]
-                        tools.append(
-                            ToolCapability(
-                                ref=ref,
-                                name=name,
-                                lease_id=lease_id,
-                                quota=remaining,
-                                expires_at=lease.expires_at,
+                        # Check if this is a network capability
+                        binding = self.catalog.get_network_binding(ref)
+                        if binding is not None:
+                            networks.append(
+                                NetworkCapability(
+                                    ref=ref,
+                                    name=name,
+                                    peer_id=binding.peer_id,
+                                    network=binding.network,
+                                    route_id=binding.route_id,
+                                    lease_id=lease_id,
+                                    quota=remaining,
+                                    expires_at=lease.expires_at,
+                                )
                             )
-                        )
+                        else:
+                            tools.append(
+                                ToolCapability(
+                                    ref=ref,
+                                    name=name,
+                                    lease_id=lease_id,
+                                    quota=remaining,
+                                    expires_at=lease.expires_at,
+                                )
+                            )
                         if earliest_expiry is None or lease.expires_at < earliest_expiry:
                             earliest_expiry = lease.expires_at
                         break
@@ -126,6 +175,7 @@ class CapabilityRuntime:
                 policy_version=self.policy_version,
                 trace_id=self.trace_id,
             ),
+            networks=networks,
             version=self._bundle_version,
         )
 
