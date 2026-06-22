@@ -242,7 +242,7 @@ teardown() {
     export NB_MANAGEMENT_URL="https://api.netbird.io"
 
     stub curl \
-        "-sS -f -X GET -H 'Authorization: Token settings-token' -H 'Accept: application/json' -H 'Content-Type: application/json' https://api.netbird.io/api/peers : echo '[]'"
+        "-sS -X GET -H 'Authorization: Token settings-token' -H 'Accept: application/json' -H 'Content-Type: application/json' -w * https://api.netbird.io/api/peers : printf '%s\n200' '[]'"
 
     run netbird_api "GET" "/api/peers"
     assert_success
@@ -254,7 +254,7 @@ teardown() {
     unset NB_MANAGEMENT_URL
 
     stub curl \
-        "-sS -f -X GET -H 'Authorization: Token settings-token' -H 'Accept: application/json' -H 'Content-Type: application/json' https://management.settings.example.com/api/peers : echo '[]'"
+        "-sS -X GET -H 'Authorization: Token settings-token' -H 'Accept: application/json' -H 'Content-Type: application/json' -w * https://management.settings.example.com/api/peers : printf '%s\n200' '[]'"
 
     run netbird_api "GET" "/api/peers"
     assert_success
@@ -266,8 +266,20 @@ teardown() {
     export NB_MANAGEMENT_URL="https://api.netbird.io"
 
     stub curl \
-        "-sS -f -X GET -H 'Authorization: Token env-token' -H 'Accept: application/json' -H 'Content-Type: application/json' https://api.netbird.io/api/peers : echo '[]'"
+        "-sS -X GET -H 'Authorization: Token env-token' -H 'Accept: application/json' -H 'Content-Type: application/json' -w * https://api.netbird.io/api/peers : printf '%s\n200' '[]'"
 
     run netbird_api "GET" "/api/peers"
     assert_success
+}
+
+@test "netbird_api does not export token read from settings" {
+    echo '{"netbird_api_token": "settings-token"}' > "$HOME/.config/sandcat/settings.json"
+    unset NB_API_TOKEN
+    export NB_MANAGEMENT_URL="https://api.netbird.io"
+
+    stub curl \
+        "-sS -X GET -H 'Authorization: Token settings-token' -H 'Accept: application/json' -H 'Content-Type: application/json' -w * https://api.netbird.io/api/peers : printf '%s\n200' '[]'"
+
+    netbird_api "GET" "/api/peers"
+    [[ -z "${NB_API_TOKEN:-}" ]]
 }

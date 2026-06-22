@@ -14,6 +14,12 @@ instead (see `cli/README.md`).
 ## 1. Start the stack
 
 ```bash
+sandcat netbird server start
+```
+
+Or manually:
+
+```bash
 cd ~/.config/sandcat/netbird-server
 docker compose --env-file netbird-server.env up -d
 ```

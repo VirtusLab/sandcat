@@ -118,7 +118,7 @@ netbird_sync_local_server_exposed_address() {
 	NB_EXPOSED="$enrollment_url" \
 		yq -i '.server.exposedAddress = strenv(NB_EXPOSED)' "$config_file"
 	echo "Updated netbird-server exposedAddress to $enrollment_url." | info
-	echo "Restart netbird-server: cd $(sct_home)/netbird-server && docker compose --env-file netbird-server.env up -d --force-recreate netbird-server" | info
+	echo "Restart netbird-server: sandcat netbird server start --force-recreate netbird-server" | info
 }
 
 # Resolves the NetBird embedded-IdP encryption key.
@@ -279,14 +279,18 @@ provision_netbird_server_template() {
 	_netbird_apply_local_server_config "$destination_dir"
 }
 
-# Resolve NB_API_TOKEN from settings when unset. Env always wins.
-_ensure_netbird_api_token() {
-	[[ -n "${NB_API_TOKEN:-}" ]] && return 0
+# Resolve API token: NB_API_TOKEN env wins over settings. Prints token on success.
+# Does not export settings-sourced tokens (avoids leaking via child process environ).
+_netbird_api_token() {
+	if [[ -n "${NB_API_TOKEN:-}" ]]; then
+		printf '%s' "$NB_API_TOKEN"
+		return 0
+	fi
 
 	local token
 	token=$(netbird_read_setting netbird_api_token)
 	if [[ -n "$token" ]]; then
-		export NB_API_TOKEN="$token"
+		printf '%s' "$token"
 		return 0
 	fi
 
@@ -297,8 +301,86 @@ _ensure_netbird_api_token() {
 	return 1
 }
 
+# Normalize the management server base URL (no trailing slash or /api suffix).
+# Paths passed to netbird_api already include /api/...
+netbird_management_base_url() {
+	export_netbird_management_url
+	local base="${NB_MANAGEMENT_URL:-https://api.netbird.io}"
+	base="${base%/}"
+	if [[ "$base" == */api ]]; then
+		base="${base%/api}"
+	fi
+	printf '%s' "$base"
+}
+
+# Returns 0 when the API response body indicates an invalid or missing token.
+# NetBird self-hosted returns HTTP 404 with {"message":"invalid token: ..."}.
+_netbird_api_body_indicates_auth_failure() {
+	local body=$1
+	[[ -n "$body" ]] || return 1
+	[[ "$body" =~ [Ii]nvalid[[:space:]_]+token ]] && return 0
+	[[ "$body" =~ [Tt]oken.*not[[:space:]]+found ]] && return 0
+	[[ "$body" =~ [Nn]ot[[:space:]]+authenticated ]] && return 0
+	[[ "$body" =~ [Uu]nauthorized ]] && return 0
+	return 1
+}
+
+_netbird_api_print_auth_hint() {
+	echo "  Authentication failed — check netbird_api_token in $(sct_home)/settings.json" >&2
+	echo "  (or export NB_API_TOKEN). Create a Personal Access Token in the NetBird dashboard." >&2
+}
+
+# Prints actionable hints for failed NetBird API calls.
+# Args:
+#   $1 - HTTP status code (000 for connection failure)
+#   $2 - HTTP method
+#   $3 - API path
+#   $4 - Full request URL
+#   $5 - Optional response body
+_netbird_api_print_error() {
+	local http_code=$1
+	local method=$2
+	local path=$3
+	local url=$4
+	local body=${5:-}
+
+	echo "NetBird API ${method} ${path} failed (HTTP ${http_code})." >&2
+	echo "  URL: ${url}" >&2
+
+	if _netbird_api_body_indicates_auth_failure "$body"; then
+		_netbird_api_print_auth_hint
+		[[ -n "$body" ]] && echo "  Response: ${body}" >&2
+		return 0
+	fi
+
+	case "$http_code" in
+	000)
+		echo "  Could not reach the management server." >&2
+		if [[ "$(netbird_management_base_url)" =~ localhost|127\.0\.0\.1 ]]; then
+			echo "  Start it with: sandcat netbird server start" >&2
+		fi
+		;;
+	401|403)
+		_netbird_api_print_auth_hint
+		;;
+	404)
+		echo "  Endpoint not found — check netbird_management_url in $(sct_home)/settings.json." >&2
+		echo "  Use the management API base URL, not the dashboard:" >&2
+		echo "    local template: http://localhost:33073  (not :8080)" >&2
+		echo "    cloud:          (leave empty, defaults to https://api.netbird.io)" >&2
+		echo "    self-hosted:    https://<your-domain>  (reverse proxy must forward /api to management)" >&2
+		[[ -n "$body" ]] && echo "  Response: ${body}" >&2
+		;;
+	*)
+		if [[ -n "$body" ]]; then
+			echo "  Response: ${body}" >&2
+		fi
+		;;
+	esac
+}
+
 # Calls the NetBird management REST API.
-# Requires NB_API_TOKEN (env or netbird_api_token in settings).
+# Requires netbird_api_token in settings, or NB_API_TOKEN in the environment.
 # NB_MANAGEMENT_URL defaults to https://api.netbird.io.
 # Prints the response body on success; writes curl/API errors to stderr.
 # Args:
@@ -309,25 +391,42 @@ netbird_api() {
 	local method=$1
 	local path=$2
 	local body=${3:-}
+	local api_token
 
-	_ensure_netbird_api_token || return 1
-	export_netbird_management_url
+	api_token=$(_netbird_api_token) || return 1
 
-	local url="${NB_MANAGEMENT_URL:-https://api.netbird.io}${path}"
-	local -a args=(-sS -f -X "$method"
-		-H "Authorization: Token $NB_API_TOKEN"
+	local base_url url
+	base_url=$(netbird_management_base_url)
+	url="${base_url}${path}"
+
+	local -a args=(-sS -X "$method"
+		-H "Authorization: Token $api_token"
 		-H "Accept: application/json"
 		-H "Content-Type: application/json")
-
 	[[ -n "$body" ]] && args+=(-d "$body")
+	args+=(-w $'\n%{http_code}')
 
-	local response
-	if ! response=$(curl "${args[@]}" "$url" 2>&1); then
-		echo "NetBird API ${method} ${path} failed: ${response}" >&2
+	local raw http_code response
+	local stderr_file
+	stderr_file=$(mktemp)
+
+	if ! raw=$(curl "${args[@]}" "$url" 2>"$stderr_file"); then
+		_netbird_api_print_error "000" "$method" "$path" "$url" "$(<"$stderr_file")"
+		rm -f "$stderr_file"
 		return 1
 	fi
+	rm -f "$stderr_file"
 
-	printf '%s\n' "$response"
+	http_code=$(printf '%s' "$raw" | tail -n1)
+	response=$(printf '%s' "$raw" | sed '$d')
+
+	if [[ "$http_code" =~ ^2 ]]; then
+		printf '%s\n' "$response"
+		return 0
+	fi
+
+	_netbird_api_print_error "$http_code" "$method" "$path" "$url" "$response"
+	return 1
 }
 
 # Returns the current peer list from the NetBird management server.
@@ -362,4 +461,55 @@ netbird_route_remove() {
 netbird_peer_remove() {
 	local peer_id=$1
 	netbird_api "DELETE" "/api/peers/$peer_id"
+}
+
+# Returns the provisioned self-hosted NetBird server directory.
+netbird_server_dir() {
+	printf '%s\n' "$(sct_home)/netbird-server"
+}
+
+# Verifies the local netbird-server template was provisioned.
+_ensure_netbird_server_provisioned() {
+	local server_dir compose_file env_file
+	server_dir=$(netbird_server_dir)
+	compose_file="$server_dir/docker-compose.yml"
+	env_file="$server_dir/netbird-server.env"
+
+	if [[ ! -f "$compose_file" || ! -f "$env_file" ]]; then
+		echo "NetBird server not provisioned at $server_dir" | error
+		echo "Run: sandcat init --netbird --netbird-server new" >&2
+		return 1
+	fi
+}
+
+# Runs docker compose in the provisioned netbird-server directory.
+# Args: docker compose subcommand and options (e.g. up -d, down, ps)
+netbird_server_compose() {
+	require docker
+	_ensure_netbird_server_provisioned || return 1
+
+	local server_dir compose_file env_file
+	server_dir=$(netbird_server_dir)
+	compose_file="$server_dir/docker-compose.yml"
+	env_file="$server_dir/netbird-server.env"
+
+	docker compose -f "$compose_file" --env-file "$env_file" "$@"
+}
+
+# Starts the provisioned self-hosted NetBird server stack.
+# Remaining args are passed to docker compose (e.g. --force-recreate netbird-server).
+netbird_server_start() {
+	netbird_sync_local_server_exposed_address
+	netbird_server_compose up -d "$@"
+}
+
+# Stops the provisioned self-hosted NetBird server stack.
+# Remaining args are passed to docker compose (e.g. -v to remove volumes).
+netbird_server_stop() {
+	netbird_server_compose down "$@"
+}
+
+# Shows container status for the provisioned self-hosted NetBird server stack.
+netbird_server_status() {
+	netbird_server_compose ps
 }
