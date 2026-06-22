@@ -35,3 +35,8 @@ class BundleVersionMismatch(CapabilityRuntimeError):
         self.expected = expected
         self.actual = actual
         super().__init__(f"Bundle version mismatch: expected {expected}, got {actual}")
+
+
+class CallerIdentityMismatch(CapabilityRuntimeError):
+    def __init__(self, message: str):
+        super().__init__(message)
