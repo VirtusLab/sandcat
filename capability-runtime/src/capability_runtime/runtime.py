@@ -146,7 +146,7 @@ class CapabilityRuntime:
         capability_ref: CapabilityRef,
         justification: str,
     ) -> LeaseDecision:
-        """Grant lease for create_pr with PoC 1 params (spec §3.2.2)."""
+        """Grant lease with capability-specific params (spec §3.2.2)."""
         # Check capability exists
         state = self.catalog.get_state(capability_ref)
         if state not in (LifecycleState.DECLARED, LifecycleState.DISCOVERABLE, LifecycleState.VISIBLE):
@@ -154,11 +154,18 @@ class CapabilityRuntime:
 
         now = datetime.now(timezone.utc)
 
-        # PoC 1 params for create_pr
-        quota = 1
-        ttl = timedelta(minutes=10)
-        token_budget = 25000
-        risk_envelope = "high"
+        capability_name = self.catalog.get_name(capability_ref)
+        if capability_name == "write_note":
+            quota = 3
+            ttl = timedelta(minutes=5)
+            token_budget = 10_000
+            risk_envelope = "medium"
+        else:
+            # PoC 1 params for create_pr (default)
+            quota = 1
+            ttl = timedelta(minutes=10)
+            token_budget = 25_000
+            risk_envelope = "high"
 
         decision = self.lease_manager.grant(
             agent_id=agent_id,
