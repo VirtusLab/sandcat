@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+
+# Catch subcommands (status, server, peer, route) and forward them to the netbird
+# dispatcher. Without this, `sandcat netbird status` looks for libexec/netbird/status.
+
+exec netbird "$@"

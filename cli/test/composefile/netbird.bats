@@ -1,12 +1,15 @@
 #!/usr/bin/env bats
 
 setup() {
-    load test_helper
-    source "$SCT_LIBDIR/composefile.bash"
-    # shellcheck source=netbird.bash
-    source "$SCT_LIBDIR/netbird.bash"
+	load test_helper
+	source "$SCT_LIBDIR/composefile.bash"
+	# shellcheck source=netbird.bash
+	source "$SCT_LIBDIR/netbird.bash"
 
-    COMPOSE_FILE="$BATS_TEST_TMPDIR/compose-proxy.yml"
+	export HOME="$BATS_TEST_TMPDIR/home"
+	mkdir -p "$HOME/.config/sandcat"
+
+	COMPOSE_FILE="$BATS_TEST_TMPDIR/compose-proxy.yml"
     cp "$SCT_TEMPLATEDIR/devcontainer/sandcat/netbird.env" "$BATS_TEST_TMPDIR/netbird.env"
     cat >"$COMPOSE_FILE" <<'YAML'
 services:

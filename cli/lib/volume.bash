@@ -3,6 +3,26 @@
 # shellcheck source=logging.bash
 source "$SCT_LIBDIR/logging.bash"
 
+# Parse a Docker ISO-8601 timestamp to epoch seconds (GNU date or BSD date).
+_volume_timestamp_epoch() {
+	local timestamp=$1
+	local normalized epoch
+
+	normalized=$(printf '%s' "$timestamp" | sed -E 's/\.[0-9]+Z$/Z/; s/Z$//')
+
+	if epoch=$(date -d "${normalized} UTC" +%s 2>/dev/null); then
+		printf '%s' "$epoch"
+		return 0
+	fi
+
+	if epoch=$(date -ju -f '%Y-%m-%dT%H:%M:%S' "$normalized" +%s 2>/dev/null); then
+		printf '%s' "$epoch"
+		return 0
+	fi
+
+	return 1
+}
+
 # Warns if the agent-home volume is meaningfully older than the agent
 # image — i.e. the image has been rebuilt since the volume was populated,
 # so packages installed during the build are hidden by the stale volume
@@ -39,8 +59,8 @@ warn_stale_home_volume() {
 	# silently if unavailable (e.g. BSD date on macOS without coreutils)
 	# rather than risk false positives from lexicographic comparison.
 	local vol_epoch img_epoch
-	vol_epoch=$(date -d "$volume_time" +%s 2>/dev/null) || return 0
-	img_epoch=$(date -d "$image_time" +%s 2>/dev/null) || return 0
+	vol_epoch=$(_volume_timestamp_epoch "$volume_time") || return 0
+	img_epoch=$(_volume_timestamp_epoch "$image_time") || return 0
 
 	(( img_epoch - vol_epoch > tolerance_seconds )) || return 0
 
