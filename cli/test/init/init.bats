@@ -184,8 +184,13 @@ teardown() {
 	[[ -d "$HOME/.cursor/commands" ]]
 	[[ -d "$HOME/.cursor/agents" ]]
 	[[ -d "$HOME/.cursor/hooks" ]]
+	[[ -d "$HOME/.cursor/projects" ]]
+	[[ -d "$HOME/.cursor/chats" ]]
+	[[ -d "$HOME/.cursor/plugins" ]]
+	[[ -d "$HOME/.cursor/subagents" ]]
 	[[ -f "$HOME/.cursor/AGENTS.md" ]]
 	[[ -f "$HOME/.cursor/hooks.json" ]]
+	[[ -f "$HOME/.cursor/mcp.json" ]]
 }
 
 @test "init skips host pre-creation when SANDCAT_MOUNT_CURSOR_CONFIG=false" {
@@ -204,6 +209,11 @@ teardown() {
 	[[ ! -d "$HOME/.cursor/agents" ]]
 	[[ ! -d "$HOME/.cursor/hooks" ]]
 	[[ ! -e "$HOME/.cursor/hooks.json" ]]
+	[[ ! -d "$HOME/.cursor/projects" ]]
+	[[ ! -d "$HOME/.cursor/chats" ]]
+	[[ ! -d "$HOME/.cursor/plugins" ]]
+	[[ ! -d "$HOME/.cursor/subagents" ]]
+	[[ ! -e "$HOME/.cursor/mcp.json" ]]
 }
 
 @test "init interactive flow (devcontainer mode)" {

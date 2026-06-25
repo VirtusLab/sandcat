@@ -1798,6 +1798,7 @@ class TestSettingsMerging:
         assert merged["env"] == {"A": "1"}
         assert merged["secrets"] == {}
         assert merged["network"] == [{"action": "allow", "host": "*"}]
+        assert merged["cursor"] == {"cli": {}}
         assert merged["op_service_account_token"] is None
         assert merged["proton_pass_token"] is None
 
@@ -1845,10 +1846,37 @@ class TestSettingsMerging:
             "env": {},
             "secrets": {},
             "network": [],
+            "cursor": {"cli": {}},
             "op_service_account_token": None,
             "dns_servers": None,
             "proton_pass_token": None,
         }
+
+    def test_cursor_cli_deep_merge_higher_precedence_wins(self):
+        layers = [
+            {"cursor": {"cli": {"version": 1, "network": {"useHttp1ForAgent": True}}}},
+            {"cursor": {"cli": {"network": {"useHttp1ForAgent": False}}}},
+        ]
+        merged = BaseAddon._merge_settings(layers)
+        assert merged["cursor"]["cli"]["version"] == 1
+        assert merged["cursor"]["cli"]["network"]["useHttp1ForAgent"] is False
+
+    def test_write_cursor_cli_config_from_merged_settings(self, tmp_path):
+        addon = BaseAddon()
+        merged = {
+            "cursor": {
+                "cli": {
+                    "version": 1,
+                    "network": {"useHttp1ForAgent": True},
+                }
+            }
+        }
+        config_path = tmp_path / "cursor-cli-config.json"
+        with patch(f"{_COMMON}.CURSOR_CLI_CONFIG_PATH", str(config_path)):
+            addon._write_cursor_cli_config(merged)
+        written = json.loads(config_path.read_text())
+        assert written["network"]["useHttp1ForAgent"] is True
+        assert written["version"] == 1
 
     def test_dns_servers_highest_precedence_wins(self):
         layers = [

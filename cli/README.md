@@ -208,7 +208,15 @@ cli/
 These override defaults during compose file generation. Optional volumes default to `false` (commented out),
 except provider config mounts, which default to `true` for the selected agent.
 
+Per-folder mounts are **not** separate init flags — tune individual paths by
+editing `.devcontainer/compose-all.yml` after init. See the main
+[README section on customizing optional volume mounts](../README.md#customizing-optional-volume-mounts).
+
 - `SANDCAT_MOUNT_CLAUDE_CONFIG` - `true` to mount host `~/.claude` config (Claude agent only)
-- `SANDCAT_MOUNT_CURSOR_CONFIG` - `true` to mount host `~/.cursor` config (Cursor agent only)
+- `SANDCAT_MOUNT_CURSOR_CONFIG` - `true` to mount host `~/.cursor` customization
+  (read-only) and runtime state (read-write: `projects/`, `chats/`, `plugins/`,
+  `subagents/`) into the agent container (Cursor agent only). Cursor CLI keys
+  Sandcat manages (`cursor.cli` in settings) are merged into agent-home
+  `cli-config.json` at container startup — not host-mounted.
 - `SANDCAT_MOUNT_GIT_READONLY` - `true` to mount `.git/` directory as read-only
 - `SANDCAT_MOUNT_IDEA_READONLY` - `true` to mount `.idea/` directory as read-only (JetBrains)

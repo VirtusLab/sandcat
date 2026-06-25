@@ -152,7 +152,7 @@ teardown() {
 
 	customize_agent_templates "$BATS_TEST_TMPDIR" "cursor"
 
-	run grep '"$HOME/.config/cursor/cli-config.json"' "$BATS_TEST_TMPDIR/sandcat/scripts/app-user-init.sh"
+	run grep 'cursor-cli-config.json' "$BATS_TEST_TMPDIR/sandcat/scripts/app-user-init.sh"
 	assert_success
 
 	run grep 'http2=true' "$BATS_TEST_TMPDIR/sandcat/compose-proxy.yml"

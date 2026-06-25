@@ -62,6 +62,7 @@ SETTINGS_PATHS = [
     "/config/project/settings.local.json",  # local:   .sandcat/settings.local.json
 ]
 SANDCAT_ENV_PATH = "/home/mitmproxy/.mitmproxy/sandcat.env"
+CURSOR_CLI_CONFIG_PATH = "/home/mitmproxy/.mitmproxy/cursor-cli-config.json"
 # Sidecar file consumed by wg-client to override /etc/resolv.conf nameservers.
 # One IPv4/IPv6 address per line; empty or missing file means "use defaults".
 # (glibc/musl resolvers reject hostnames in `nameserver` directives.)
@@ -111,6 +112,7 @@ class SandcatAddon:
             # (falling back to defaults) AND so the file's presence still
             # signals "addon has loaded" for the mitmproxy healthcheck.
             self._write_dns_conf()
+            self._write_cursor_cli_config({})
             logger.info("No settings files found — addon disabled")
             return
 
@@ -130,6 +132,7 @@ class SandcatAddon:
         self._load_network_rules(merged["network"])
         self._load_dns_servers(merged["dns_servers"])
         self._write_placeholders_env()
+        self._write_cursor_cli_config(merged)
         self._write_dns_conf()
 
         ctx.log.info(
@@ -281,12 +284,28 @@ class SandcatAddon:
         )
 
     @staticmethod
+    def _deep_merge_dict(base: dict, overlay: dict) -> dict:
+        """Recursively merge overlay into base (overlay wins on conflicts)."""
+        result = dict(base)
+        for key, value in overlay.items():
+            if (
+                key in result
+                and isinstance(result[key], dict)
+                and isinstance(value, dict)
+            ):
+                result[key] = SandcatAddon._deep_merge_dict(result[key], value)
+            else:
+                result[key] = value
+        return result
+
+    @staticmethod
     def _merge_settings(layers: list[dict]) -> dict:
         """Merge settings from multiple layers (lowest to highest precedence).
 
         - env: dict merge, higher precedence overwrites.
         - secrets: dict merge, higher precedence overwrites.
         - network: concatenated, highest precedence first (top-to-bottom matching).
+        - cursor.cli: deep merge, higher precedence overwrites nested keys.
         - op_service_account_token: highest precedence non-empty value wins.
         - dns_servers: highest-precedence layer that sets the key wins (last-wins).
         - proton_pass_token: highest precedence non-empty value wins.
@@ -296,6 +315,7 @@ class SandcatAddon:
         env: dict[str, str] = {}
         secrets: dict[str, dict] = {}
         network: list[dict] = []
+        cursor_cli: dict = {}
         op_token: str | None = None
         dns_servers = None
         proton_pass_token: str | None = None
@@ -303,6 +323,10 @@ class SandcatAddon:
         for layer in layers:
             env.update(layer.get("env", {}))
             secrets.update(layer.get("secrets", {}))
+            layer_cursor = layer.get("cursor", {})
+            layer_cli = layer_cursor.get("cli", {})
+            if layer_cli:
+                cursor_cli = SandcatAddon._deep_merge_dict(cursor_cli, layer_cli)
             layer_token = layer.get("op_service_account_token")
             if layer_token:
                 op_token = layer_token
@@ -320,6 +344,7 @@ class SandcatAddon:
             "env": env,
             "secrets": secrets,
             "network": network,
+            "cursor": {"cli": cursor_cli},
             "op_service_account_token": op_token,
             "dns_servers": dns_servers,
             "proton_pass_token": proton_pass_token,
@@ -577,6 +602,17 @@ class SandcatAddon:
             self._validate_env_name(name)
             lines.append(f'export {name}="{self._shell_escape(entry["placeholder"])}"')
         self._atomic_write_text(SANDCAT_ENV_PATH, "\n".join(lines) + "\n")
+
+    def _write_cursor_cli_config(self, merged: dict):
+        """Publish Sandcat-managed Cursor CLI settings for the agent container.
+
+        The agent deep-merges this fragment into ``cli-config.json`` in
+        agent-home on startup. Keys under ``cursor.cli`` in settings.json use
+        the same shape as Cursor's global ``cli-config.json``.
+        """
+        cli = merged.get("cursor", {}).get("cli", {})
+        body = json.dumps(cli, indent=2) + "\n"
+        self._atomic_write_text(CURSOR_CLI_CONFIG_PATH, body)
 
     @staticmethod
     def _atomic_write_text(path: str, body: str):

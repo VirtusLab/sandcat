@@ -36,9 +36,11 @@ sct_agent_mount_env_var() {
 # bind source as a root-owned empty directory in the user's $HOME — annoying
 # to clean up and confusing because the directory shows up out of nowhere.
 #
-# Each path on its own line. Lines ending with '/' are treated as directories,
-# everything else as files (touch -a). Pre-creating only happens when the
-# agent's mount env var is "true" (or unset, which defaults to true via
+# Each path on its own line. Lines ending with '/' are treated as directories.
+# Files are created when missing; JSON config files get minimal valid defaults
+# (empty files break Cursor CLI parsing and Sandcat's jq bootstrap). Markdown
+# files (AGENTS.md, CLAUDE.md) may remain empty. Pre-creating only happens when
+# the agent's mount env var is "true" (or unset, which defaults to true via
 # customize_compose_file).
 #
 # Args:
@@ -60,12 +62,60 @@ $HOME/.cursor/skills/
 $HOME/.cursor/commands/
 $HOME/.cursor/agents/
 $HOME/.cursor/hooks/
+$HOME/.cursor/projects/
+$HOME/.cursor/chats/
+$HOME/.cursor/plugins/
+$HOME/.cursor/subagents/
 $HOME/.cursor/AGENTS.md
 $HOME/.cursor/hooks.json
+$HOME/.cursor/mcp.json
 EOF
 			;;
 		*)
 			echo ""
+			;;
+	esac
+}
+
+# Creates a host config file when missing or zero-length. Existing non-empty
+# files are left untouched (atime-only touch). JSON files get minimal valid
+# defaults so Docker bind-mounts a file, not a directory, and Cursor CLI can
+# parse the mount target.
+#
+# Args:
+#   $1 - Agent name
+#   $2 - Absolute path to the file
+_ensure_host_agent_config_file() {
+	local agent=$1
+	local path=$2
+
+	if [[ -s "$path" ]]; then
+		touch -a "$path"
+		return 0
+	fi
+
+	case "$agent" in
+		cursor)
+			case "$(basename "$path")" in
+			cli-config.json)
+				printf '%s\n' '{"version":1}' >"$path"
+				;;
+			hooks.json)
+				printf '%s\n' '{"hooks":{}}' >"$path"
+				;;
+			mcp.json)
+				printf '%s\n' '{"mcpServers":{}}' >"$path"
+				;;
+			AGENTS.md)
+				: >"$path"
+				;;
+			*)
+				: >"$path"
+				;;
+			esac
+			;;
+		*)
+			: >"$path"
 			;;
 	esac
 }
@@ -100,9 +150,7 @@ ensure_host_agent_config_paths() {
 			mkdir -p "${expanded%/}"
 		else
 			mkdir -p "$(dirname "$expanded")"
-			# touch -a updates atime only; creates the file if missing
-			# without bumping mtime when it already exists.
-			touch -a "$expanded"
+			_ensure_host_agent_config_file "$agent" "$expanded"
 		fi
 	done < <(sct_agent_host_config_paths "$agent")
 }
@@ -323,24 +371,33 @@ EOF
 # Cursor auth uses the placeholder value from sandcat.env. The mitmproxy addon
 # substitutes it with the real secret on allowed outbound Cursor requests.
 
-# Cursor CLI networking bootstrap.
-# Some proxy/TLS environments are unstable with HTTP/2 streaming, so always
-# enforce the Cursor CLI HTTP/1 compatibility setting.
-if command -v jq >/dev/null 2>&1; then
-    for CURSOR_CLI_CONFIG in "$HOME/.config/cursor/cli-config.json" "$HOME/.cursor/cli-config.json"; do
-        mkdir -p "$(dirname "$CURSOR_CLI_CONFIG")"
-        if [ ! -f "$CURSOR_CLI_CONFIG" ]; then
-            echo '{"version":1}' > "$CURSOR_CLI_CONFIG"
-        fi
-        tmp="$(mktemp)"
-        jq \
-            '.network = (.network // {}) | .network.useHttp1ForAgent = true' \
-            "$CURSOR_CLI_CONFIG" > "$tmp" \
-            && mv "$tmp" "$CURSOR_CLI_CONFIG" \
-            || { rm -f "$tmp"; echo "Warning: failed to update $CURSOR_CLI_CONFIG via jq" >&2; }
-    done
+# Apply Sandcat-managed Cursor CLI settings. mitmproxy merges settings.json
+# `cursor.cli` at startup and writes /mitmproxy-config/cursor-cli-config.json;
+# deep-merge that fragment into agent-home cli-config.json so Sandcat-owned
+# keys win while Cursor-managed keys (model, permissions, auth) persist.
+SANDCAT_CURSOR_CLI="/mitmproxy-config/cursor-cli-config.json"
+if [ -f "$SANDCAT_CURSOR_CLI" ] && command -v jq >/dev/null 2>&1; then
+    sandcat_cli="$(jq -c 'if type == "object" then . else {} end' "$SANDCAT_CURSOR_CLI" 2>/dev/null || echo '{}')"
+    if [ "$sandcat_cli" != "{}" ] && [ -n "$sandcat_cli" ]; then
+        for CURSOR_CLI_CONFIG in "$HOME/.config/cursor/cli-config.json" "$HOME/.cursor/cli-config.json"; do
+            mkdir -p "$(dirname "$CURSOR_CLI_CONFIG")"
+            if [ ! -s "$CURSOR_CLI_CONFIG" ]; then
+                echo '{}' > "$CURSOR_CLI_CONFIG"
+            fi
+            tmp="$(mktemp)"
+            if jq -s '.[0] * .[1]' "$CURSOR_CLI_CONFIG" <(echo "$sandcat_cli") > "$tmp"; then
+                cat "$tmp" > "$CURSOR_CLI_CONFIG" \
+                    || echo "Warning: failed to apply Sandcat cursor.cli to $CURSOR_CLI_CONFIG" >&2
+            else
+                echo "Warning: failed to merge Sandcat cursor.cli into $CURSOR_CLI_CONFIG" >&2
+            fi
+            rm -f "$tmp"
+        done
+    fi
 else
-    echo "Warning: jq not found; cannot apply Cursor CLI HTTP/1 bootstrap config" >&2
+    if [ -f "$SANDCAT_CURSOR_CLI" ]; then
+        echo "Warning: jq not found; cannot apply Sandcat cursor.cli settings" >&2
+    fi
 fi
 EOF
 			;;

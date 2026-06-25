@@ -16,5 +16,13 @@
     {"action": "allow", "host": "*.githubusercontent.com"},
     {"action": "allow", "host": "*.cursor.sh"},
     {"action": "allow", "host": "*.cursor.com"}
-  ]
+  ],
+  "cursor": {
+    "cli": {
+      "version": 1,
+      "network": {
+        "useHttp1ForAgent": true
+      }
+    }
+  }
 }

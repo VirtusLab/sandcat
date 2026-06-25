@@ -255,6 +255,56 @@ assert_cursor_volumes() {
 			.read_only == true
 		)
 	" "$compose_file"
+
+	HOME="$HOME" yq -e "
+		.services.agent.volumes[] |
+		select(
+			.type == \"bind\" and
+			.source == (env(HOME) + \"/.cursor/mcp.json\") and
+			.target == \"/home/vscode/.cursor/mcp.json\" and
+			.read_only == true
+		)
+	" "$compose_file"
+
+	HOME="$HOME" yq -e "
+		.services.agent.volumes[] |
+		select(
+			.type == \"bind\" and
+			.source == (env(HOME) + \"/.cursor/projects\") and
+			.target == \"/home/vscode/.cursor/projects\" and
+			(.read_only // false) == false
+		)
+	" "$compose_file"
+
+	HOME="$HOME" yq -e "
+		.services.agent.volumes[] |
+		select(
+			.type == \"bind\" and
+			.source == (env(HOME) + \"/.cursor/chats\") and
+			.target == \"/home/vscode/.cursor/chats\" and
+			(.read_only // false) == false
+		)
+	" "$compose_file"
+
+	HOME="$HOME" yq -e "
+		.services.agent.volumes[] |
+		select(
+			.type == \"bind\" and
+			.source == (env(HOME) + \"/.cursor/plugins\") and
+			.target == \"/home/vscode/.cursor/plugins\" and
+			(.read_only // false) == false
+		)
+	" "$compose_file"
+
+	HOME="$HOME" yq -e "
+		.services.agent.volumes[] |
+		select(
+			.type == \"bind\" and
+			.source == (env(HOME) + \"/.cursor/subagents\") and
+			.target == \"/home/vscode/.cursor/subagents\" and
+			(.read_only // false) == false
+		)
+	" "$compose_file"
 }
 
 assert_devcontainer_volume() {

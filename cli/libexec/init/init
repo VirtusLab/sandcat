@@ -76,8 +76,17 @@ ensure_cursor_user_settings_defaults() {
 			(.secrets.CURSOR_API_KEY.hosts // []) +
 			["api.cursor.sh", "api2.cursor.sh", "*.cursor.sh", "*.cursor.com"]
 			| unique
-		)
+		) |
+		.cursor = (.cursor // {}) |
+		.cursor.cli = (.cursor.cli // {}) |
+		.cursor.cli.version = (.cursor.cli.version // 1) |
+		.cursor.cli.network = (.cursor.cli.network // {})
 	' "$user_settings"
+
+	# jq/yq `//` treats false as absent; only default useHttp1ForAgent when missing.
+	if ! yq -e '.cursor.cli.network | has("useHttp1ForAgent")' "$user_settings" >/dev/null 2>&1; then
+		yq -i -o json '.cursor.cli.network.useHttp1ForAgent = true' "$user_settings"
+	fi
 }
 
 # Seeds secret-backend token fields in user settings when missing (idempotent).

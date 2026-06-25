@@ -70,8 +70,13 @@ setup() {
 	assert_output --partial '$HOME/.cursor/commands/'
 	assert_output --partial '$HOME/.cursor/agents/'
 	assert_output --partial '$HOME/.cursor/hooks/'
+	assert_output --partial '$HOME/.cursor/projects/'
+	assert_output --partial '$HOME/.cursor/chats/'
+	assert_output --partial '$HOME/.cursor/plugins/'
+	assert_output --partial '$HOME/.cursor/subagents/'
 	assert_output --partial '$HOME/.cursor/AGENTS.md'
 	assert_output --partial '$HOME/.cursor/hooks.json'
+	assert_output --partial '$HOME/.cursor/mcp.json'
 }
 
 @test "sct_agent_host_config_paths: unknown returns empty" {
@@ -116,8 +121,26 @@ setup() {
 	[[ -d "$HOME/.cursor/commands" ]]
 	[[ -d "$HOME/.cursor/agents" ]]
 	[[ -d "$HOME/.cursor/hooks" ]]
+	[[ -d "$HOME/.cursor/projects" ]]
+	[[ -d "$HOME/.cursor/chats" ]]
+	[[ -d "$HOME/.cursor/plugins" ]]
+	[[ -d "$HOME/.cursor/subagents" ]]
 	[[ -f "$HOME/.cursor/AGENTS.md" ]]
 	[[ -f "$HOME/.cursor/hooks.json" ]]
+	[[ -f "$HOME/.cursor/mcp.json" ]]
+	assert_equal "$(<"$HOME/.cursor/hooks.json")" '{"hooks":{}}'
+	assert_equal "$(<"$HOME/.cursor/mcp.json")" '{"mcpServers":{}}'
+}
+
+@test "ensure_host_agent_config_paths: seeds empty JSON files but preserves existing content" {
+	export HOME="$BATS_TEST_TMPDIR/home"
+	mkdir -p "$HOME/.cursor"
+	printf '%s\n' '{"hooks":{"stop":[{"command":"./hook.sh"}]}}' >"$HOME/.cursor/hooks.json"
+
+	run ensure_host_agent_config_paths cursor
+	assert_success
+
+	assert_equal "$(<"$HOME/.cursor/hooks.json")" '{"hooks":{"stop":[{"command":"./hook.sh"}]}}'
 }
 
 @test "ensure_host_agent_config_paths: skips when SANDCAT_MOUNT_CURSOR_CONFIG=false" {
@@ -269,10 +292,10 @@ setup() {
 	assert_output --partial "hasCompletedOnboarding"
 }
 
-@test "sct_agent_user_init_block: cursor configures cli-config.json" {
+@test "sct_agent_user_init_block: cursor applies Sandcat cursor.cli fragment" {
 	run sct_agent_user_init_block cursor
-	assert_output --partial "cli-config.json"
-	assert_output --partial "useHttp1ForAgent"
+	assert_output --partial "cursor-cli-config.json"
+	assert_output --partial "Sandcat cursor.cli"
 }
 
 @test "sct_agent_user_init_block: unknown returns empty" {

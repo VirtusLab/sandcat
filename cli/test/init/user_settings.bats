@@ -124,6 +124,8 @@ teardown() {
 	local settings="$HOME/.config/sandcat/settings.json"
 	yq -e '.network[] | select(.host == "*.cursor.sh")' "$settings"
 	yq -e '.network[] | select(.host == "*.cursor.com")' "$settings"
+	yq -e '.cursor.cli.network.useHttp1ForAgent == true' "$settings"
+	yq -e '.cursor.cli.version == 1' "$settings"
 }
 
 @test "create_user_settings skips when file already exists" {
@@ -161,4 +163,25 @@ EOF
 	yq -e '.secrets.CURSOR_API_KEY.hosts[] | select(. == "api2.cursor.sh")' "$settings"
 	yq -e '.secrets.CURSOR_API_KEY.hosts[] | select(. == "*.cursor.sh")' "$settings"
 	yq -e '.secrets.CURSOR_API_KEY.hosts[] | select(. == "*.cursor.com")' "$settings"
+	yq -e '.cursor.cli.network.useHttp1ForAgent == true' "$settings"
+}
+
+@test "ensure_cursor_user_settings_defaults preserves explicit cursor.cli overrides" {
+	mkdir -p "$HOME/.config/sandcat"
+	cat > "$HOME/.config/sandcat/settings.json" <<'EOF'
+{
+  "cursor": {
+    "cli": {
+      "network": {
+        "useHttp1ForAgent": false
+      }
+    }
+  }
+}
+EOF
+
+	ensure_cursor_user_settings_defaults
+
+	local settings="$HOME/.config/sandcat/settings.json"
+	yq -e '.cursor.cli.network.useHttp1ForAgent == false' "$settings"
 }

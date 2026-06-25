@@ -13,8 +13,11 @@ source "$SCT_LIBDIR/agents.bash"
 # Optional volumes are added as commented-out entries by default. Set environment
 # variables to "true" before calling this function to add them as active mounts:
 #   - SANDCAT_MOUNT_CLAUDE_CONFIG: "true" to mount host Claude config (~/.claude)
-#   - SANDCAT_MOUNT_CURSOR_CONFIG: "true" to mount host Cursor config (~/.cursor:
-#     AGENTS.md, rules/, skills/, commands/, hooks.json, hooks/, agents/)
+#   - SANDCAT_MOUNT_CURSOR_CONFIG: "true" to mount host Cursor config (~/.cursor
+#     customization read-only; projects/, chats/, plugins/, subagents/ read-write;
+#     mcp.json read-only). cli-config.json stays in agent-home — Sandcat injects
+#     sandbox-specific keys at container startup and bind-mounting the file breaks
+#     atomic updates across filesystems.
 #   - SANDCAT_MOUNT_GIT_READONLY: "true" to mount .git directory as read-only
 #   - SANDCAT_MOUNT_IDEA_READONLY: "true" to mount .idea directory as read-only
 # Args:
@@ -263,6 +266,19 @@ add_cursor_config_volumes() {
 	add_volume_entry "$compose_file" '${HOME}/.cursor/hooks:/home/vscode/.cursor/hooks:ro' "$active"
 	# shellcheck disable=SC2016
 	add_volume_entry "$compose_file" '${HOME}/.cursor/agents:/home/vscode/.cursor/agents:ro' "$active"
+	# shellcheck disable=SC2016
+	add_volume_entry "$compose_file" '${HOME}/.cursor/mcp.json:/home/vscode/.cursor/mcp.json:ro' "$active"
+	# Runtime state — read-write so agent history persists on the host across
+	# agent-home volume recreation. cli-config.json is intentionally not mounted:
+	# Sandcat merges sandbox keys (useHttp1ForAgent) at startup into agent-home.
+	# shellcheck disable=SC2016
+	add_volume_entry "$compose_file" '${HOME}/.cursor/projects:/home/vscode/.cursor/projects' "$active"
+	# shellcheck disable=SC2016
+	add_volume_entry "$compose_file" '${HOME}/.cursor/chats:/home/vscode/.cursor/chats' "$active"
+	# shellcheck disable=SC2016
+	add_volume_entry "$compose_file" '${HOME}/.cursor/plugins:/home/vscode/.cursor/plugins' "$active"
+	# shellcheck disable=SC2016
+	add_volume_entry "$compose_file" '${HOME}/.cursor/subagents:/home/vscode/.cursor/subagents' "$active"
 }
 
 
