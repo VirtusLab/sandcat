@@ -608,7 +608,8 @@ class SandcatAddon:
 
         The agent deep-merges this fragment into ``cli-config.json`` in
         agent-home on startup. Keys under ``cursor.cli`` in settings.json use
-        the same shape as Cursor's global ``cli-config.json``.
+        the same shape as Cursor's global ``cli-config.json`` (permissions,
+        model, network flags). API keys belong in ``secrets`` — not here.
         """
         cli = merged.get("cursor", {}).get("cli", {})
         body = json.dumps(cli, indent=2) + "\n"

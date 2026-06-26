@@ -63,20 +63,28 @@ setup() {
 	assert_output --partial '$HOME/.claude/CLAUDE.md'
 }
 
+@test "sct_cursor_workspace_project_id: encodes /workspaces/<name>" {
+	run sct_cursor_workspace_project_id "foo-bar"
+	assert_output "workspaces-foo-bar"
+
+	run sct_cursor_workspace_project_id "project-sandbox"
+	assert_output "workspaces-project-sandbox"
+}
+
 @test "sct_agent_host_config_paths: cursor lists ~/.cursor entries" {
-	run sct_agent_host_config_paths cursor
+	run sct_agent_host_config_paths cursor "test-project"
 	assert_output --partial '$HOME/.cursor/rules/'
 	assert_output --partial '$HOME/.cursor/skills/'
 	assert_output --partial '$HOME/.cursor/commands/'
 	assert_output --partial '$HOME/.cursor/agents/'
 	assert_output --partial '$HOME/.cursor/hooks/'
-	assert_output --partial '$HOME/.cursor/projects/'
-	assert_output --partial '$HOME/.cursor/chats/'
-	assert_output --partial '$HOME/.cursor/plugins/'
-	assert_output --partial '$HOME/.cursor/subagents/'
+	assert_output --partial '$HOME/.cursor/projects/workspaces-test-project/'
 	assert_output --partial '$HOME/.cursor/AGENTS.md'
 	assert_output --partial '$HOME/.cursor/hooks.json'
 	assert_output --partial '$HOME/.cursor/mcp.json'
+	refute_output --partial '$HOME/.cursor/chats/'
+	refute_output --partial '$HOME/.cursor/plugins/'
+	refute_output --partial '$HOME/.cursor/subagents/'
 }
 
 @test "sct_agent_host_config_paths: unknown returns empty" {
@@ -113,7 +121,7 @@ setup() {
 	export HOME="$BATS_TEST_TMPDIR/home"
 	mkdir -p "$HOME"
 
-	run ensure_host_agent_config_paths cursor
+	run ensure_host_agent_config_paths cursor test
 	assert_success
 
 	[[ -d "$HOME/.cursor/rules" ]]
@@ -121,10 +129,7 @@ setup() {
 	[[ -d "$HOME/.cursor/commands" ]]
 	[[ -d "$HOME/.cursor/agents" ]]
 	[[ -d "$HOME/.cursor/hooks" ]]
-	[[ -d "$HOME/.cursor/projects" ]]
-	[[ -d "$HOME/.cursor/chats" ]]
-	[[ -d "$HOME/.cursor/plugins" ]]
-	[[ -d "$HOME/.cursor/subagents" ]]
+	[[ -d "$HOME/.cursor/projects/workspaces-test" ]]
 	[[ -f "$HOME/.cursor/AGENTS.md" ]]
 	[[ -f "$HOME/.cursor/hooks.json" ]]
 	[[ -f "$HOME/.cursor/mcp.json" ]]
@@ -137,7 +142,7 @@ setup() {
 	mkdir -p "$HOME/.cursor"
 	printf '%s\n' '{"hooks":{"stop":[{"command":"./hook.sh"}]}}' >"$HOME/.cursor/hooks.json"
 
-	run ensure_host_agent_config_paths cursor
+	run ensure_host_agent_config_paths cursor test
 	assert_success
 
 	assert_equal "$(<"$HOME/.cursor/hooks.json")" '{"hooks":{"stop":[{"command":"./hook.sh"}]}}'
@@ -148,7 +153,7 @@ setup() {
 	mkdir -p "$HOME"
 	export SANDCAT_MOUNT_CURSOR_CONFIG=false
 
-	run ensure_host_agent_config_paths cursor
+	run ensure_host_agent_config_paths cursor test
 	assert_success
 
 	[[ ! -d "$HOME/.cursor" ]]

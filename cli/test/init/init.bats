@@ -184,10 +184,7 @@ teardown() {
 	[[ -d "$HOME/.cursor/commands" ]]
 	[[ -d "$HOME/.cursor/agents" ]]
 	[[ -d "$HOME/.cursor/hooks" ]]
-	[[ -d "$HOME/.cursor/projects" ]]
-	[[ -d "$HOME/.cursor/chats" ]]
-	[[ -d "$HOME/.cursor/plugins" ]]
-	[[ -d "$HOME/.cursor/subagents" ]]
+	[[ -d "$HOME/.cursor/projects/workspaces-test" ]]
 	[[ -f "$HOME/.cursor/AGENTS.md" ]]
 	[[ -f "$HOME/.cursor/hooks.json" ]]
 	[[ -f "$HOME/.cursor/mcp.json" ]]
@@ -211,8 +208,6 @@ teardown() {
 	[[ ! -e "$HOME/.cursor/hooks.json" ]]
 	[[ ! -d "$HOME/.cursor/projects" ]]
 	[[ ! -d "$HOME/.cursor/chats" ]]
-	[[ ! -d "$HOME/.cursor/plugins" ]]
-	[[ ! -d "$HOME/.cursor/subagents" ]]
 	[[ ! -e "$HOME/.cursor/mcp.json" ]]
 }
 

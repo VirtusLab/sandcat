@@ -142,8 +142,8 @@ list.
 or comment out mounts you do not want, then rebuild/reopen the devcontainer:
 
 ```yaml
-# Disable a shared Cursor plugins cache on the host:
-# - ${HOME}/.cursor/plugins:/home/vscode/.cursor/plugins
+# Mount a different workspace's Cursor transcripts (not recommended):
+# - ${HOME}/.cursor/projects/workspaces-other-project:/home/vscode/.cursor/projects/workspaces-other-project
 ```
 
 **Do not re-run `sandcat init`** unless you intend to reset generated files —
@@ -159,7 +159,12 @@ customized `compose-all.yml` to keep changes across the team.
 | Path                                                                                         | Mode       | Typical use                           |
 |----------------------------------------------------------------------------------------------|------------|---------------------------------------|
 | `AGENTS.md`, `rules/`, `skills/`, `commands/`, `hooks.json`, `hooks/`, `agents/`, `mcp.json` | read-only  | Shared customization                  |
-| `projects/`, `chats/`, `plugins/`, `subagents/`                                              | read-write | History and runtime state on the host |
+| `projects/<workspace-id>/`                                                                   | read-write | This sandbox's transcripts/terminals  |
+
+Sandcat mounts only `projects/<workspace-id>/` for the current sandbox
+(`workspaces-<project-name>`), not the whole host `projects/` tree. `chats/`,
+`plugins/`, and `subagents/` stay in `agent-home` so other workspaces' runtime
+state is not exposed.
 
 Cursor CLI keys Sandcat manages (`cursor.cli` in settings) are **not**
 host-mounted — see the Cursor section below.
@@ -173,12 +178,14 @@ controlled by `SANDCAT_MOUNT_*_CONFIG`):
 Use host mounts for personal defaults shared across sandboxes; use repo
 `.claude/` or `.cursor/` for project-specific or team-shared customization.
 
-**Isolation notes:** host `~/.claude/` and `~/.cursor/` are a single profile per
-user on the machine — all sandcat projects on that host see the same mounted
-trees. Cursor namespaces transcripts under `projects/<workspace-id>/`; chats
-use separate hash directories. To keep a sandcat project fully isolated from
-host agent state, set `SANDCAT_MOUNT_<AGENT>_CONFIG=false` and rely on repo-local
-config plus the `agent-home` volume inside the container.
+**Isolation notes:** host `~/.claude/` and shared Cursor customization mounts
+(`rules/`, `skills/`, etc.) are one profile per user on the machine — all
+sandcat projects on that host see the same mounted trees. Cursor transcripts for
+this sandbox persist under host `projects/<workspace-id>/` only
+(`workspaces-<project-name>`). Other workspaces' `projects/`, plus `chats/`,
+`plugins/`, and `subagents/`, are not mounted. To keep a sandcat project fully
+isolated from host agent state, set `SANDCAT_MOUNT_<AGENT>_CONFIG=false` and
+rely on repo-local config plus the `agent-home` volume inside the container.
 
 ### 3. Start the sandbox
 
@@ -630,30 +637,39 @@ Cursor CLI support is available via `sandcat init --agent cursor`.
     header bypass body substitution and the placeholder leak check.
   These defaults are conservative and may be relaxed when Cursor proxy behavior
   is consistently stable across environments.
-- Use `CURSOR_API_KEY` in your user settings for Cursor authentication.
-- **Cursor CLI config via Sandcat settings:** add a `cursor.cli` block to
+- **Authentication:** put the Cursor API key in `secrets.CURSOR_API_KEY` in
+  Sandcat settings (not in `cursor.cli`). The agent container receives only
+  `SANDCAT_PLACEHOLDER_CURSOR_API_KEY` via `sandcat.env`; mitmproxy substitutes
+  the real key on allowed Cursor hosts (see placeholder substitution above).
+  Do not use `agent login` in the sandbox unless you accept that Cursor may
+  store session state under agent-home outside Sandcat's placeholder model.
+- **Cursor CLI settings via Sandcat:** add a `cursor.cli` block to
   `~/.config/sandcat/settings.json` (or project `.sandcat/settings.json`) using
-  the same JSON shape as Cursor's global `cli-config.json`. Sandcat merges
-  settings layers at mitmproxy startup, writes
-  `/mitmproxy-config/cursor-cli-config.json`, and the agent deep-merges that
-  fragment into `cli-config.json` in `agent-home` on each start. Sandcat-owned
-  keys win; Cursor-managed keys (model, permissions, auth) persist in
-  `agent-home`. The Cursor user template defaults include
-  `cursor.cli.network.useHttp1ForAgent: true` for mitmproxy stability.
+  the same JSON shape as Cursor's global `cli-config.json` (permissions, model,
+  network flags — not API keys). Sandcat merges settings layers at mitmproxy
+  startup, writes `/mitmproxy-config/cursor-cli-config.json`, and the agent
+  deep-merges that fragment into `cli-config.json` in agent-home on each start.
+  Sandcat-owned keys win; other Cursor-written keys in that file (model choice,
+  permissions allow/deny lists, etc.) are preserved. The Cursor user template
+  defaults include `cursor.cli.network.useHttp1ForAgent: true` for mitmproxy
+  stability.
 - `SANDCAT_MOUNT_CURSOR_CONFIG=true` mounts host Cursor config into the agent
   container. Customization paths are read-only: `AGENTS.md`, `rules/`, `skills/`,
   `commands/`, `hooks.json`, `hooks/`, `agents/`, and `mcp.json`. Runtime state
-  is read-write on the host: `projects/` (agent transcripts, terminals, MCP
-  session state), `chats/`, `plugins/`, and `subagents/`. On `sandcat init`,
-  missing bind sources are pre-created on the host (directories via `mkdir`,
-  JSON files with minimal valid defaults, markdown files empty) so Docker mounts
-  a file instead of materialising a root-owned directory.
+  for this sandbox is read-write on the host under
+  `projects/<workspace-id>/` only (`workspaces-<project-name>` — agent
+  transcripts, terminals, MCP session state). `chats/`, `plugins/`, and
+  `subagents/` are not host-mounted (they live in `agent-home`). On
+  `sandcat init`, missing bind sources are pre-created on the host (directories
+  via `mkdir`, JSON files with minimal valid defaults, markdown files empty) so
+  Docker mounts a file instead of materialising a root-owned directory.
 - **Config precedence:** `~/.config/sandcat/settings.json` governs network
   allowlists, secret substitution (mitmproxy), and Sandcat-managed Cursor CLI
-  keys (`cursor.cli`). Host Cursor customization mounts are read-only user
-  config. Runtime history mounts (`projects/`, `chats/`, etc.) are read-write on
-  the host. MCP servers in `mcp.json` still need matching mitmproxy allowlist
-  entries before they can reach the network from the sandbox.
+  settings (`cursor.cli` — not credentials). Host Cursor customization mounts
+  are read-only user config. The workspace-scoped `projects/<workspace-id>/`
+  mount is read-write on the host. MCP servers in `mcp.json` still need
+  matching mitmproxy allowlist entries before they can reach the network from
+  the sandbox.
 - **Cursor CLI TLS through mitmproxy.** The Cursor CLI bundles its own Node.js
   binary with compiled-in Mozilla CA roots. Sandcat sets
   `NODE_OPTIONS=--use-openssl-ca` so the bundled Node.js uses the system CA

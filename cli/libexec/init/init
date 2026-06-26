@@ -339,7 +339,7 @@ init() {
 
 	# Pre-create host paths that the optional agent config mounts will bind,
 	# so Docker doesn't auto-create them as root-owned dirs in the user's home.
-	ensure_host_agent_config_paths "$agent"
+	ensure_host_agent_config_paths "$agent" "$name"
 
 	add_secret_provider_tokens_to_user_settings "$secret_provider"
 

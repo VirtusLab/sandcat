@@ -90,10 +90,10 @@ docker build \
 
 PAT detection relies on the wording of `pass-cli info` output. Because the binary is pinned by version **and** sha256, that output cannot change without a deliberate bump. A contract test (`TestPassCliPatContract`) locks the detection regex against golden samples tagged with `PASS_CLI_VERSION`. When you bump `pass-cli.env`, you must also re-capture those samples — see [`cli/test/mitmproxy/fixtures/pass-cli/README.md`](test/mitmproxy/fixtures/pass-cli/README.md) — or CI will fail.
 
-Note: Cursor agent support currently uses compatibility defaults for auth/network
-settings while provider-specific hardening is being expanded.
-Use `CURSOR_API_KEY` for Cursor authentication.
-Sandcat always bootstraps Cursor CLI with `.network.useHttp1ForAgent = true`.
+Note: Cursor agent support uses placeholder-based API key substitution and
+Sandcat-managed CLI settings (`cursor.cli` in settings — permissions, model,
+network flags). Put the API key in `secrets.CURSOR_API_KEY`, not in
+`cursor.cli`. See the main README Cursor section for details.
 
 #### `sandcat init devcontainer`
 
@@ -214,9 +214,11 @@ editing `.devcontainer/compose-all.yml` after init. See the main
 
 - `SANDCAT_MOUNT_CLAUDE_CONFIG` - `true` to mount host `~/.claude` config (Claude agent only)
 - `SANDCAT_MOUNT_CURSOR_CONFIG` - `true` to mount host `~/.cursor` customization
-  (read-only) and runtime state (read-write: `projects/`, `chats/`, `plugins/`,
-  `subagents/`) into the agent container (Cursor agent only). Cursor CLI keys
-  Sandcat manages (`cursor.cli` in settings) are merged into agent-home
-  `cli-config.json` at container startup — not host-mounted.
+  (read-only) and workspace-scoped runtime state (read-write:
+  `projects/<workspace-id>/` only) into the agent container (Cursor agent
+  only). `chats/`, `plugins/`, and `subagents/` stay in agent-home. Sandcat
+  CLI settings (`cursor.cli` — not API keys) are merged into agent-home
+  `cli-config.json` at container startup — not host-mounted. API keys belong
+  in `secrets.CURSOR_API_KEY` and are substituted by mitmproxy.
 - `SANDCAT_MOUNT_GIT_READONLY` - `true` to mount `.git/` directory as read-only
 - `SANDCAT_MOUNT_IDEA_READONLY` - `true` to mount `.idea/` directory as read-only (JetBrains)

@@ -50,10 +50,10 @@ teardown() {
 }
 
 @test "add_cursor_config_volumes adds customization and state mounts" {
-	add_cursor_config_volumes "$COMPOSE_FILE"
+	add_cursor_config_volumes "$COMPOSE_FILE" true "test-project"
 
 	run yq '.services.agent.volumes | length' "$COMPOSE_FILE"
-	assert_output "13"
+	assert_output "10"
 
 	# shellcheck disable=SC2016
 	yq -e '.services.agent.volumes[] | select(. == "${HOME}/.cursor/AGENTS.md:/home/vscode/.cursor/AGENTS.md:ro")' "$COMPOSE_FILE"
@@ -80,16 +80,7 @@ teardown() {
 	yq -e '.services.agent.volumes[] | select(. == "${HOME}/.cursor/mcp.json:/home/vscode/.cursor/mcp.json:ro")' "$COMPOSE_FILE"
 
 	# shellcheck disable=SC2016
-	yq -e '.services.agent.volumes[] | select(. == "${HOME}/.cursor/projects:/home/vscode/.cursor/projects")' "$COMPOSE_FILE"
-
-	# shellcheck disable=SC2016
-	yq -e '.services.agent.volumes[] | select(. == "${HOME}/.cursor/chats:/home/vscode/.cursor/chats")' "$COMPOSE_FILE"
-
-	# shellcheck disable=SC2016
-	yq -e '.services.agent.volumes[] | select(. == "${HOME}/.cursor/plugins:/home/vscode/.cursor/plugins")' "$COMPOSE_FILE"
-
-	# shellcheck disable=SC2016
-	yq -e '.services.agent.volumes[] | select(. == "${HOME}/.cursor/subagents:/home/vscode/.cursor/subagents")' "$COMPOSE_FILE"
+	yq -e '.services.agent.volumes[] | select(. == "${HOME}/.cursor/projects/workspaces-test-project:/home/vscode/.cursor/projects/workspaces-test-project")' "$COMPOSE_FILE"
 }
 
 
@@ -300,7 +291,7 @@ EOF
 	# shellcheck disable=SC2016
 	yq -e '.services.agent.volumes[] | select(. == "${HOME}/.cursor/agents:/home/vscode/.cursor/agents:ro")' "$COMPOSE_FILE"
 	# shellcheck disable=SC2016
-	yq -e '.services.agent.volumes[] | select(. == "${HOME}/.cursor/projects:/home/vscode/.cursor/projects")' "$COMPOSE_FILE"
+	yq -e '.services.agent.volumes[] | select(. == "${HOME}/.cursor/projects/workspaces-test-project:/home/vscode/.cursor/projects/workspaces-test-project")' "$COMPOSE_FILE"
 	# No claude volumes leak through when agent=cursor.
 	run yq '.services.agent.volumes[] | select(test("\\.claude/"))' "$COMPOSE_FILE"
 	assert_output ""
