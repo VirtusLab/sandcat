@@ -128,6 +128,16 @@ ADDONS = [
 # Helpers
 # ---------------------------------------------------------------------------
 
+@pytest.fixture(autouse=True)
+def _patch_cursor_cli_config_path(tmp_path):
+    """load() writes cursor-cli-config.json; keep it off the real mitmproxy home."""
+    with patch(
+        f"{_COMMON}.CURSOR_CLI_CONFIG_PATH",
+        str(tmp_path / "cursor-cli-config.json"),
+    ):
+        yield
+
+
 def _make_flow(method="GET", host="example.com", url=None, headers=None, content=None):
     flow = MagicMock()
     flow.request = _Request(
