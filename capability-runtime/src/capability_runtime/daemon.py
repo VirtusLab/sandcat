@@ -42,13 +42,13 @@ class DaemonConfig:
             agent_socket=Path(
                 os.environ.get(
                     "CAPABILITY_AGENT_SOCKET",
-                    "/run/sandcat/capability/agent.sock",
+                    "/run/sandcat-capability/agent.sock",
                 )
             ),
             admin_socket=Path(
                 os.environ.get(
                     "CAPABILITY_ADMIN_SOCKET",
-                    "/run/sandcat/capability/admin.sock",
+                    "/run/sandcat-capability/admin.sock",
                 )
             ),
             trace_file=Path(

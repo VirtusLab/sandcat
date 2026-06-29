@@ -11,7 +11,7 @@ from typing import Any, TextIO
 from capability_runtime.mcp.server import McpServer
 from capability_runtime.rpc.transports.stdio_bridge import BridgeRpcClient
 
-DEFAULT_AGENT_SOCKET = "/run/sandcat/capability/agent.sock"
+DEFAULT_AGENT_SOCKET = "/run/sandcat-capability/agent.sock"
 
 
 def run_mcp_bridge(

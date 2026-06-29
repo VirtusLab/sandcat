@@ -12,7 +12,7 @@ from pathlib import Path
 from capability_runtime.rpc.transports.unix import UnixRpcClient
 
 DEFAULT_ADMIN_SOCKET = Path(
-    os.environ.get("CAPABILITY_ADMIN_SOCKET", "/run/sandcat/capability/admin.sock")
+    os.environ.get("CAPABILITY_ADMIN_SOCKET", "/run/sandcat-capability/admin.sock")
 )
 
 SUBCOMMAND_TO_METHOD = {
