@@ -27,6 +27,16 @@ Phase 3 realizes this thesis by binding each network capability to a NetBird pee
 - PoC 3: `reach_api` network route lifecycle demo
 - Observability events with `physical_revocation` and `physical_trigger` flags
 
+**In scope (Phase 3b — sandcat sidecar integration):**
+
+- `capability-runtime` compose sidecar: daemon, dual Unix socket RPC, route watcher, settings-backed `RestNetBirdClient`
+- **Agent surface** (`agent.sock`): `capability.check`, `capability.lease`, `capability.discover` only
+- **Admin surface** (`admin.sock`): agent methods plus `capability.revoke`, `capability.watch.poll`
+- **MCP bridge** (`capability-mcp-bridge`): stdio MCP in agent container → JSON-RPC over `agent.sock`
+- Fixed `SANDCAT_AGENT_ID` per devcontainer; bridge injects identity — agent-supplied `agent_id` ignored
+- Operator CLI: `sandcat capability` via `docker compose exec capability-runtime`
+- Catalog loaded at sidecar startup from `CAPABILITY_CATALOG_JSON` — no `register_*` over RPC
+
 **Out of scope / known limitations:**
 
 - Token budget enforcement (`token_budget` is stored but not decremented)
@@ -34,7 +44,7 @@ Phase 3 realizes this thesis by binding each network capability to a NetBird pee
 - `TaskContext`-driven visibility rules
 - Non-tool capability kinds (`rules`, `skills`, etc.) in bundles
 - Multi-agent leasing on the same capability (global `LEASED` catalog state)
-- Production sandcat wiring (`RestNetBirdClient` tokens, `sandcat capability` subcommand) — injectable client only in PoC
+- MCP workload gateway, NetBird ACL/reverse-proxy bindings, host-published HTTP RPC (Phase 3c+)
 
 ## NetBird bridge (logical ↔ physical)
 
@@ -73,11 +83,64 @@ RouteDisappearanceWatcher.poll_once()
 
 The watcher ensures the runtime catalog stays consistent when reachability disappears outside the runtime — the spec's physical `Revoked` trigger (Phase 3 / idea7).
 
-## Security (Phase 0+1)
+## Sidecar architecture (Phase 3b)
+
+```
+┌──────────────────────── agent container ────────────────────────┐
+│  Cursor / Claude agent                                          │
+│       │ stdio MCP                                               │
+│       ▼                                                         │
+│  capability-mcp-bridge  ──JSON-RPC──►  agent.sock (ro volume)   │
+│  (SANDCAT_AGENT_ID injected)                                    │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                    capability-socket volume
+                              │
+┌──────────────────────── capability-runtime sidecar ───────────┐
+│  CapabilityRuntime + RouteDisappearanceWatcher                  │
+│  RestNetBirdClient ← settings.json (netbird_api_token)          │
+│       │                              │                          │
+│  agent.sock (check/lease/discover)   admin.sock (revoke/watch)  │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                    operator: sandcat capability
+                    (docker compose exec → admin.sock)
+```
+
+The agent container mounts `capability-socket:/run/sandcat/capability:ro` and receives `CAPABILITY_AGENT_SOCKET` plus `SANDCAT_AGENT_ID`. It does **not** mount `admin.sock` write access, does **not** receive `NB_API_TOKEN`, and does **not** import `CapabilityRuntime`. NetBird credentials live only in the sidecar via read-only `settings.json`.
+
+Cursor MCP config (`.cursor/mcp.json` in devcontainer):
+
+```json
+{
+  "mcpServers": {
+    "sandcat-capability": {
+      "command": "capability-mcp-bridge",
+      "args": []
+    }
+  }
+}
+```
+
+MCP meta-tools (`capability_check`, `capability_lease`, `capability_discover`) map to the agent RPC surface. Workload tools (`write_note`, `create_pr`, etc.) remain separate MCP servers gated by bundle visibility.
+
+## Security (Phase 0+1 + 3b)
 
 Mutating APIs require `caller` to match the lease-bound `agent_id` (`CallerIdentityMismatch` on impersonation). Leased tool execution is serialized per `lease_id` in `AgentExecutionLoop` to prevent quota races. Observability events are runtime-authored (`source: runtime`) or agent-loop-bound (`source: agent_loop` with enforced `agent_id`); public `emit_*` APIs are not exposed on `CapabilityRuntime`.
 
-**Not yet addressed:** cryptographic trace signing, network-authenticated control plane, cross-process trust boundaries.
+**Phase 3b boundary:**
+
+| Surface | Socket | Methods | Who |
+|---------|--------|---------|-----|
+| Agent | `agent.sock` | check, lease, discover | MCP bridge in agent container |
+| Admin | `admin.sock` | check, lease, discover, revoke, watch.poll | `sandcat capability` operator CLI |
+
+- `capability.revoke` requires `caller=operator` on the runtime — agents cannot self-revoke or revoke others
+- RPC dispatcher allowlists reject unknown methods and admin-only methods on the agent socket
+- `agent_id` in RPC/MCP params is overwritten with `SANDCAT_AGENT_ID` on the agent surface
+- Catalog registration happens at sidecar startup only — not over RPC
+
+**Not yet addressed:** cryptographic trace signing, network-authenticated control plane, cross-process cryptographic auth (Unix permissions + container split sufficient for 3b).
 
 ## Quick start
 
@@ -104,3 +167,10 @@ PYTHONPATH=src:. python poc/network_route_demo.py
 | `observability.py` | JSONL trace + replay |
 | `agent_loop.py` | Check-then-act harness |
 | `mcp_adapter.py` | Transport-agnostic MCP tool wrapper |
+| `daemon.py` | Sidecar main: runtime, watcher, dual Unix sockets |
+| `rpc/dispatcher.py` | JSON-RPC routing with agent/admin allowlists |
+| `rpc/transports/unix.py` | AF_UNIX JSON-RPC server/client |
+| `mcp/server.py` | Minimal MCP meta-tools server |
+| `mcp/bridge.py` | Stdio MCP ↔ agent.sock forwarder |
+| `settings.py` | Sandcat settings JSON layers for NetBird tokens |
+| `cli.py` | Operator admin-socket CLI (used by `sandcat capability`) |
