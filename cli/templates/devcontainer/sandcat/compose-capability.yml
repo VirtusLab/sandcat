@@ -1,0 +1,17 @@
+services:
+  capability-runtime:
+    build:
+      context: .
+      dockerfile: Dockerfile.capability-runtime
+    volumes:
+      - capability-socket:/run/sandcat/capability
+      - ~/.config/sandcat/settings.json:/config/settings.json:ro
+    environment:
+      - SANDCAT_SETTINGS_USER=/config/settings.json
+      - CAPABILITY_CATALOG_JSON=/etc/sandcat/capability-catalog.json
+      - CAPABILITY_AGENT_SOCKET=/run/sandcat/capability/agent.sock
+      - CAPABILITY_ADMIN_SOCKET=/run/sandcat/capability/admin.sock
+    restart: unless-stopped
+
+volumes:
+  capability-socket:
