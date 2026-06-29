@@ -24,7 +24,10 @@ RUN apt-get update \
 
 COPY --chmod=755 sandcat/scripts/app-init.sh /usr/local/bin/app-init.sh
 COPY --chmod=755 sandcat/scripts/app-user-init.sh /usr/local/bin/app-user-init.sh
+COPY --chmod=755 sandcat/scripts/capability-mcp-bridge.sh /usr/local/bin/capability-mcp-bridge
 COPY --chown=vscode:vscode sandcat/tmux.conf /home/vscode/.tmux.conf
+
+# __CAPABILITY_RUNTIME_INSTALL__
 
 USER vscode
 

@@ -1,5 +1,6 @@
 include:
   - path: sandcat/compose-proxy.yml
+  # sandcat init --capability adds: sandcat/compose-capability.yml
 
 services:
   agent:

@@ -384,3 +384,45 @@ enable_netbird() {
 		fi
 	fi
 }
+
+# Adds capability-runtime sidecar include and agent socket mount/env to compose-all.yml.
+# Idempotent: skips entries that are already present.
+# Args:
+#   $1 - Path to the devcontainer directory (parent of compose-all.yml)
+enable_capability() {
+	require yq
+	local compose_dir=$1
+	local compose_file="$compose_dir/compose-all.yml"
+
+	local has_include
+	has_include=$(yq '[.include[]? | select(.path == "sandcat/compose-capability.yml")] | length' "$compose_file")
+	if [[ "$has_include" -eq 0 ]]; then
+		yq -i '.include += [{"path": "sandcat/compose-capability.yml"}]' "$compose_file"
+	fi
+
+	local has_volume
+	has_volume=$(yq '[.services.agent.volumes[]? | select(. == "capability-socket:/run/sandcat/capability:ro")] | length' "$compose_file")
+	if [[ "$has_volume" -eq 0 ]]; then
+		yq -i '.services.agent.volumes += ["capability-socket:/run/sandcat/capability:ro"]' "$compose_file"
+	fi
+
+	local has_agent_id has_socket
+	has_agent_id=$(yq '[.services.agent.environment[]? | select(. == "SANDCAT_AGENT_ID=devcontainer-agent")] | length' "$compose_file")
+	has_socket=$(yq '[.services.agent.environment[]? | select(. == "CAPABILITY_AGENT_SOCKET=/run/sandcat/capability/agent.sock")] | length' "$compose_file")
+
+	if [[ "$has_agent_id" -eq 0 || "$has_socket" -eq 0 ]]; then
+		local env_additions=()
+		if [[ "$has_agent_id" -eq 0 ]]; then
+			env_additions+=("SANDCAT_AGENT_ID=devcontainer-agent")
+		fi
+		if [[ "$has_socket" -eq 0 ]]; then
+			env_additions+=("CAPABILITY_AGENT_SOCKET=/run/sandcat/capability/agent.sock")
+		fi
+		local entry yq_array=""
+		for entry in "${env_additions[@]}"; do
+			yq_array+="\"${entry}\","
+		done
+		yq_array="[${yq_array%,}]"
+		yq -i ".services.agent.environment = ((.services.agent.environment // []) + ${yq_array})" "$compose_file"
+	fi
+}

@@ -128,6 +128,7 @@ add_secret_provider_tokens_to_user_settings() {
 #   --secret-provider / --sp - Secret backend: none, 1password, protonpass
 #   --1password - Deprecated; same as --secret-provider 1password
 #   --features - Comma-separated optional non-provider features (tui)
+#   --capability - Enable capability-runtime sidecar (requires --netbird)
 init() {
 	require yq
 
@@ -149,6 +150,7 @@ init() {
 	local netbird_management_url=""
 	local provisioned_netbird_server="false"
 	local netbird_selfhosted_quickstart="false"
+	local capability="false"
 
 	while [[ $# -gt 0 ]]
 	do
@@ -204,6 +206,10 @@ init() {
 			netbird="true"
 			shift 1
 			;;
+		--capability)
+			capability="true"
+			shift 1
+			;;
 		--netbird-server)
 			netbird_server="$2"
 			netbird_server_provided=true
@@ -226,6 +232,10 @@ init() {
 	fi
 	if [[ "$netbird_server_provided" == "true" && "$netbird" != "true" ]]; then
 		echo "--netbird-server requires --netbird" | error
+		return 1
+	fi
+	if [[ "$capability" == "true" && "$netbird" != "true" ]]; then
+		echo "--capability requires --netbird" | error
 		return 1
 	fi
 	if [[ "$netbird_server_provided" == "true" ]]; then
@@ -507,10 +517,12 @@ init() {
 		devcontainer_args+=(--netbird-management-url "$netbird_management_url")
 	fi
 	if [[ "$netbird" == "true" ]]; then
-		devcontainer "${devcontainer_args[@]}" --netbird
-	else
-		devcontainer "${devcontainer_args[@]}"
+		devcontainer_args+=(--netbird)
 	fi
+	if [[ "$capability" == "true" ]]; then
+		devcontainer_args+=(--capability)
+	fi
+	devcontainer "${devcontainer_args[@]}"
 
 	# Summary
 	echo "" >&2

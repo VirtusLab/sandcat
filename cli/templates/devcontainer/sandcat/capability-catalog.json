@@ -1,0 +1,17 @@
+{
+  "capabilities": [
+    {
+      "name": "create_pr",
+      "ref": "cap-create-pr",
+      "type": "tool"
+    },
+    {
+      "name": "reach_api",
+      "ref": "cap-reach-api",
+      "type": "network",
+      "peer_id": "peer-placeholder",
+      "network": "10.8.0.0/24",
+      "route_id": "route-placeholder"
+    }
+  ]
+}
