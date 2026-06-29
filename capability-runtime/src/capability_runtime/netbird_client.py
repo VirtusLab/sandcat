@@ -63,6 +63,13 @@ class RestNetBirdClient:
             else os.environ.get("NB_MANAGEMENT_URL", "https://api.netbird.io")
         )
 
+    @classmethod
+    def from_settings(cls) -> RestNetBirdClient:
+        from capability_runtime.settings import load_netbird_credentials
+
+        creds = load_netbird_credentials()
+        return cls(api_token=creds.api_token, management_url=creds.management_url)
+
     def list_peers(self) -> list[dict]:
         return self._request("GET", "/api/peers")
 
