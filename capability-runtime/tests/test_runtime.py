@@ -10,6 +10,8 @@ from capability_runtime.runtime import CapabilityRuntime
 from capability_runtime.types import AgentIdentity, CapabilityRef
 from capability_runtime.discover import DiscoveryIntent
 
+_OPERATOR = AgentIdentity("operator")
+
 
 def test_poc1_create_pr_lifecycle(tmp_path):
     """Full PoC 1: create_pr invisible → lease → visible → use → gone"""
@@ -24,7 +26,7 @@ def test_poc1_create_pr_lifecycle(tmp_path):
 
     # Step 2: request lease
     decision = runtime.request_capability_lease(
-        agent, CapabilityRef("cap-create-pr"), "Need to open PR for feature"
+        agent, agent, CapabilityRef("cap-create-pr"), "Need to open PR for feature"
     )
     assert decision.quota == 1
 
@@ -36,7 +38,7 @@ def test_poc1_create_pr_lifecycle(tmp_path):
 
     # Step 4: use (record action)
     now = datetime.now(timezone.utc)
-    runtime.record_action(create_pr_tools[0].lease_id, now)
+    runtime.record_action(agent, agent, create_pr_tools[0].lease_id, now)
 
     # Step 5: gone after quota exhausted
     bundle3 = runtime.check_current_capabilities(agent, ctx)
@@ -50,7 +52,7 @@ def test_revoke_by_lease_id(tmp_path):
 
     # Request lease
     decision = runtime.request_capability_lease(
-        agent, CapabilityRef("cap-create-pr"), "Testing revoke"
+        agent, agent, CapabilityRef("cap-create-pr"), "Testing revoke"
     )
 
     # Verify present
@@ -58,7 +60,7 @@ def test_revoke_by_lease_id(tmp_path):
     assert "create_pr" in [t.name for t in bundle1.tools]
 
     # Revoke by lease ID
-    runtime.revoke_capability(decision.lease_id, "policy violation")
+    runtime.revoke_capability(_OPERATOR, decision.lease_id, "policy violation")
 
     # Verify gone
     bundle2 = runtime.check_current_capabilities(agent, {})
@@ -72,7 +74,7 @@ def test_revoke_by_capability_ref(tmp_path):
 
     # Request lease
     runtime.request_capability_lease(
-        agent, CapabilityRef("cap-create-pr"), "Testing revoke"
+        agent, agent, CapabilityRef("cap-create-pr"), "Testing revoke"
     )
 
     # Verify present
@@ -80,7 +82,9 @@ def test_revoke_by_capability_ref(tmp_path):
     assert "create_pr" in [t.name for t in bundle1.tools]
 
     # Revoke by ref
-    runtime.revoke_capability(CapabilityRef("cap-create-pr"), "security concern")
+    runtime.revoke_capability(
+        _OPERATOR, CapabilityRef("cap-create-pr"), "security concern"
+    )
 
     # Verify gone
     bundle2 = runtime.check_current_capabilities(agent, {})

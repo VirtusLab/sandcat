@@ -71,6 +71,7 @@ def run_poc3_demo(trace_path: Path, *, quiet: bool = False) -> DemoResult:
 
     decision = runtime.request_capability_lease(
         agent,
+        agent,
         ref,
         "Need API reachability for integration test",
     )
@@ -92,7 +93,7 @@ def run_poc3_demo(trace_path: Path, *, quiet: bool = False) -> DemoResult:
         f"(reach_api present, peer_id={peer_id!r})",
     )
 
-    runtime.revoke_capability(ref, "security policy")
+    runtime.revoke_capability(AgentIdentity("operator"), ref, "security policy")
     peer_removed = not client.peer_exists("peer-abc")
     _print_step(
         quiet,

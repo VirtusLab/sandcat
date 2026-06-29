@@ -35,7 +35,7 @@ def test_write_note_invisible_until_leased(tmp_path):
     assert "write_note" not in [t.name for t in bundle1.tools]
 
     decision = runtime.request_capability_lease(
-        agent, CapabilityRef("cap-write-note"), "Need to record findings"
+        agent, agent, CapabilityRef("cap-write-note"), "Need to record findings"
     )
     assert decision.quota == 3
     assert decision.token_budget == 10_000
@@ -58,7 +58,7 @@ def test_write_note_lifecycle_quota_3(tmp_path):
     ]
 
     runtime.request_capability_lease(
-        agent, CapabilityRef("cap-write-note"), "Need notes for session"
+        agent, agent, CapabilityRef("cap-write-note"), "Need notes for session"
     )
 
     for i in range(3):
@@ -77,7 +77,7 @@ def test_mcp_adapter_records_side_effects(tmp_path):
     agent = AgentIdentity("agent-mcp-3")
 
     runtime.request_capability_lease(
-        agent, CapabilityRef("cap-write-note"), "Side effect test"
+        agent, agent, CapabilityRef("cap-write-note"), "Side effect test"
     )
 
     adapter.invoke(agent, {}, "write_note", "hello world", loop)

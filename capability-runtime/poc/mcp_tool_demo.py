@@ -40,7 +40,7 @@ def main() -> int:
 
     # Step 2: request lease
     decision = runtime.request_capability_lease(
-        agent, CapabilityRef("cap-write-note"), "Need to record session notes"
+        agent, agent, CapabilityRef("cap-write-note"), "Need to record session notes"
     )
     print(
         f"Step 2 — lease granted: quota={decision.quota}, "
