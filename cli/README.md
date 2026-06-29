@@ -23,6 +23,10 @@ Options:
   a second interface `wt0` for the NetBird overlay mesh. `wg0` (the mitmproxy
   inspection tunnel) is untouched. Seeds `netbird_enrollment_key` and
   `netbird_api_token` in `~/.config/sandcat/settings.json`.
+- `--capability` - Enable the capability-runtime sidecar (requires `--netbird`).
+  Adds a `capability-runtime` compose service, mounts a shared Unix socket volume
+  into the agent container, and installs `capability-mcp-bridge` for Cursor MCP.
+  NetBird API credentials stay in the sidecar — they are not injected into the agent.
 - `--netbird-server` - NetBird management server mode (requires `--netbird`):
   `cloud` | `new` | `quickstart` | `<http(s)://url>`. `new` provisions a local
   localhost template; `quickstart` prints the official NetBird install command for
@@ -51,6 +55,9 @@ sandcat init --agent claude --ide vscode --secret-provider protonpass --name myp
 
 # With NetBird dynamic WireGuard
 sandcat init --agent claude --ide vscode --netbird --name myproject
+
+# With NetBird + capability sidecar (reachability == capability)
+sandcat init --agent cursor --ide vscode --netbird --capability --name myproject
 ```
 
 #### Proton Pass setup (scoped Personal Access Token)
@@ -384,6 +391,87 @@ sandcat netbird route add --network 10.8.0.0/24 --peer-id <peer-id>
 # Remove a route
 sandcat netbird route remove --route-id <route-id>
 ```
+
+## Capability sidecar (Phase 3b)
+
+When initialized with `--netbird --capability`, sandcat deploys a trusted
+`capability-runtime` compose sidecar alongside the agent. The sidecar owns
+`CapabilityRuntime` state, NetBird revocation credentials, and the route watcher.
+The agent container talks to the runtime only through a thin MCP bridge over a
+read-only Unix socket — it never receives `NB_API_TOKEN` or direct NetBird access.
+
+```
+Agent (Cursor/Claude)  ──stdio MCP──►  capability-mcp-bridge  ──►  agent.sock
+Operator (host)        ──compose exec──►  admin.sock
+Sidecar                ──RestNetBirdClient──►  NetBird management API
+```
+
+### Setup
+
+Requires NetBird (`--netbird`) and both credentials in user settings (see
+[Dynamic networking](#dynamic-networking-netbird)). The sidecar reads
+`netbird_api_token` and `netbird_management_url` from mounted `settings.json`;
+the agent container does not receive these values.
+
+```bash
+sandcat init --agent cursor --ide vscode --netbird --capability --name myproject
+sandcat compose up -d
+```
+
+### Cursor MCP config
+
+Add to `.cursor/mcp.json` in the devcontainer (the bridge is installed at
+`/usr/local/bin/capability-mcp-bridge`):
+
+```json
+{
+  "mcpServers": {
+    "sandcat-capability": {
+      "command": "capability-mcp-bridge",
+      "args": []
+    }
+  }
+}
+```
+
+MCP meta-tools: `capability_check`, `capability_lease`, `capability_discover`.
+Workload tools remain on their own MCP servers and appear in the bundle only
+when leased or visible.
+
+### Operator commands
+
+`sandcat capability` runs inside the `capability-runtime` container via
+`docker compose exec` — no host-published ports.
+
+```bash
+# Show current capability bundle
+sandcat capability check --context '{}'
+
+# Lease a network capability (triggers NetBird peer/route via sidecar)
+sandcat capability lease --ref cap-reach-api --justification "need API access"
+
+# Revoke (operator-only; removes NetBird peer/route)
+sandcat capability revoke --ref cap-reach-api --reason policy
+
+# Foreground route-watcher poll loop (debugging)
+sandcat capability watch
+
+# End-to-end smoke demo
+sandcat capability demo
+```
+
+### Security boundary
+
+| Path | Socket | Who | Can revoke? |
+|------|--------|-----|-------------|
+| Agent MCP bridge | `agent.sock` (ro mount) | Agent in container | No |
+| `sandcat capability` | `admin.sock` | Operator on host | Yes |
+
+- `admin.sock` is not mounted in the agent service
+- Agent RPC surface rejects `capability.revoke` and unknown methods
+- `SANDCAT_AGENT_ID` is fixed per devcontainer and injected by the bridge;
+  agent-supplied `agent_id` parameters are ignored
+- Catalog is loaded at sidecar startup from config — not registerable over RPC
 
 ## Directory Structure
 

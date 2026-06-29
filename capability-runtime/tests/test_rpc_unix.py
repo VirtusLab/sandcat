@@ -24,10 +24,18 @@ def mock_dispatcher():
 
 
 def _wait_for_socket(path: Path, timeout: float = 2.0) -> None:
+    import socket
+
     deadline = time.time() + timeout
     while time.time() < deadline:
         if path.exists():
-            return
+            try:
+                with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
+                    sock.settimeout(0.1)
+                    sock.connect(str(path))
+                    return
+            except (ConnectionRefusedError, OSError):
+                pass
         time.sleep(0.01)
     raise TimeoutError(f"socket not ready: {path}")
 

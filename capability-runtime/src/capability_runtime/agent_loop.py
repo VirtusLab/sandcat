@@ -16,14 +16,15 @@ class AgentExecutionLoop:
 
     def __init__(self, runtime: CapabilityRuntime):
         self._runtime = runtime
-        self._lease_locks: dict[LeaseId, threading.Lock] = {}
-        self._lease_locks_guard = threading.Lock()
+        self._tool_locks: dict[tuple[str, str], threading.Lock] = {}
+        self._tool_locks_guard = threading.Lock()
 
-    def _lock_for_lease(self, lease_id: LeaseId) -> threading.Lock:
-        with self._lease_locks_guard:
-            if lease_id not in self._lease_locks:
-                self._lease_locks[lease_id] = threading.Lock()
-            return self._lease_locks[lease_id]
+    def _lock_for_tool(self, agent_id: AgentIdentity, tool_name: str) -> threading.Lock:
+        key = (agent_id.value, tool_name)
+        with self._tool_locks_guard:
+            if key not in self._tool_locks:
+                self._tool_locks[key] = threading.Lock()
+            return self._tool_locks[key]
 
     def run_step(
         self,
@@ -34,14 +35,11 @@ class AgentExecutionLoop:
         now: datetime | None = None,
     ) -> Any:
         effective_now = now or datetime.now(timezone.utc)
+        lock = self._lock_for_tool(agent_id, tool_name)
 
-        bundle = self._runtime.check_current_capabilities(agent_id, context)
-        lease_id = _lease_id_for_tool(bundle.tools, tool_name)
-        lock = self._lock_for_lease(lease_id) if lease_id is not None else None
-
-        if lock is not None:
-            lock.acquire()
-        try:
+        with lock:
+            bundle = self._runtime.check_current_capabilities(agent_id, context)
+            lease_id = _lease_id_for_tool(bundle.tools, tool_name)
             self._runtime.enforce_action(
                 agent_id, tool_name, bundle.version, effective_now
             )
@@ -51,9 +49,6 @@ class AgentExecutionLoop:
                     agent_id, agent_id, lease_id, effective_now
                 )
             return result
-        finally:
-            if lock is not None:
-                lock.release()
 
 
 def _lease_id_for_tool(tools, tool_name: str) -> LeaseId | None:
