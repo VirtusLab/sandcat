@@ -1,4 +1,4 @@
-from capability_runtime.types import CapabilityRef, LeaseId
+from capability_runtime.types import AgentIdentity, CapabilityRef, LeaseId
 
 
 class CapabilityRuntimeError(Exception):
@@ -38,5 +38,9 @@ class BundleVersionMismatch(CapabilityRuntimeError):
 
 
 class CallerIdentityMismatch(CapabilityRuntimeError):
-    def __init__(self, message: str):
-        super().__init__(message)
+    def __init__(self, caller: AgentIdentity, subject: AgentIdentity):
+        self.caller = caller
+        self.subject = subject
+        super().__init__(
+            f"Caller identity mismatch: {caller.value} != {subject.value}"
+        )

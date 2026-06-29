@@ -57,6 +57,7 @@ def run_poc1_demo(trace_path: Path, *, quiet: bool = False) -> DemoResult:
 
     decision = runtime.request_capability_lease(
         agent,
+        agent,
         CapabilityRef("cap-create-pr"),
         "Need to open PR for feature",
     )
