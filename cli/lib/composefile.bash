@@ -400,15 +400,29 @@ enable_capability() {
 		yq -i '.include += [{"path": "sandcat/compose-capability.yml"}]' "$compose_file"
 	fi
 
+	# Legacy path nested under wg-runtime:/run/sandcat:ro — Docker cannot mount there.
+	yq -i '
+		.services.agent.volumes = (
+			(.services.agent.volumes // [])
+			| map(select(. != "capability-socket:/run/sandcat/capability:ro"))
+		)
+	' "$compose_file"
+	yq -i '
+		.services.agent.environment = (
+			(.services.agent.environment // [])
+			| map(select(. != "CAPABILITY_AGENT_SOCKET=/run/sandcat/capability/agent.sock"))
+		)
+	' "$compose_file"
+
 	local has_volume
-	has_volume=$(yq '[.services.agent.volumes[]? | select(. == "capability-socket:/run/sandcat/capability:ro")] | length' "$compose_file")
+	has_volume=$(yq '[.services.agent.volumes[]? | select(. == "capability-socket:/run/sandcat-capability:ro")] | length' "$compose_file")
 	if [[ "$has_volume" -eq 0 ]]; then
-		yq -i '.services.agent.volumes += ["capability-socket:/run/sandcat/capability:ro"]' "$compose_file"
+		yq -i '.services.agent.volumes += ["capability-socket:/run/sandcat-capability:ro"]' "$compose_file"
 	fi
 
 	local has_agent_id has_socket
 	has_agent_id=$(yq '[.services.agent.environment[]? | select(. == "SANDCAT_AGENT_ID=devcontainer-agent")] | length' "$compose_file")
-	has_socket=$(yq '[.services.agent.environment[]? | select(. == "CAPABILITY_AGENT_SOCKET=/run/sandcat/capability/agent.sock")] | length' "$compose_file")
+	has_socket=$(yq '[.services.agent.environment[]? | select(. == "CAPABILITY_AGENT_SOCKET=/run/sandcat-capability/agent.sock")] | length' "$compose_file")
 
 	if [[ "$has_agent_id" -eq 0 || "$has_socket" -eq 0 ]]; then
 		local env_additions=()
@@ -416,7 +430,7 @@ enable_capability() {
 			env_additions+=("SANDCAT_AGENT_ID=devcontainer-agent")
 		fi
 		if [[ "$has_socket" -eq 0 ]]; then
-			env_additions+=("CAPABILITY_AGENT_SOCKET=/run/sandcat/capability/agent.sock")
+			env_additions+=("CAPABILITY_AGENT_SOCKET=/run/sandcat-capability/agent.sock")
 		fi
 		local entry yq_array=""
 		for entry in "${env_additions[@]}"; do
