@@ -363,6 +363,8 @@ class CapabilityRuntime:
             if lease is not None:
                 self.catalog.set_state(lease.capability_ref, LifecycleState.EXPIRED)
                 self.revocation_manager.revoke_by_lease(lease_id, "quota exhausted")
+                self._bundle_version += 1
+                self._current_bundles[agent_id] = self._bundle_version
 
     def enforce_action(
         self, agent_id: AgentIdentity, tool_name: str, bundle_version: int, now: datetime
