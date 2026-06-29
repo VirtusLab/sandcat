@@ -14,8 +14,10 @@ from capability_runtime.discover import (
 )
 from capability_runtime.errors import (
     BundleVersionMismatch,
+    CallerIdentityMismatch,
     CapabilityNotVisible,
     CapabilityUnknown,
+    LeaseExpired,
 )
 from capability_runtime.lease import LeaseManager
 from capability_runtime.network import NetworkBinding
@@ -34,6 +36,13 @@ from capability_runtime.types import (
     ProvenanceRecord,
     ToolCapability,
 )
+
+_OPERATOR = AgentIdentity("operator")
+
+
+def _assert_caller(caller: AgentIdentity, subject: AgentIdentity) -> None:
+    if caller != subject:
+        raise CallerIdentityMismatch(caller, subject)
 
 
 class CapabilityRuntime:
@@ -196,11 +205,13 @@ class CapabilityRuntime:
 
     def request_capability_lease(
         self,
+        caller: AgentIdentity,
         agent_id: AgentIdentity,
         capability_ref: CapabilityRef,
         justification: str,
     ) -> LeaseDecision:
         """Grant lease with capability-specific params (spec §3.2.2)."""
+        _assert_caller(caller, agent_id)
         # Check capability exists
         state = self.catalog.get_state(capability_ref)
         if state not in (LifecycleState.DECLARED, LifecycleState.DISCOVERABLE, LifecycleState.VISIBLE):
@@ -248,9 +259,13 @@ class CapabilityRuntime:
         return decision
 
     def revoke_capability(
-        self, target: Union[LeaseId, CapabilityRef], reason: str
+        self,
+        caller: AgentIdentity,
+        target: Union[LeaseId, CapabilityRef],
+        reason: str,
     ) -> None:
         """Revoke capability by lease ID or ref (spec §3.2.3)."""
+        _assert_caller(caller, _OPERATOR)
         physical_revocation = False
         
         if isinstance(target, LeaseId):
@@ -319,16 +334,19 @@ class CapabilityRuntime:
         """Discover capabilities by intent (spec §3.2.4)."""
         return _discover_capabilities(self.catalog, agent_id, intent)
 
-    def emit_execution_event(self, event: dict) -> None:
-        """Emit execution event to observability (spec §3.2.5)."""
-        self.observability.emit_execution_event(event)
-
-    def emit_capability_event(self, event: dict) -> None:
-        """Emit capability event to observability (spec §3.2.5)."""
-        self.observability.emit_capability_event(event)
-
-    def record_action(self, lease_id: LeaseId, now: datetime) -> None:
+    def record_action(
+        self,
+        caller: AgentIdentity,
+        agent_id: AgentIdentity,
+        lease_id: LeaseId,
+        now: datetime,
+    ) -> None:
         """Decrement quota; revoke if exhausted (spec §3.2.6)."""
+        lease = self.lease_manager.get_lease(lease_id)
+        if lease is None:
+            raise LeaseExpired(lease_id)
+        _assert_caller(caller, lease.agent_id)
+        _assert_caller(agent_id, lease.agent_id)
         remaining = self.lease_manager.decrement_quota(lease_id, now)
 
         self.observability.emit_capability_event(

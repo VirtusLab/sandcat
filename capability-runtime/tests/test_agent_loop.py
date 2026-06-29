@@ -45,7 +45,7 @@ def test_run_step_adapts_after_lease_exhausted(tmp_path):
     agent = AgentIdentity("agent-3")
 
     runtime.request_capability_lease(
-        agent, CapabilityRef("cap-create-pr"), "Need create_pr once"
+        agent, agent, CapabilityRef("cap-create-pr"), "Need create_pr once"
     )
 
     assert loop.run_step(agent, {}, "create_pr", lambda: "first") == "first"
