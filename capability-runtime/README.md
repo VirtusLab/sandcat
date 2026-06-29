@@ -107,7 +107,7 @@ The watcher ensures the runtime catalog stays consistent when reachability disap
                     (docker compose exec → admin.sock)
 ```
 
-The agent container mounts `capability-socket:/run/sandcat/capability:ro` and receives `CAPABILITY_AGENT_SOCKET` plus `SANDCAT_AGENT_ID`. It does **not** mount `admin.sock` write access, does **not** receive `NB_API_TOKEN`, and does **not** import `CapabilityRuntime`. NetBird credentials live only in the sidecar via read-only `settings.json`.
+The agent container mounts `capability-socket:/run/sandcat-capability:ro` (separate from read-only `wg-runtime:/run/sandcat`) and receives `CAPABILITY_AGENT_SOCKET` plus `SANDCAT_AGENT_ID`. It does **not** mount `admin.sock` write access, does **not** receive `NB_API_TOKEN`, and does **not** import `CapabilityRuntime`. NetBird credentials live only in the sidecar via read-only `settings.json`.
 
 Cursor MCP config (`.cursor/mcp.json` in devcontainer):
 

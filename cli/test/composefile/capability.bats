@@ -26,6 +26,12 @@ teardown() {
 	[ "$status" -eq 0 ]
 }
 
+@test "enable_capability mounts capability socket outside wg-runtime path" {
+	enable_capability "$COMPOSE_DIR"
+	run yq '.services.agent.volumes[] | select(. == "capability-socket:/run/sandcat-capability:ro")' "$COMPOSE_DIR/compose-all.yml"
+	[ "$status" -eq 0 ]
+}
+
 @test "enable_capability is idempotent" {
 	enable_capability "$COMPOSE_DIR"
 	enable_capability "$COMPOSE_DIR"
