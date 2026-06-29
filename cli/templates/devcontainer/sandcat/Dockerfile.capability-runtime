@@ -1,0 +1,7 @@
+FROM python:3.12-slim
+WORKDIR /app
+COPY capability-runtime/pyproject.toml capability-runtime/src ./
+ENV PYTHONPATH=/app/src
+RUN pip install --no-cache-dir -e .
+COPY capability-catalog.json /etc/sandcat/capability-catalog.json
+ENTRYPOINT ["python", "-m", "capability_runtime.daemon"]
