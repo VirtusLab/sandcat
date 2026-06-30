@@ -24,10 +24,10 @@ Compose sidecar wiring: `capability-runtime` service, Capability MCP for agents,
 
 _Avoid_: Phase 4
 
-**Phase 3c (Dynamic L7 Policy)**:
-mitmproxy ↔ capability-runtime loop: dynamic HTTP allowlist from bundle, L7 execution events, quota-driven revoke. **DRAFT spec:** `docs/superpowers/specs/2026-06-23-capability-dynamic-l7-policy-phase3c-design.md`.
+**Phase 3c (NetBird Policy Sync)**:
+On lease grant/revoke, `CapabilityRuntime` synchronizes NetBird physical bindings (routes, future ACL) via `enable_binding` / `disable_binding`. Default revoke disables the route and keeps the peer. mitmproxy remains egress inspection only. **Spec:** `docs/superpowers/specs/2026-06-30-capability-netbird-policy-sync-phase3c-design.md`. Plan: `docs/superpowers/plans/2026-06-30-capability-netbird-policy-sync-phase3c.md`.
 
-_Avoid_: conflating with Phase 3b sidecar work
+_Avoid_: conflating with Phase 3b sidecar work; per-request mitmproxy L7 allowlist (see deprecated spec below)
 
 **Phase 4 (Comparative Evaluation)**:
 Controlled experiments baseline vs treatment; metrics and ablations. **DRAFT spec:** `docs/superpowers/specs/2026-06-23-capability-comparative-evaluation-phase4-design.md`. Does not implement new enforcement — measures Phases 0–3c.
@@ -47,7 +47,8 @@ The link between a network capability and concrete NetBird identifiers (`peer_id
 
 - A **Capability Bundle** includes zero or more network capabilities when their lifecycle state is Visible or Leased
 - Each network capability has exactly one **Network Binding**
-- **Logical Revocation** triggers **Physical Revocation** via `NetBirdRevocationBackend`
+- **Logical Revocation** triggers **Physical Revocation** via `NetBirdRevocationBackend` (`disable_binding` by default; `peer_remove` when catalog `sync_mode` requires)
+- **Logical Grant (lease)** triggers **Physical Enable** via `grant_binding` → `enable_binding`
 - **Physical Revocation** outside the runtime triggers **Logical Revocation** via `RouteDisappearanceWatcher`
 
 ## Example dialogue
@@ -82,4 +83,6 @@ _Avoid_: client-provided agent_id, multi-agent per container (Phase 3b)
 
 - NetBird **implementation** runs inside `wg-client` (`wt0` overlay); the original plan described a separate `netbird` sync sidecar for `wg0` — these are different layers.
 - Phase 3b plan is formal and **implemented** (Tasks 1–8): `docs/superpowers/plans/2026-06-23-capability-sandcat-phase3b.md`.
-- Phase 3c and Phase 4 are **DRAFT specs** only (not approved for implementation): `docs/superpowers/specs/2026-06-23-capability-dynamic-l7-policy-phase3c-design.md`, `docs/superpowers/specs/2026-06-23-capability-comparative-evaluation-phase4-design.md`.
+- Phase 3c NetBird policy sync is **implemented** — supersedes the deprecated L7 policy design.
+- **DEPRECATED:** `docs/superpowers/specs/2026-06-23-capability-dynamic-l7-policy-phase3c-design.md` — per-request mitmproxy L7 allowlist from bundle; replaced by NetBird policy sync spec above.
+- Phase 4 is a **DRAFT spec** only (not approved for implementation): `docs/superpowers/specs/2026-06-23-capability-comparative-evaluation-phase4-design.md`.

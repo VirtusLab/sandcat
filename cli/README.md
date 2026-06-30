@@ -450,7 +450,7 @@ sandcat capability check --context '{}'
 # Lease a network capability (triggers NetBird peer/route via sidecar)
 sandcat capability lease --ref cap-reach-api --justification "need API access"
 
-# Revoke (operator-only; removes NetBird peer/route)
+# Revoke (operator-only; disables NetBird route by default, keeps peer)
 sandcat capability revoke --ref cap-reach-api --reason policy
 
 # Foreground route-watcher poll loop (debugging)
@@ -472,6 +472,54 @@ sandcat capability demo
 - `SANDCAT_AGENT_ID` is fixed per devcontainer and injected by the bridge;
   agent-supplied `agent_id` parameters are ignored
 - Catalog is loaded at sidecar startup from config — not registerable over RPC
+
+### Phase 3c grant/revoke flow
+
+When the sidecar loads a network capability from the catalog, each entry may include a `sync_mode` that controls how NetBird physical state is synchronized on lease and revoke:
+
+| `sync_mode` | On lease (`enable_binding`) | On revoke (`disable_binding`) |
+|-------------|----------------------------|-------------------------------|
+| `route_enable` (default) | Enable or create NetBird route for the binding | Disable route; peer stays enrolled |
+| `peer_remove` | No-op (peer already enrolled) | Delete peer (Phase 3 break-glass) |
+| `acl_policy` | Stub — future ACL/group sync | Stub |
+
+```bash
+# Lease triggers enable_binding → route visible on wt0
+sandcat capability lease --ref cap-reach-api --justification "need API access"
+sandcat netbird status   # route enabled
+
+# Revoke triggers disable_binding → route gone, peer remains
+sandcat capability revoke --ref cap-reach-api --reason done
+sandcat netbird status   # route disabled; peer still listed
+```
+
+Grant failure rolls back the lease (fail closed). Only the operator admin socket can revoke; agents cannot trigger `enable_binding` or `disable_binding`.
+
+#### Capability catalog schema (network entries)
+
+Network capabilities in `capability-catalog.json` (mounted as `CAPABILITY_CATALOG_JSON` at sidecar startup):
+
+```json
+{
+  "capabilities": [
+    {
+      "name": "reach_api",
+      "ref": "cap-reach-api",
+      "type": "network",
+      "peer_id": "<netbird-peer-id>",
+      "network": "10.8.0.0/24",
+      "route_id": "<netbird-route-id>",
+      "sync_mode": "route_enable"
+    }
+  ]
+}
+```
+
+- `peer_id`, `network` — required NetBird identifiers for the binding
+- `route_id` — optional; if omitted, `enable_binding` creates a route via the NetBird API and stores the returned id
+- `sync_mode` — optional; defaults to `route_enable`. Use `peer_remove` only when revoke must delete the peer (legacy Phase 3 behavior)
+
+Tool capabilities (`type: "tool"`) do not use `sync_mode` or binding fields.
 
 ## Directory Structure
 
