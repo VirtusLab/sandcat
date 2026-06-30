@@ -8,6 +8,13 @@ class NetBirdRevocationBackend:
     def __init__(self, client: NetBirdClient) -> None:
         self._client = client
 
+    def grant_binding(self, binding: NetworkBinding) -> NetworkBinding:
+        """Enable a network binding via NetBird client.
+        
+        Returns the updated binding (may have a new route_id if one was created).
+        """
+        return self._client.enable_binding(binding)
+
     def revoke_binding(self, binding: NetworkBinding, reason: str) -> None:
         if binding.route_id:
             self.revoke_route(binding.route_id, reason)

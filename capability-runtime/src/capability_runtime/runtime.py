@@ -23,6 +23,7 @@ from capability_runtime.lease import LeaseManager
 from capability_runtime.network import NetworkBinding
 from capability_runtime.netbird_backend import NetBirdRevocationBackend
 from capability_runtime.netbird_client import NetBirdClient
+from capability_runtime.netbird_sync import grant_network_binding
 from capability_runtime.observability import ObservabilityCollector
 from capability_runtime.revoke import RevocationManager
 from capability_runtime.types import (
@@ -217,6 +218,8 @@ class CapabilityRuntime:
         if state not in (LifecycleState.DECLARED, LifecycleState.DISCOVERABLE, LifecycleState.VISIBLE):
             raise CapabilityUnknown(capability_ref)
 
+        # Save the original state for rollback in case of failure
+        original_state = state
         now = datetime.now(timezone.utc)
 
         capability_name = self.catalog.get_name(capability_ref)
@@ -245,16 +248,54 @@ class CapabilityRuntime:
         # Set catalog state to LEASED
         self.catalog.set_state(capability_ref, LifecycleState.LEASED)
 
-        self.observability.emit_capability_event(
-            {
-                "event": "lease_granted",
-                "agent_id": agent_id.value,
-                "capability_ref": capability_ref.value,
-                "lease_id": decision.lease_id.value,
-                "quota": quota,
-                "justification": justification,
-            }
-        )
+        # Check if this is a network capability that needs physical sync
+        binding = self.catalog.get_network_binding(capability_ref)
+        physical_sync_status = None
+        
+        if binding is not None and self._netbird_backend is not None:
+            # Attempt to enable the binding via NetBird
+            try:
+                updated_binding = grant_network_binding(self._netbird_backend, binding)
+                # Update the binding in catalog if route_id changed
+                if updated_binding.route_id != binding.route_id:
+                    self.catalog.set_network_binding(capability_ref, updated_binding)
+                physical_sync_status = "enabled"
+            except Exception as e:
+                # Rollback on failure (fail closed)
+                # 1. Revoke the lease
+                self.lease_manager._leases.pop(decision.lease_id, None)
+                self.lease_manager._remaining_quota.pop(decision.lease_id, None)
+                # 2. Revert catalog state
+                self.catalog.set_state(capability_ref, original_state)
+                # Re-raise the exception
+                raise
+
+        # Emit appropriate event
+        if physical_sync_status == "enabled":
+            # Emit capability_leased event for network capabilities
+            self.observability.emit_capability_event(
+                {
+                    "event": "capability_leased",
+                    "agent_id": agent_id.value,
+                    "capability_ref": capability_ref.value,
+                    "lease_id": decision.lease_id.value,
+                    "quota": quota,
+                    "justification": justification,
+                    "physical_sync": physical_sync_status,
+                }
+            )
+        else:
+            # Emit lease_granted event for tool capabilities
+            self.observability.emit_capability_event(
+                {
+                    "event": "lease_granted",
+                    "agent_id": agent_id.value,
+                    "capability_ref": capability_ref.value,
+                    "lease_id": decision.lease_id.value,
+                    "quota": quota,
+                    "justification": justification,
+                }
+            )
 
         return decision
 
