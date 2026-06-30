@@ -77,3 +77,22 @@ teardown() {
 	assert_success
 	assert_output --partial "capability.check"
 }
+
+@test "capability lease then revoke flow execs both commands" {
+	capability_compose_exec() {
+		echo "EXEC $*"
+	}
+	export -f capability_compose_exec
+	
+	# Lease
+	run capability_lease --ref cap-reach-api --justification "test flow"
+	assert_success
+	assert_output --partial "capability.lease"
+	assert_output --partial "cap-reach-api"
+	
+	# Revoke
+	run capability_revoke --ref cap-reach-api --reason "test complete"
+	assert_success
+	assert_output --partial "capability.revoke"
+	assert_output --partial "cap-reach-api"
+}

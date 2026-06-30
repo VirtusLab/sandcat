@@ -11,7 +11,8 @@
       "type": "network",
       "peer_id": "peer-placeholder",
       "network": "10.8.0.0/24",
-      "route_id": "route-placeholder"
+      "route_id": "route-placeholder",
+      "sync_mode": "route_enable"
     }
   ]
 }

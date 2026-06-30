@@ -12,7 +12,7 @@ from pathlib import Path
 
 from capability_runtime.catalog import LifecycleState
 from capability_runtime.netbird_client import MockNetBirdClient, NetBirdClient, RestNetBirdClient
-from capability_runtime.network import NetworkBinding
+from capability_runtime.network import NetworkBinding, sync_mode_from_catalog
 from capability_runtime.rpc.dispatcher import RpcDispatcher
 from capability_runtime.rpc.transports.unix import UnixRpcServer
 from capability_runtime.route_watcher import RouteDisappearanceWatcher
@@ -93,6 +93,7 @@ def load_catalog_into_runtime(runtime: CapabilityRuntime, catalog_path: Path) ->
                 entry["peer_id"],
                 entry["network"],
                 entry.get("route_id"),
+                sync_mode_from_catalog(entry),
             )
             runtime.register_network_capability(
                 name,

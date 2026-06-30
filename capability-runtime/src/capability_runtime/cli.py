@@ -14,6 +14,9 @@ from capability_runtime.rpc.transports.unix import UnixRpcClient
 DEFAULT_ADMIN_SOCKET = Path(
     os.environ.get("CAPABILITY_ADMIN_SOCKET", "/run/sandcat-capability/admin.sock")
 )
+DEFAULT_TRACE_FILE = Path(
+    os.environ.get("CAPABILITY_TRACE_FILE", "/var/lib/sandcat/capability/trace.jsonl")
+)
 
 SUBCOMMAND_TO_METHOD = {
     "check": "capability.check",
@@ -90,12 +93,48 @@ def cmd_revoke(args: argparse.Namespace) -> None:
 
 def cmd_watch(args: argparse.Namespace) -> None:
     print(
-        f"Watching capability route watcher (poll every {args.interval}s)...",
+        f"Watching capability events and route watcher (poll every {args.interval}s)...",
         file=sys.stderr,
     )
+    trace_file = DEFAULT_TRACE_FILE
+    trace_offset = 0
+    if trace_file.exists():
+        trace_offset = trace_file.stat().st_size
+
     while True:
         result = _call("capability.watch.poll", {})
         _print_json({"polled": result.get("polled", True), "ts": time.time()})
+
+        if trace_file.exists():
+            with trace_file.open("r") as fp:
+                fp.seek(trace_offset)
+                for line in fp:
+                    trace_offset = fp.tell()
+                    try:
+                        event = json.loads(line)
+                        if event.get("kind") == "capability":
+                            event_type = event.get("event")
+                            if event_type in (
+                                "capability_leased",
+                                "capability_revoked",
+                                "lease_granted",
+                                "physical_revocation",
+                            ):
+                                summary = {"event": event_type, "ts": event.get("ts")}
+                                if "physical_sync" in event:
+                                    summary["physical_sync"] = event["physical_sync"]
+                                if "physical_revocation" in event:
+                                    summary["physical_revocation"] = event[
+                                        "physical_revocation"
+                                    ]
+                                if "capability_ref" in event:
+                                    summary["capability_ref"] = event["capability_ref"]
+                                if "lease_id" in event:
+                                    summary["lease_id"] = event["lease_id"]
+                                _print_json(summary)
+                    except (json.JSONDecodeError, KeyError):
+                        continue
+
         sys.stdout.flush()
         time.sleep(args.interval)
 
