@@ -170,6 +170,23 @@ class CapabilityRuntime:
                             earliest_expiry = lease.expires_at
                         break
 
+        # Disable expired network leases (TTL expiry hook)
+        if self._netbird_backend is not None:
+            from capability_runtime.netbird_sync import revoke_network_binding
+            
+            for lease_id, lease in list(self.lease_manager._leases.items()):
+                if (
+                    self.lease_manager.is_expired(lease_id, now)
+                    and not self.revocation_manager.is_lease_revoked(lease_id)
+                    and not self.lease_manager.is_exhausted(lease_id)
+                ):
+                    binding = self.catalog.get_network_binding(lease.capability_ref)
+                    if binding is not None:
+                        # Disable the binding and revoke the lease
+                        revoke_network_binding(self._netbird_backend, binding, "TTL expired")
+                        self.revocation_manager.revoke_by_lease(lease_id, "TTL expired")
+                        self.catalog.set_state(lease.capability_ref, LifecycleState.EXPIRED)
+
         bundle = CapabilityBundle(
             agent_id=agent_id,
             issued_at=now,
@@ -402,6 +419,13 @@ class CapabilityRuntime:
         if remaining == 0:
             lease = self.lease_manager.get_lease(lease_id)
             if lease is not None:
+                # Check if this is a network capability that needs physical sync
+                binding = self.catalog.get_network_binding(lease.capability_ref)
+                if binding is not None and self._netbird_backend is not None:
+                    # Disable the binding via NetBird
+                    from capability_runtime.netbird_sync import revoke_network_binding
+                    revoke_network_binding(self._netbird_backend, binding, "quota exhausted")
+                
                 self.catalog.set_state(lease.capability_ref, LifecycleState.EXPIRED)
                 self.revocation_manager.revoke_by_lease(lease_id, "quota exhausted")
                 self._bundle_version += 1

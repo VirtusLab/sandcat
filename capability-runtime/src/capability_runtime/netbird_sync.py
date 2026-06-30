@@ -26,3 +26,18 @@ def grant_network_binding(
         Any exception from enable_binding (caller should handle rollback)
     """
     return backend.grant_binding(binding)
+
+
+def revoke_network_binding(
+    backend: NetBirdRevocationBackend,
+    binding: NetworkBinding,
+    reason: str,
+) -> None:
+    """Revoke a network binding by disabling it via the NetBird backend.
+    
+    Args:
+        backend: The NetBird revocation backend
+        binding: The network binding to revoke
+        reason: Reason for revocation (for observability)
+    """
+    backend.revoke_binding(binding, reason)

@@ -16,10 +16,12 @@ class NetBirdRevocationBackend:
         return self._client.enable_binding(binding)
 
     def revoke_binding(self, binding: NetworkBinding, reason: str) -> None:
-        if binding.route_id:
-            self.revoke_route(binding.route_id, reason)
-        if binding.peer_id:
-            self.revoke_peer(binding.peer_id, reason)
+        """Revoke a network binding via NetBird client.
+        
+        Default behavior (ROUTE_ENABLE): disables route, keeps peer.
+        PEER_REMOVE mode: deletes peer (Phase 3 compat).
+        """
+        self._client.disable_binding(binding)
 
     def revoke_peer(self, peer_id: str, reason: str) -> None:
         self._client.remove_peer(peer_id)
