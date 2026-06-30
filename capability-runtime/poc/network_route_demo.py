@@ -24,7 +24,8 @@ class DemoResult:
     lease_decision: LeaseDecision
     networks_after_lease: list[str]
     peer_id_after_lease: str | None
-    peer_removed_by_revoke: bool
+    peer_still_exists_after_revoke: bool
+    route_disabled_by_revoke: bool
     networks_after_revoke: list[str]
     networks_after_external_removal: list[str]
     external_removal_peer_gone: bool
@@ -94,11 +95,15 @@ def run_poc3_demo(trace_path: Path, *, quiet: bool = False) -> DemoResult:
     )
 
     runtime.revoke_capability(AgentIdentity("operator"), ref, "security policy")
-    peer_removed = not client.peer_exists("peer-abc")
+    peer_still_exists = client.peer_exists("peer-abc")
+    route_disabled = False
+    if client.route_exists("route-1"):
+        routes = [r for r in client.list_routes() if r["id"] == "route-1"]
+        route_disabled = routes[0]["enabled"] is False if routes else False
     _print_step(
         quiet,
         4,
-        f"revoke_capability → mock client peer removed (peer_exists={client.peer_exists('peer-abc')})",
+        f"revoke_capability → peer still exists={peer_still_exists}, route disabled={route_disabled}",
     )
 
     bundle3 = runtime.check_current_capabilities(agent, context)
@@ -127,7 +132,8 @@ def run_poc3_demo(trace_path: Path, *, quiet: bool = False) -> DemoResult:
         lease_decision=decision,
         networks_after_lease=networks_after_lease,
         peer_id_after_lease=peer_id,
-        peer_removed_by_revoke=peer_removed,
+        peer_still_exists_after_revoke=peer_still_exists,
+        route_disabled_by_revoke=route_disabled,
         networks_after_revoke=networks_after_revoke,
         networks_after_external_removal=networks_after_external,
         external_removal_peer_gone=not client.peer_exists("peer-abc"),

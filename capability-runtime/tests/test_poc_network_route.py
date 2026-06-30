@@ -16,7 +16,9 @@ def test_poc3_network_route_lifecycle(tmp_path: Path) -> None:
     assert result.lease_decision.capability_ref == CapabilityRef("cap-reach-api")
     assert "reach_api" in result.networks_after_lease
     assert result.peer_id_after_lease == "peer-abc"
-    assert result.peer_removed_by_revoke is True
+    # Phase 3c: prefer disable over peer delete
+    assert result.peer_still_exists_after_revoke is True
+    assert result.route_disabled_by_revoke is True
     assert "reach_api" not in result.networks_after_revoke
     assert "reach_api" not in result.networks_after_external_removal
     assert result.external_removal_peer_gone is True
