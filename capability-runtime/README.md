@@ -37,6 +37,14 @@ Phase 3 realizes this thesis by binding each network capability to a NetBird pee
 - Operator CLI: `sandcat capability` via `docker compose exec capability-runtime`
 - Catalog loaded at sidecar startup from `CAPABILITY_CATALOG_JSON` — no `register_*` over RPC
 
+**In scope (Phase 3c — NetBird policy sync):**
+
+- **Grant sync on lease:** `request_capability_lease` calls `NetBirdClient.enable_binding()` via `grant_binding` when the capability has a `NetworkBinding`
+- **Revoke sync on revoke / quota / TTL:** `revoke_capability` and lease exhaustion call `disable_binding()` — default `sync_mode=route_enable` disables the route and keeps the peer enrolled
+- **`sync_mode` on `NetworkBinding`:** `route_enable` (default), `acl_policy` (stub), `peer_remove` (Phase 3 break-glass — deletes peer on revoke)
+- Grant failure rolls back the lease (fail closed); observability emits `physical_sync: enabled` on successful network lease
+- mitmproxy remains egress inspection only — no per-request L7 allowlist from bundle
+
 **Out of scope / known limitations:**
 
 - Token budget enforcement (`token_budget` is stored but not decremented)
@@ -44,24 +52,36 @@ Phase 3 realizes this thesis by binding each network capability to a NetBird pee
 - `TaskContext`-driven visibility rules
 - Non-tool capability kinds (`rules`, `skills`, etc.) in bundles
 - Multi-agent leasing on the same capability (global `LEASED` catalog state)
-- MCP workload gateway, NetBird ACL/reverse-proxy bindings, host-published HTTP RPC (Phase 3c+)
+- Full NetBird ACL/group API (`acl_policy` sync_mode is stubbed)
+- MCP workload gateway, host-published HTTP RPC (Phase 3d+)
 
 ## NetBird bridge (logical ↔ physical)
 
-Phase 3 connects the capability runtime to the sandcat NetBird deployment model described in [NetBird dynamic WireGuard plan](../../docs/superpowers/plans/2026-06-15-netbird-dynamic-wireguard.md):
+Phase 3 connects the capability runtime to the sandcat NetBird deployment model described in [NetBird dynamic WireGuard plan](../../docs/superpowers/plans/2026-06-15-netbird-dynamic-wireguard.md). Phase 3c adds bidirectional sync on grant and revoke via `enable_binding` / `disable_binding`.
 
 ```
+Grant (lease)                     Physical path (sandcat)
+─────────────                     ───────────────────────
+request_capability_lease(ref)
+  → grant_network_binding
+      → enable_binding(sync_mode)    → NetBird management API
+  → catalog LEASED                      → route enabled / created
+  → emit physical_sync: enabled         → wg-client: route on wt0
+        │
+        │  (on enable_binding failure: rollback lease, revert catalog)
+        ▼
+
 Logical revoke (runtime)          Physical path (sandcat)
 ─────────────────────────         ───────────────────────
 revoke_capability(ref, reason)
   → NetBirdRevocationBackend
-      → remove_peer / remove_route   → NetBird management API
-  → catalog REVOKED                     → netbird container writes peers.conf
-  → emit physical_revocation            → wg-client: wg syncconf wg0
-                                        → agent loses route to endpoint
+      → disable_binding(sync_mode)   → NetBird management API
+  → catalog REVOKED                     → route disabled (default)
+  → emit physical_revocation            → wg-client drops route on wt0
+                                        → peer remains enrolled (route_enable)
 ```
 
-When revocation originates from the runtime, `NetBirdRevocationBackend.revoke_binding()` removes the bound peer and/or route through the injected `NetBirdClient`. In production this maps to NetBird API calls that eventually rewrite `peers.conf` and trigger `wg syncconf` in `wg-client` — the agent loses routing without a container restart.
+When revocation originates from the runtime, `NetBirdRevocationBackend.revoke_binding()` calls `disable_binding()` through the injected `NetBirdClient`. Default `sync_mode=route_enable` disables the route but keeps the peer — the agent loses routing without unenrolling the mesh peer. Set `sync_mode=peer_remove` in the catalog for Phase 3 break-glass behavior (delete peer on revoke).
 
 ## RouteDisappearanceWatcher (physical → logical)
 
@@ -160,7 +180,8 @@ PYTHONPATH=src:. python poc/network_route_demo.py
 | `catalog.py` | Lifecycle states, network binding storage |
 | `network.py` | `NetworkBinding`, `PhysicalRevocationBackend` protocol |
 | `netbird_client.py` | `NetBirdClient` protocol, mock and REST implementations |
-| `netbird_backend.py` | `NetBirdRevocationBackend` — logical revoke → peer/route removal |
+| `netbird_backend.py` | `NetBirdRevocationBackend` — grant/revoke via `enable_binding` / `disable_binding` |
+| `netbird_sync.py` | Grant/revoke orchestration helpers for network bindings |
 | `route_watcher.py` | `RouteDisappearanceWatcher` — physical disappearance → logical revoke |
 | `lease.py` / `revoke.py` | Grant, quota, revocation |
 | `policy.py` | PoC lease parameters (not in core runtime) |
