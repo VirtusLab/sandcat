@@ -384,7 +384,7 @@ _netbird_api_print_error() {
 # NB_MANAGEMENT_URL defaults to https://api.netbird.io.
 # Prints the response body on success; writes curl/API errors to stderr.
 # Args:
-#   $1 - HTTP method (GET, POST, DELETE)
+#   $1 - HTTP method (GET, POST, PATCH, DELETE)
 #   $2 - API path (e.g. /api/peers)
 #   $3 - Optional JSON body
 netbird_api() {
@@ -443,6 +443,22 @@ netbird_route_add() {
 	local peer_id=$2
 	netbird_api "POST" "/api/routes" \
 		"{\"network\":\"$network\",\"peer\":\"$peer_id\",\"enabled\":true}"
+}
+
+# Enables an existing network route by ID.
+# Args:
+#   $1 - Route ID
+netbird_route_enable() {
+	local route_id=$1
+	netbird_api "PATCH" "/api/routes/$route_id" '{"enabled":true}'
+}
+
+# Disables an existing network route by ID without deleting it.
+# Args:
+#   $1 - Route ID
+netbird_route_disable() {
+	local route_id=$1
+	netbird_api "PATCH" "/api/routes/$route_id" '{"enabled":false}'
 }
 
 # Removes a network route by ID.
