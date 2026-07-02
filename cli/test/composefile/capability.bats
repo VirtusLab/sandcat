@@ -32,6 +32,13 @@ teardown() {
 	[ "$status" -eq 0 ]
 }
 
+@test "enable_capability adds capability-runtime to agent depends_on" {
+	enable_capability "$COMPOSE_DIR"
+	run yq '.services.agent.depends_on.capability-runtime.condition' "$COMPOSE_DIR/compose-all.yml"
+	assert_success
+	assert_output "service_started"
+}
+
 @test "enable_capability is idempotent" {
 	enable_capability "$COMPOSE_DIR"
 	enable_capability "$COMPOSE_DIR"

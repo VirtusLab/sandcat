@@ -439,4 +439,51 @@ enable_capability() {
 		yq_array="[${yq_array%,}]"
 		yq -i ".services.agent.environment = ((.services.agent.environment // []) + ${yq_array})" "$compose_file"
 	fi
+
+	# Start capability-runtime whenever agent starts (devcontainer reopen, sandcat run).
+	local has_dep
+	has_dep=$(yq '.services.agent.depends_on.capability-runtime.condition // ""' "$compose_file")
+	if [[ "$has_dep" != "service_started" ]]; then
+		yq -i '.services.agent.depends_on.capability-runtime.condition = "service_started"' "$compose_file"
+	fi
+
+	_enable_capability_mcp_config "$(dirname "$compose_dir")" "$compose_dir/devcontainer.json"
+}
+
+# Writes .cursor/mcp.json and patches devcontainer remoteEnv for capability MCP.
+# Args:
+#   $1 - Project root (parent of .devcontainer)
+#   $2 - Path to devcontainer.json
+_enable_capability_mcp_config() {
+	local project_path=$1
+	local devcontainer_json=$2
+	local mcp_dir="$project_path/.cursor"
+
+	mkdir -p "$mcp_dir"
+	cat >"$mcp_dir/mcp.json" <<'EOF'
+{
+  "mcpServers": {
+    "sandcat-capability": {
+      "command": "capability-mcp-bridge",
+      "args": [],
+      "env": {
+        "SANDCAT_AGENT_ID": "devcontainer-agent",
+        "CAPABILITY_AGENT_SOCKET": "/run/sandcat-capability/agent.sock"
+      }
+    }
+  }
+}
+EOF
+
+	if [[ ! -f "$devcontainer_json" ]] || grep -q 'SANDCAT_AGENT_ID' "$devcontainer_json"; then
+		return 0
+	fi
+
+	# JSONC devcontainer.json — inject remoteEnv keys after GIT_ASKPASS.
+	sed -i.bak \
+		's|"GIT_ASKPASS": ""|"GIT_ASKPASS": "",\
+		"SANDCAT_AGENT_ID": "devcontainer-agent",\
+		"CAPABILITY_AGENT_SOCKET": "/run/sandcat-capability/agent.sock"|' \
+		"$devcontainer_json"
+	rm -f "${devcontainer_json}.bak"
 }

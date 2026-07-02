@@ -160,7 +160,7 @@ Mutating APIs require `caller` to match the lease-bound `agent_id` (`CallerIdent
 - `agent_id` in RPC/MCP params is overwritten with `SANDCAT_AGENT_ID` on the agent surface
 - Catalog registration happens at sidecar startup only — not over RPC
 
-**Not yet addressed:** cryptographic trace signing, network-authenticated control plane, cross-process cryptographic auth (Unix permissions + container split sufficient for 3b).
+**Not yet addressed:** cryptographic trace signing, network-authenticated control plane, cross-process cryptographic auth (Unix permissions + container split sufficient for 3b), and replacing the Python-based agent MCP bridge with a native binary to remove Python from non-Python agent images.
 
 ## Quick start
 
