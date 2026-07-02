@@ -89,3 +89,17 @@ def test_invalid_json_returns_parse_error(tmp_path, mock_dispatcher):
     finally:
         server.stop()
 
+
+def test_socket_mode_allows_non_owner_connect(tmp_path, mock_dispatcher):
+    sock_path = tmp_path / "agent.sock"
+    server = UnixRpcServer(sock_path, mock_dispatcher, socket_mode=0o666)
+    server.start()
+    try:
+        _wait_for_socket(sock_path)
+        assert oct(sock_path.stat().st_mode & 0o777) == "0o666"
+        client = UnixRpcClient(sock_path)
+        response = client.call("capability.check", {"context": {}})
+        assert response["result"] == {"ok": True}
+    finally:
+        server.stop()
+

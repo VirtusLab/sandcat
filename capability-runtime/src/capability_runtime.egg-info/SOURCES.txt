@@ -11,6 +11,7 @@ src/capability_runtime/lease.py
 src/capability_runtime/mcp_adapter.py
 src/capability_runtime/netbird_backend.py
 src/capability_runtime/netbird_client.py
+src/capability_runtime/netbird_sync.py
 src/capability_runtime/network.py
 src/capability_runtime/observability.py
 src/capability_runtime/policy.py
@@ -37,12 +38,14 @@ tests/test_catalog.py
 tests/test_daemon_integration.py
 tests/test_discover.py
 tests/test_errors.py
+tests/test_grant_revoke_integration.py
 tests/test_lease.py
 tests/test_mcp_adapter.py
 tests/test_mcp_bridge.py
 tests/test_mcp_server.py
 tests/test_netbird_backend.py
 tests/test_netbird_client.py
+tests/test_netbird_sync.py
 tests/test_network.py
 tests/test_observability.py
 tests/test_poc_create_pr.py
