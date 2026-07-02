@@ -1,2 +1,2 @@
 #!/bin/bash
-exec python -m capability_runtime.mcp.bridge
+exec /usr/local/bin/python -m capability_runtime.mcp.bridge

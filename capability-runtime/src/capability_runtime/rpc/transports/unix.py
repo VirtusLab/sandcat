@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import socket
 import threading
 from pathlib import Path
@@ -15,9 +16,16 @@ if TYPE_CHECKING:
 class UnixRpcServer:
     """Accept AF_UNIX connections, handle one JSON-RPC request per connection."""
 
-    def __init__(self, socket_path: Path, dispatcher: RpcDispatcher) -> None:
+    def __init__(
+        self,
+        socket_path: Path,
+        dispatcher: RpcDispatcher,
+        *,
+        socket_mode: int | None = None,
+    ) -> None:
         self._socket_path = socket_path
         self._dispatcher = dispatcher
+        self._socket_mode = socket_mode
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
         self._server: socket.socket | None = None
@@ -51,12 +59,15 @@ class UnixRpcServer:
 
     def _serve(self) -> None:
         self._socket_path.parent.mkdir(parents=True, exist_ok=True)
+        os.chmod(self._socket_path.parent, 0o755)
         if self._socket_path.exists():
             self._socket_path.unlink()
 
         server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         self._server = server
         server.bind(str(self._socket_path))
+        if self._socket_mode is not None:
+            os.chmod(self._socket_path, self._socket_mode)
         server.listen(5)
         server.settimeout(1.0)
 

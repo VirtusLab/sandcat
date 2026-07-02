@@ -153,6 +153,8 @@ class CapabilityDaemon:
                 surface="agent",
                 bound_agent_id=config.agent_id,
             ),
+            # Sidecar runs as root; agent container connects as vscode on shared volume.
+            socket_mode=0o666,
         )
         self._admin_server = UnixRpcServer(
             config.admin_socket,
@@ -162,6 +164,7 @@ class CapabilityDaemon:
                 bound_agent_id="operator",
                 watcher=self._watcher,
             ),
+            socket_mode=0o600,
         )
         self._running = False
 
