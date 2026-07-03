@@ -232,7 +232,14 @@ class CapabilityRuntime:
         _assert_caller(caller, agent_id)
         # Check capability exists
         state = self.catalog.get_state(capability_ref)
-        if state not in (LifecycleState.DECLARED, LifecycleState.DISCOVERABLE, LifecycleState.VISIBLE):
+        leasable = {
+            LifecycleState.DECLARED,
+            LifecycleState.DISCOVERABLE,
+            LifecycleState.VISIBLE,
+            LifecycleState.REVOKED,
+            LifecycleState.EXPIRED,
+        }
+        if state not in leasable:
             raise CapabilityUnknown(capability_ref)
 
         # Save the original state for rollback in case of failure
