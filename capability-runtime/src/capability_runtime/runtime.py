@@ -327,12 +327,21 @@ class CapabilityRuntime:
         physical_revocation = False
         
         if isinstance(target, LeaseId):
+            lease = self.lease_manager.get_lease(target)
+            if lease is not None:
+                binding = self.catalog.get_network_binding(lease.capability_ref)
+                if binding is not None and self._netbird_backend is not None:
+                    from capability_runtime.netbird_sync import revoke_network_binding
+                    revoke_network_binding(self._netbird_backend, binding, reason)
+                    physical_revocation = True
             self.revocation_manager.revoke_by_lease(target, reason)
+            self._bundle_version += 1
             self.observability.emit_capability_event(
                 {
                     "event": "capability_revoked",
                     "lease_id": target.value,
                     "reason": reason,
+                    "physical_revocation": physical_revocation,
                 }
             )
         else:
