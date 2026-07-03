@@ -10,6 +10,7 @@ if TYPE_CHECKING:
     from capability_runtime.runtime import CapabilityRuntime
 
 from capability_runtime.catalog import LifecycleState
+from capability_runtime.errors import CapabilityUnknown
 from capability_runtime.network import SyncMode
 
 
@@ -48,27 +49,51 @@ class RouteDisappearanceWatcher:
             True if the binding should be watched
         """
         from datetime import datetime, timezone
-        
-        # Check catalog state
+
         try:
             state = self._runtime.catalog.get_state(binding.capability_ref)
             if state in (LifecycleState.VISIBLE, LifecycleState.LEASED):
                 return True
-        except Exception:
-            pass
-        
-        # Check for active leases
+        except CapabilityUnknown:
+            return False
+
         now = datetime.now(timezone.utc)
-        for lease_id, lease in self._runtime.lease_manager._leases.items():
-            if lease.capability_ref == binding.capability_ref:
-                if (
-                    not self._runtime.lease_manager.is_expired(lease_id, now)
-                    and not self._runtime.revocation_manager.is_lease_revoked(lease_id)
-                    and not self._runtime.lease_manager.is_exhausted(lease_id)
-                ):
-                    return True
-        
-        return False
+        is_revoked = self._runtime.revocation_manager.is_lease_revoked
+        return any(
+            True
+            for _lease_id, _lease in self._runtime.lease_manager.iter_active_leases_for_ref(
+                binding.capability_ref, now, is_revoked=is_revoked
+            )
+        )
+
+    def _reconcile_stale_physical_routes(self) -> None:
+        """Retry NetBird disable when logical revoke succeeded but route stayed enabled."""
+        backend = self._runtime._netbird_backend
+        if backend is None:
+            return
+
+        from capability_runtime.netbird_sync import revoke_network_binding
+
+        for ref in self._runtime.catalog._by_ref:
+            binding = self._runtime.catalog.get_network_binding(ref)
+            if (
+                binding is None
+                or binding.sync_mode is not SyncMode.ROUTE_ENABLE
+                or not binding.route_id
+            ):
+                continue
+            try:
+                state = self._runtime.catalog.get_state(ref)
+            except CapabilityUnknown:
+                continue
+            if state not in (LifecycleState.REVOKED, LifecycleState.EXPIRED):
+                continue
+            if self._client.get_route_state(binding) != "enabled":
+                continue
+            try:
+                revoke_network_binding(backend, binding, "physical reconcile")
+            except Exception:
+                pass
 
     def poll_once(self) -> None:
         """Poll once for disappeared peers and revoke their capabilities.
@@ -79,7 +104,12 @@ class RouteDisappearanceWatcher:
         
         For ROUTE_ENABLE bindings with a route_id, also checks if the route is 
         disabled or missing. If so, performs logical-only revocation.
+
+        Also retries physical disable for REVOKED/EXPIRED bindings whose route
+        is still enabled (e.g. after a transient NetBird API failure).
         """
+        self._reconcile_stale_physical_routes()
+
         # Collect all network bindings from catalog
         bindings_to_revoke = []
         
