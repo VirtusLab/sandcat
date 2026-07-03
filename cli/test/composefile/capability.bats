@@ -16,20 +16,17 @@ teardown() {
 
 @test "enable_capability adds capability-runtime service include" {
 	enable_capability "$COMPOSE_DIR"
-	run yq '.include[] | select(.path == "sandcat/compose-capability.yml")' "$COMPOSE_DIR/compose-all.yml"
-	[ "$status" -eq 0 ]
+	yq -e '.include[] | select(.path == "sandcat/compose-capability.yml")' "$COMPOSE_DIR/compose-all.yml"
 }
 
 @test "enable_capability sets SANDCAT_AGENT_ID on agent service" {
 	enable_capability "$COMPOSE_DIR"
-	run yq '.services.agent.environment[] | select(. == "SANDCAT_AGENT_ID=devcontainer-agent")' "$COMPOSE_DIR/compose-all.yml"
-	[ "$status" -eq 0 ]
+	yq -e '.services.agent.environment[] | select(. == "SANDCAT_AGENT_ID=devcontainer-agent")' "$COMPOSE_DIR/compose-all.yml"
 }
 
 @test "enable_capability mounts capability socket outside wg-runtime path" {
 	enable_capability "$COMPOSE_DIR"
-	run yq '.services.agent.volumes[] | select(. == "capability-socket:/run/sandcat-capability:ro")' "$COMPOSE_DIR/compose-all.yml"
-	[ "$status" -eq 0 ]
+	yq -e '.services.agent.volumes[] | select(. == "capability-socket:/run/sandcat-capability:ro")' "$COMPOSE_DIR/compose-all.yml"
 }
 
 @test "enable_capability adds capability-runtime to agent depends_on" {
