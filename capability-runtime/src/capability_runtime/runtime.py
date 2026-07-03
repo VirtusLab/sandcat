@@ -182,10 +182,22 @@ class CapabilityRuntime:
                 ):
                     binding = self.catalog.get_network_binding(lease.capability_ref)
                     if binding is not None:
-                        # Disable the binding and revoke the lease
-                        revoke_network_binding(self._netbird_backend, binding, "TTL expired")
+                        physical_sync = "disabled"
+                        try:
+                            revoke_network_binding(self._netbird_backend, binding, "TTL expired")
+                        except Exception:
+                            physical_sync = "failed"
                         self.revocation_manager.revoke_by_lease(lease_id, "TTL expired")
                         self.catalog.set_state(lease.capability_ref, LifecycleState.EXPIRED)
+                        self.observability.emit_capability_event(
+                            {
+                                "event": "capability_revoked",
+                                "lease_id": lease_id.value,
+                                "capability_ref": lease.capability_ref.value,
+                                "reason": "TTL expired",
+                                "physical_sync": physical_sync,
+                            }
+                        )
 
         bundle = CapabilityBundle(
             agent_id=agent_id,
