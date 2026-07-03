@@ -521,6 +521,15 @@ Network capabilities in `capability-catalog.json` (mounted as `CAPABILITY_CATALO
 
 Tool capabilities (`type: "tool"`) do not use `sync_mode` or binding fields.
 
+#### Catalog IDs for live smoke
+
+Replace placeholders in `capability-catalog.json` before leasing `reach_api`:
+
+1. `sandcat netbird status` — copy peer ID serving your test network
+2. `sandcat netbird route list` (or NetBird dashboard) — copy route ID if pre-provisioned
+3. Re-init or edit `.devcontainer/sandcat/capability-catalog.json`
+4. Restart capability-runtime: `docker compose restart capability-runtime`
+
 ## Directory Structure
 
 Each module is contained in its own directory under `cli/libexec/`.

@@ -101,7 +101,7 @@ RouteDisappearanceWatcher.poll_once()
   → emit physical_trigger: true
 ```
 
-The watcher ensures the runtime catalog stays consistent when reachability disappears outside the runtime — the spec's physical `Revoked` trigger (Phase 3 / idea7).
+The watcher ensures the runtime catalog stays consistent when reachability disappears outside the runtime — the spec's physical `Revoked` trigger (Phase 3 / idea7). In watcher JSONL events, `physical_trigger` is an alias for the spec's `physical_revocation_reconciled` flag.
 
 ## Sidecar architecture (Phase 3b)
 
@@ -171,6 +171,16 @@ PYTHONPATH=src:. python poc/create_pr_demo.py
 PYTHONPATH=src:. python poc/mcp_tool_demo.py
 PYTHONPATH=src:. python poc/network_route_demo.py
 ```
+
+## Engineering gate (Phase 3c)
+
+Automated unit tests and PoC demo, plus printed manual live-smoke steps (NetBird enrollment required):
+
+```bash
+bash scripts/phase3c_engineering_gate.sh
+```
+
+Manual steps map to the [Phase 3c spec §11 success criteria](../../docs/superpowers/specs/2026-06-30-capability-netbird-policy-sync-phase3c-design.md#11-success-criteria-engineering-gate-before-phase-4). For catalog ID setup before live smoke, see [Catalog IDs for live smoke](../../cli/README.md#catalog-ids-for-live-smoke) in the CLI README.
 
 ## Layout
 
