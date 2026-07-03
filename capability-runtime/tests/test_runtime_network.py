@@ -138,3 +138,32 @@ def test_ttl_expiry_disables_network_binding(tmp_path):
     assert routes[0]["enabled"] is False
     # Capability should not be in bundle
     assert "ttl_net" not in [n.name for n in bundle.networks]
+
+
+def test_ttl_expiry_continues_when_netbird_disable_fails(tmp_path, monkeypatch):
+    from datetime import datetime, timedelta, timezone
+    from capability_runtime.catalog import LifecycleState
+    from capability_runtime.netbird_client import MockNetBirdClient
+    from capability_runtime.network import NetworkBinding, SyncMode
+    from capability_runtime.runtime import CapabilityRuntime
+    from capability_runtime.types import AgentIdentity, CapabilityRef
+
+    client = MockNetBirdClient(peers=[{"id": "peer-abc"}], routes=[{"id": "route-1", "enabled": True}])
+    runtime = CapabilityRuntime(tmp_path / "t.jsonl", "trace-ttl", 4, netbird_client=client)
+    agent = AgentIdentity("agent-1")
+    ref = CapabilityRef("cap-reach-api")
+    binding = NetworkBinding(ref, "peer-abc", "10.8.0.0/24", "route-1", SyncMode.ROUTE_ENABLE)
+    runtime.register_network_capability("reach_api", ref, binding, LifecycleState.VISIBLE)
+    decision = runtime.request_capability_lease(agent, agent, ref, "ttl test")
+
+    runtime.lease_manager._leases[decision.lease_id].expires_at = (
+        datetime.now(timezone.utc) - timedelta(seconds=1)
+    )
+
+    def boom(*_a, **_kw):
+        raise RuntimeError("netbird down")
+
+    monkeypatch.setattr(client, "disable_binding", boom)
+
+    bundle = runtime.check_current_capabilities(agent, {})
+    assert "reach_api" not in [n.name for n in bundle.networks]
