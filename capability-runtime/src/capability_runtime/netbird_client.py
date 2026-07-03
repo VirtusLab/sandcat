@@ -23,6 +23,8 @@ class NetBirdClient(Protocol):
 
     def route_exists(self, route_id: str) -> bool: ...
 
+    def get_route_state(self, binding: NetworkBinding) -> str: ...
+
     def enable_binding(self, binding: NetworkBinding) -> NetworkBinding: ...
 
     def disable_binding(self, binding: NetworkBinding) -> None: ...
@@ -55,6 +57,14 @@ class MockNetBirdClient:
 
     def route_exists(self, route_id: str) -> bool:
         return any(route.get("id") == route_id for route in self._routes)
+
+    def get_route_state(self, binding: NetworkBinding) -> str:
+        if not binding.route_id:
+            return "missing"
+        for route in self._routes:
+            if route.get("id") == binding.route_id:
+                return "disabled" if route.get("enabled") is False else "enabled"
+        return "missing"
 
     def enable_binding(self, binding: NetworkBinding) -> NetworkBinding:
         if binding.sync_mode is SyncMode.PEER_REMOVE:
@@ -140,6 +150,14 @@ class RestNetBirdClient:
 
     def route_exists(self, route_id: str) -> bool:
         return any(route.get("id") == route_id for route in self.list_routes())
+
+    def get_route_state(self, binding: NetworkBinding) -> str:
+        if not binding.route_id:
+            return "missing"
+        for route in self.list_routes():
+            if route.get("id") == binding.route_id:
+                return "disabled" if route.get("enabled") is False else "enabled"
+        return "missing"
 
     def enable_binding(self, binding: NetworkBinding) -> NetworkBinding:
         if binding.sync_mode is SyncMode.PEER_REMOVE:
