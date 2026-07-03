@@ -20,6 +20,9 @@ class RevocationManager:
 
     def revoke_by_ref(self, capability_ref: CapabilityRef, reason: str) -> None:
         self._catalog.set_state(capability_ref, LifecycleState.REVOKED)
+        for lease_id, lease in self._lease_manager._leases.items():
+            if lease.capability_ref == capability_ref:
+                self._revoked_leases.add(lease_id)
 
     def is_revoked(self, capability_ref: CapabilityRef) -> bool:
         try:

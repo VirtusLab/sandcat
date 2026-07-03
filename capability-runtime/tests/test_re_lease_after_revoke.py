@@ -25,3 +25,4 @@ def test_re_lease_after_revoke_by_ref(tmp_path):
     assert len(client.list_routes()) == 1
     bundle = runtime.check_current_capabilities(agent, {})
     assert "reach_api" in [n.name for n in bundle.networks]
+    assert bundle.networks[0].lease_id == decision2.lease_id
