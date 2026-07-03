@@ -48,6 +48,47 @@ def test_revoke_network_capability_calls_netbird_backend(tmp_path):
     assert "reach_api" not in [n.name for n in bundle.networks]
 
 
+def test_revoke_by_ref_continues_when_netbird_disable_fails(tmp_path, monkeypatch):
+    import json
+
+    from capability_runtime.catalog import LifecycleState
+    from capability_runtime.netbird_client import MockNetBirdClient
+    from capability_runtime.network import NetworkBinding, SyncMode
+    from capability_runtime.runtime import CapabilityRuntime
+    from capability_runtime.types import AgentIdentity, CapabilityRef
+
+    operator = AgentIdentity("operator")
+    client = MockNetBirdClient(
+        peers=[{"id": "peer-abc"}],
+        routes=[{"id": "route-1", "network": "10.8.0.0/24", "peer": "peer-abc", "enabled": True}],
+    )
+    runtime = CapabilityRuntime(tmp_path / "t.jsonl", "trace-n2-fail", 8, netbird_client=client)
+    agent = AgentIdentity("agent-1")
+    ref = CapabilityRef("cap-reach-api")
+    binding = NetworkBinding(ref, "peer-abc", "10.8.0.0/24", "route-1", sync_mode=SyncMode.ROUTE_ENABLE)
+    runtime.register_network_capability("reach_api", ref, binding, LifecycleState.VISIBLE)
+    runtime.request_capability_lease(agent, agent, ref, "need api")
+
+    def boom(*_a, **_kw):
+        raise RuntimeError("netbird down")
+
+    monkeypatch.setattr(client, "disable_binding", boom)
+    runtime.revoke_capability(operator, ref, "security")
+
+    bundle = runtime.check_current_capabilities(agent, {})
+    assert "reach_api" not in [n.name for n in bundle.networks]
+    routes = [r for r in client.list_routes() if r["id"] == "route-1"]
+    assert routes[0]["enabled"] is True
+
+    events = [
+        json.loads(line)
+        for line in (tmp_path / "t.jsonl").read_text().strip().split("\n")
+        if line
+    ]
+    revoke_events = [e for e in events if e.get("event") == "capability_revoked"]
+    assert revoke_events[-1]["physical_sync"] == "failed"
+
+
 def test_revoke_non_network_capability_does_not_call_netbird(tmp_path):
     from capability_runtime.catalog import LifecycleState
     from capability_runtime.netbird_client import MockNetBirdClient

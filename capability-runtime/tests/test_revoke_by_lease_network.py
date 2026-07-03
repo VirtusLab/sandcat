@@ -1,6 +1,8 @@
 # capability-runtime/tests/test_revoke_by_lease_network.py
 """Revoke by lease ID must disable network bindings."""
 
+import json
+
 from capability_runtime.catalog import LifecycleState
 from capability_runtime.netbird_client import MockNetBirdClient
 from capability_runtime.network import NetworkBinding, SyncMode
@@ -31,6 +33,41 @@ def test_revoke_by_lease_id_disables_network_route(tmp_path):
     bundle = runtime.check_current_capabilities(agent, {})
     assert "reach_api" not in [n.name for n in bundle.networks]
     assert runtime._bundle_version > version_before
+
+
+def test_revoke_by_lease_id_continues_when_netbird_disable_fails(tmp_path, monkeypatch):
+    client = MockNetBirdClient(
+        peers=[{"id": "peer-abc"}],
+        routes=[{"id": "route-1", "network": "10.8.0.0/24", "peer": "peer-abc", "enabled": True}],
+    )
+    runtime = CapabilityRuntime(tmp_path / "t.jsonl", "trace-rl-fail", 3, netbird_client=client)
+    agent = AgentIdentity("agent-1")
+    ref = CapabilityRef("cap-reach-api")
+    binding = NetworkBinding(ref, "peer-abc", "10.8.0.0/24", "route-1", sync_mode=SyncMode.ROUTE_ENABLE)
+    runtime.register_network_capability("reach_api", ref, binding, LifecycleState.VISIBLE)
+
+    decision = runtime.request_capability_lease(agent, agent, ref, "need api")
+
+    def boom(*_a, **_kw):
+        raise RuntimeError("netbird down")
+
+    monkeypatch.setattr(client, "disable_binding", boom)
+
+    runtime.revoke_capability(_OPERATOR, decision.lease_id, "operator revoke")
+
+    bundle = runtime.check_current_capabilities(agent, {})
+    assert "reach_api" not in [n.name for n in bundle.networks]
+    routes = [r for r in client.list_routes() if r["id"] == "route-1"]
+    assert routes[0]["enabled"] is True
+
+    events = [
+        json.loads(line)
+        for line in (tmp_path / "t.jsonl").read_text().strip().split("\n")
+        if line
+    ]
+    revoke_events = [e for e in events if e.get("event") == "capability_revoked"]
+    assert revoke_events[-1]["physical_sync"] == "failed"
+    assert revoke_events[-1]["capability_ref"] == ref.value
 
 
 def test_revoke_by_lease_id_skips_netbird_for_tool_capability(tmp_path):
