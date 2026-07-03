@@ -347,44 +347,62 @@ class CapabilityRuntime:
         
         if isinstance(target, LeaseId):
             lease = self.lease_manager.get_lease(target)
+            physical_sync: str | None = None
+            capability_ref_value: str | None = None
             if lease is not None:
+                capability_ref_value = lease.capability_ref.value
                 binding = self.catalog.get_network_binding(lease.capability_ref)
                 if binding is not None and self._netbird_backend is not None:
                     from capability_runtime.netbird_sync import revoke_network_binding
-                    revoke_network_binding(self._netbird_backend, binding, reason)
-                    physical_revocation = True
+
+                    physical_sync = "disabled"
+                    try:
+                        revoke_network_binding(self._netbird_backend, binding, reason)
+                        physical_revocation = True
+                    except Exception:
+                        physical_sync = "failed"
             self.revocation_manager.revoke_by_lease(target, reason)
             self._bundle_version += 1
-            self.observability.emit_capability_event(
-                {
-                    "event": "capability_revoked",
-                    "lease_id": target.value,
-                    "reason": reason,
-                    "physical_revocation": physical_revocation,
-                }
-            )
+            event: dict[str, object] = {
+                "event": "capability_revoked",
+                "lease_id": target.value,
+                "reason": reason,
+                "physical_revocation": physical_revocation,
+            }
+            if capability_ref_value is not None:
+                event["capability_ref"] = capability_ref_value
+            if physical_sync is not None:
+                event["physical_sync"] = physical_sync
+            self.observability.emit_capability_event(event)
         else:
             # Check if this is a network capability
             binding = self.catalog.get_network_binding(target)
+            physical_sync: str | None = None
             if binding is not None and self._netbird_backend is not None:
-                # Perform physical revocation via NetBird backend
-                self._netbird_backend.revoke_binding(binding, reason)
-                physical_revocation = True
-            
+                from capability_runtime.netbird_sync import revoke_network_binding
+
+                physical_sync = "disabled"
+                try:
+                    revoke_network_binding(self._netbird_backend, binding, reason)
+                    physical_revocation = True
+                except Exception:
+                    physical_sync = "failed"
+
             # Perform logical revocation
             self.revocation_manager.revoke_by_ref(target, reason)
-            
+
             # Invalidate agent bundle cache
             self._bundle_version += 1
-            
-            self.observability.emit_capability_event(
-                {
-                    "event": "capability_revoked",
-                    "capability_ref": target.value,
-                    "reason": reason,
-                    "physical_revocation": physical_revocation,
-                }
-            )
+
+            event = {
+                "event": "capability_revoked",
+                "capability_ref": target.value,
+                "reason": reason,
+                "physical_revocation": physical_revocation,
+            }
+            if physical_sync is not None:
+                event["physical_sync"] = physical_sync
+            self.observability.emit_capability_event(event)
 
     def revoke_from_physical(self, binding: NetworkBinding, reason: str) -> None:
         """Perform logical revoke when physical route already disappeared.
