@@ -311,13 +311,15 @@ add_jetbrains_capabilities() {
 	yq -i '(.services.agent.cap_add[] | select(. == "FOWNER")) head_comment = "JetBrains IDE: bypass ownership checks on IDE-managed files"' "$compose_file"
 }
 
-# Injects NetBird version and per-arch checksum build args into wg-client's
-# compose build section, sourced from netbird.env (sibling to compose-proxy.yml).
+# Injects NetBird version and per-arch checksum build args into a service's
+# compose build section, sourced from netbird.env (sibling to the compose file).
 # Args:
-#   $1 - Path to compose-proxy.yml
+#   $1 - Path to compose file
+#   $2 - Service name (default: wg-client)
 apply_netbird_build_args() {
 	require yq
 	local compose_file=$1
+	local service_name=${2:-wg-client}
 	local netbird_env
 	netbird_env="$(dirname "$compose_file")/netbird.env"
 
@@ -334,10 +336,25 @@ apply_netbird_build_args() {
 	: "${NETBIRD_SHA256_ARM64:?NETBIRD_SHA256_ARM64 missing from $netbird_env}"
 
 	yq -i "
-		.services.\"wg-client\".build.args.NETBIRD_VERSION = \"${NETBIRD_VERSION}\" |
-		.services.\"wg-client\".build.args.NETBIRD_SHA256_AMD64 = \"${NETBIRD_SHA256_AMD64}\" |
-		.services.\"wg-client\".build.args.NETBIRD_SHA256_ARM64 = \"${NETBIRD_SHA256_ARM64}\"
+		.services.\"${service_name}\".build.args.NETBIRD_VERSION = \"${NETBIRD_VERSION}\" |
+		.services.\"${service_name}\".build.args.NETBIRD_SHA256_AMD64 = \"${NETBIRD_SHA256_AMD64}\" |
+		.services.\"${service_name}\".build.args.NETBIRD_SHA256_ARM64 = \"${NETBIRD_SHA256_ARM64}\"
 	" "$compose_file"
+}
+
+# Copies proxy-peer compose stack and injects NetBird build args.
+# Args:
+#   $1 - Path to the devcontainer directory (parent of sandcat/)
+enable_proxy_peer() {
+	require yq
+	local compose_dir=$1
+	local src="$SCT_TEMPLATEDIR/devcontainer/sandcat/compose-proxy-peer.yml"
+	local dst="$compose_dir/sandcat/compose-proxy-peer.yml"
+	cp "$src" "$dst"
+	cp "$SCT_TEMPLATEDIR/devcontainer/sandcat/Dockerfile.proxy-peer" "$compose_dir/sandcat/"
+	cp "$SCT_TEMPLATEDIR/devcontainer/sandcat/scripts/proxy-peer-init.sh" "$compose_dir/sandcat/scripts/"
+	cp "$SCT_TEMPLATEDIR/devcontainer/sandcat/scripts/proxy-peer-hello.py" "$compose_dir/sandcat/scripts/"
+	apply_netbird_build_args "$dst" "proxy-peer"
 }
 
 # Adds NB_SETUP_KEY to the wg-client service's environment in the deployed
