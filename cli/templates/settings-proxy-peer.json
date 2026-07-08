@@ -1,0 +1,10 @@
+{
+  "network": [
+    {
+      "action": "allow",
+      "host": "REPLACE_PROXY_PEER_MESH_IP",
+      "port": 8080,
+      "comment": "Layer 1: only proxy-peer gateway; replace IP after enrollment"
+    }
+  ]
+}
