@@ -34,6 +34,10 @@ _POC_POLICIES: dict[str, LeasePolicy] = {
 }
 
 
+def register_lease_policy(capability_name: str, policy: LeasePolicy) -> None:
+    _POC_POLICIES[capability_name] = policy
+
+
 def lease_policy_for(capability_name: str | None) -> LeasePolicy:
     if capability_name is None:
         raise LeasePolicyNotFound("missing capability name")
