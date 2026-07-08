@@ -1,0 +1,36 @@
+FROM debian:trixie-slim
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates curl python3 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install the NetBird client daemon. The daemon manages wt0 (the NetBird
+# overlay mesh) inside this container, which already holds NET_ADMIN.
+#
+# Version + per-arch checksums are the single source of truth in netbird.env
+# (sibling to this Dockerfile) and MUST be supplied as build args. No defaults
+# here on purpose, so the pin lives in exactly one place.
+ARG NETBIRD_VERSION
+ARG NETBIRD_SHA256_AMD64
+ARG NETBIRD_SHA256_ARM64
+RUN test -n "$NETBIRD_VERSION" || { echo "NETBIRD_VERSION build arg is required (source netbird.env)" >&2; exit 1; } \
+    && ARCH=$(dpkg --print-architecture) \
+    && case "$ARCH" in \
+         amd64) NETBIRD_SHA256="$NETBIRD_SHA256_AMD64" ;; \
+         arm64) NETBIRD_SHA256="$NETBIRD_SHA256_ARM64" ;; \
+         *) echo "Unsupported architecture: $ARCH" >&2; exit 1 ;; \
+       esac \
+    && test -n "$NETBIRD_SHA256" \
+    && curl -sSLf -o /tmp/netbird.tar.gz \
+        "https://github.com/netbirdio/netbird/releases/download/v${NETBIRD_VERSION}/netbird_${NETBIRD_VERSION}_linux_${ARCH}.tar.gz" \
+    && echo "${NETBIRD_SHA256}  /tmp/netbird.tar.gz" | sha256sum -c - \
+    && tar xzf /tmp/netbird.tar.gz -C /usr/local/bin netbird \
+    && chmod +x /usr/local/bin/netbird \
+    && rm /tmp/netbird.tar.gz \
+    && netbird version
+
+COPY scripts/proxy-peer-init.sh /usr/local/bin/proxy-peer-init.sh
+COPY scripts/proxy-peer-hello.py /usr/local/bin/proxy-peer-hello.py
+RUN chmod +x /usr/local/bin/proxy-peer-init.sh
+
+ENTRYPOINT ["/usr/local/bin/proxy-peer-init.sh"]
