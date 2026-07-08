@@ -37,3 +37,13 @@ setup() {
     [[ "$NETBIRD_SHA256_AMD64" =~ ^[0-9a-f]{64}$ ]]
     [[ "$NETBIRD_SHA256_ARM64" =~ ^[0-9a-f]{64}$ ]]
 }
+
+@test "Dockerfile.wg-client verifies netbird tarball with sha256sum" {
+    local dockerfile="$SCT_TEMPLATEDIR/devcontainer/sandcat/Dockerfile.wg-client"
+    run grep -F 'sha256sum -c -' "$dockerfile"
+    assert_success
+    run grep -F 'NETBIRD_SHA256_AMD64' "$dockerfile"
+    assert_success
+    run grep -F 'NETBIRD_SHA256_ARM64' "$dockerfile"
+    assert_success
+}

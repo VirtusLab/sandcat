@@ -149,3 +149,35 @@ def test_invalid_request_missing_method(runtime):
     )
     response = dispatcher.handle({"jsonrpc": "2.0", "id": 1})
     assert response["error"]["code"] == -32600
+
+
+def test_lease_returns_rpc_error_when_netbird_grant_raises(tmp_path):
+    from capability_runtime.netbird_client import MockNetBirdClient
+    from capability_runtime.network import NetworkBinding, SyncMode
+
+    client = MockNetBirdClient(peers=[{"id": "peer-abc"}], routes=[])
+    runtime = CapabilityRuntime(tmp_path / "trace.jsonl", "trace-rpc", 401, netbird_client=client)
+    ref = CapabilityRef("cap-reach-api")
+    binding = NetworkBinding(ref, "peer-abc", "10.8.0.0/24", "route-bad", SyncMode.ROUTE_ENABLE)
+    runtime.register_network_capability("reach_api", ref, binding, LifecycleState.VISIBLE)
+
+    def boom(*_a, **_kw):
+        raise RuntimeError("HTTP Error 404: Not Found")
+
+    client.enable_binding = boom  # type: ignore[method-assign]
+
+    dispatcher = RpcDispatcher(runtime, surface="admin", bound_agent_id="operator")
+    response = dispatcher.handle(
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "capability.lease",
+            "params": {
+                "agent_id": "devcontainer-agent",
+                "capability_ref": "cap-reach-api",
+                "justification": "gate",
+            },
+        }
+    )
+    assert "error" in response
+    assert "404" in response["error"]["message"]

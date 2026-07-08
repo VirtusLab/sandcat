@@ -74,6 +74,42 @@ class CapabilityRuntime:
         # Register create_pr as DECLARED (invisible until leased)
         self.catalog.register("create_pr", CapabilityRef("cap-create-pr"), LifecycleState.DECLARED)
 
+    def process_expired_network_leases(self, now: datetime | None = None) -> None:
+        """Disable NetBird bindings for expired network leases (TTL hook)."""
+        if self._netbird_backend is None:
+            return
+
+        from capability_runtime.netbird_sync import revoke_network_binding
+
+        if now is None:
+            now = datetime.now(timezone.utc)
+
+        for lease_id, lease in list(self.lease_manager._leases.items()):
+            if (
+                self.lease_manager.is_expired(lease_id, now)
+                and not self.revocation_manager.is_lease_revoked(lease_id)
+                and not self.lease_manager.is_exhausted(lease_id)
+            ):
+                binding = self.catalog.get_network_binding(lease.capability_ref)
+                if binding is None:
+                    continue
+                physical_sync = "disabled"
+                try:
+                    revoke_network_binding(self._netbird_backend, binding, "TTL expired")
+                except Exception:
+                    physical_sync = "failed"
+                self.revocation_manager.revoke_by_lease(lease_id, "TTL expired")
+                self.catalog.set_state(lease.capability_ref, LifecycleState.EXPIRED)
+                self.observability.emit_capability_event(
+                    {
+                        "event": "capability_revoked",
+                        "lease_id": lease_id.value,
+                        "capability_ref": lease.capability_ref.value,
+                        "reason": "TTL expired",
+                        "physical_sync": physical_sync,
+                    }
+                )
+
     def register_network_capability(
         self,
         name: str,
@@ -175,34 +211,7 @@ class CapabilityRuntime:
                             earliest_expiry = lease.expires_at
                         break
 
-        # Disable expired network leases (TTL expiry hook)
-        if self._netbird_backend is not None:
-            from capability_runtime.netbird_sync import revoke_network_binding
-            
-            for lease_id, lease in list(self.lease_manager._leases.items()):
-                if (
-                    self.lease_manager.is_expired(lease_id, now)
-                    and not self.revocation_manager.is_lease_revoked(lease_id)
-                    and not self.lease_manager.is_exhausted(lease_id)
-                ):
-                    binding = self.catalog.get_network_binding(lease.capability_ref)
-                    if binding is not None:
-                        physical_sync = "disabled"
-                        try:
-                            revoke_network_binding(self._netbird_backend, binding, "TTL expired")
-                        except Exception:
-                            physical_sync = "failed"
-                        self.revocation_manager.revoke_by_lease(lease_id, "TTL expired")
-                        self.catalog.set_state(lease.capability_ref, LifecycleState.EXPIRED)
-                        self.observability.emit_capability_event(
-                            {
-                                "event": "capability_revoked",
-                                "lease_id": lease_id.value,
-                                "capability_ref": lease.capability_ref.value,
-                                "reason": "TTL expired",
-                                "physical_sync": physical_sync,
-                            }
-                        )
+        self.process_expired_network_leases(now)
 
         bundle = CapabilityBundle(
             agent_id=agent_id,
@@ -249,6 +258,9 @@ class CapabilityRuntime:
         _assert_caller(caller, agent_id)
         # Check capability exists
         state = self.catalog.get_state(capability_ref)
+        # REVOKED/EXPIRED remain leasable so operators can re-grant after revoke/TTL
+        # without sidecar restart. Physical routes are disabled on revoke/expiry;
+        # a new lease re-enables via NetBird (see test_re_lease_after_revoke.py).
         leasable = {
             LifecycleState.DECLARED,
             LifecycleState.DISCOVERABLE,

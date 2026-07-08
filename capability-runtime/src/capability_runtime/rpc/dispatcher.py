@@ -78,6 +78,8 @@ class RpcDispatcher:
             return self._error_response(request_id, rpc_errors.INTERNAL_ERROR, str(exc))
         except (KeyError, TypeError, ValueError) as exc:
             return self._error_response(request_id, rpc_errors.INVALID_PARAMS, str(exc))
+        except Exception as exc:
+            return self._error_response(request_id, rpc_errors.INTERNAL_ERROR, str(exc))
 
         return {"jsonrpc": "2.0", "result": result, "id": request_id}
 

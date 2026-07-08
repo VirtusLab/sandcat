@@ -9,9 +9,8 @@
       "name": "reach_api",
       "ref": "cap-reach-api",
       "type": "network",
-      "peer_id": "peer-placeholder",
+      "peer_id": "REPLACE_WITH_NETBIRD_PEER_ID",
       "network": "10.8.0.0/24",
-      "route_id": "route-placeholder",
       "sync_mode": "route_enable"
     },
     {
