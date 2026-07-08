@@ -434,23 +434,142 @@ netbird_status() {
 	netbird_api "GET" "/api/peers"
 }
 
+# Derives a NetBird network_id (1-40 chars) from a CIDR when none is supplied.
+netbird_default_network_id() {
+	local network=$1
+	local id
+	id=${network//./-}
+	id=${id//\//-}
+	printf '%.40s' "$id"
+}
+
+# URL-encode a path segment for safe use in API paths.
+# Args:
+#   $1 - Raw path segment
+netbird_urlencode_path_segment() {
+	local raw=$1
+	local encoded=""
+	local i ch hex
+	for ((i = 0; i < ${#raw}; i++)); do
+		ch=${raw:i:1}
+		case "$ch" in
+		[a-zA-Z0-9.~_-]) encoded+="$ch" ;;
+		*)
+			printf -v hex '%02X' "'$ch"
+			encoded+="%${hex}"
+			;;
+		esac
+	done
+	printf '%s' "$encoded"
+}
+
+# Resolves NetBird route distribution group IDs (non-empty).
+# Order: NB_ROUTE_GROUPS, netbird_route_groups setting, GET /api/groups (All).
+# Prints one group ID per line.
+netbird_route_distribution_group_ids() {
+	local raw id
+
+	if [[ -n "${NB_ROUTE_GROUPS:-}" ]]; then
+		local IFS=,
+		for id in $NB_ROUTE_GROUPS; do
+			id=${id//[[:space:]]/}
+			[[ -n "$id" ]] && printf '%s\n' "$id"
+		done
+		return 0
+	fi
+
+	raw=$(netbird_read_setting netbird_route_groups)
+	if [[ -n "$raw" ]]; then
+		if [[ "$raw" == \[* ]]; then
+			require jq
+			jq -r '.[]' <<<"$raw"
+			return 0
+		fi
+		local IFS=,
+		for id in $raw; do
+			id=${id//[[:space:]]/}
+			[[ -n "$id" ]] && printf '%s\n' "$id"
+		done
+		return 0
+	fi
+
+	require jq
+	local groups
+	groups=$(netbird_api "GET" "/api/groups?name=All") || return 1
+	id=$(jq -r '.[] | select(.name == "All") | .id' <<<"$groups" | head -n1)
+	if [[ -z "$id" ]]; then
+		groups=$(netbird_api "GET" "/api/groups") || return 1
+		id=$(jq -r '.[0].id // empty' <<<"$groups")
+	fi
+	if [[ -z "$id" ]]; then
+		echo "No NetBird distribution groups found; set netbird_route_groups in settings or NB_ROUTE_GROUPS" >&2
+		return 1
+	fi
+	printf '%s\n' "$id"
+}
+
+# Builds the JSON body for POST /api/routes (all NetBird-required fields).
+# Args:
+#   $1 - Network CIDR
+#   $2 - Peer ID
+#   $3 - network_id
+#   $4 - metric (optional, default 9999)
+netbird_route_create_body() {
+	local network=$1 peer_id=$2 network_id=$3 metric=${4:-9999}
+	require jq
+
+	local -a group_ids=()
+	local gid
+	while IFS= read -r gid; do
+		[[ -n "$gid" ]] && group_ids+=("$gid")
+	done < <(netbird_route_distribution_group_ids) || return 1
+	if [[ ${#group_ids[@]} -eq 0 ]]; then
+		echo "NetBird route distribution groups list is empty" >&2
+		return 1
+	fi
+
+	local groups_json
+	groups_json=$(printf '%s\n' "${group_ids[@]}" | jq -R . | jq -s .)
+
+	jq -nc \
+		--arg description "sandcat route ${network_id}" \
+		--arg network_id "$network_id" \
+		--arg network "$network" \
+		--arg peer "$peer_id" \
+		--argjson metric "$metric" \
+		--argjson groups "$groups_json" \
+		'{description: $description, network_id: $network_id, enabled: true, peer: $peer, network: $network, metric: $metric, masquerade: true, groups: $groups, keep_route: false}'
+}
+
 # Adds a network route served by a peer.
 # Args:
 #   $1 - Network CIDR (e.g. 10.8.0.0/24)
 #   $2 - Peer ID that serves the route
+#   $3 - Optional network_id (defaults to a slug derived from the CIDR)
+#   $4 - Optional route metric 1-9999 (default 9999; lower = higher priority)
 netbird_route_add() {
 	local network=$1
 	local peer_id=$2
-	netbird_api "POST" "/api/routes" \
-		"{\"network\":\"$network\",\"peer\":\"$peer_id\",\"enabled\":true}"
+	local network_id=${3:-$(netbird_default_network_id "$network")}
+	local metric=${4:-9999}
+	local body
+
+	body=$(netbird_route_create_body "$network" "$peer_id" "$network_id" "$metric") || return 1
+	netbird_api "POST" "/api/routes" "$body"
 }
 
-# Enables an existing network route by ID.
+# Enables an existing network route by ID (GET + PUT; NetBird has no PATCH).
 # Args:
 #   $1 - Route ID
 netbird_route_enable() {
 	local route_id=$1
-	netbird_api "PATCH" "/api/routes/$route_id" '{"enabled":true}'
+	local route_id_escaped
+	route_id_escaped=$(netbird_urlencode_path_segment "$route_id")
+	require jq
+	local route body
+	route=$(netbird_api "GET" "/api/routes/$route_id_escaped") || return 1
+	body=$(jq '.enabled = true | del(.id, .network_type)' <<<"$route")
+	netbird_api "PUT" "/api/routes/$route_id_escaped" "$body"
 }
 
 # Disables an existing network route by ID without deleting it.
@@ -458,7 +577,13 @@ netbird_route_enable() {
 #   $1 - Route ID
 netbird_route_disable() {
 	local route_id=$1
-	netbird_api "PATCH" "/api/routes/$route_id" '{"enabled":false}'
+	local route_id_escaped
+	route_id_escaped=$(netbird_urlencode_path_segment "$route_id")
+	require jq
+	local route body
+	route=$(netbird_api "GET" "/api/routes/$route_id_escaped") || return 1
+	body=$(jq '.enabled = false | del(.id, .network_type)' <<<"$route")
+	netbird_api "PUT" "/api/routes/$route_id_escaped" "$body"
 }
 
 # Removes a network route by ID.
@@ -466,7 +591,9 @@ netbird_route_disable() {
 #   $1 - Route ID (returned by netbird_route_add)
 netbird_route_remove() {
 	local route_id=$1
-	netbird_api "DELETE" "/api/routes/$route_id"
+	local route_id_escaped
+	route_id_escaped=$(netbird_urlencode_path_segment "$route_id")
+	netbird_api "DELETE" "/api/routes/$route_id_escaped"
 }
 
 # Removes a peer from the NetBird management server.
@@ -476,7 +603,9 @@ netbird_route_remove() {
 #   $1 - Peer ID
 netbird_peer_remove() {
 	local peer_id=$1
-	netbird_api "DELETE" "/api/peers/$peer_id"
+	local peer_id_escaped
+	peer_id_escaped=$(netbird_urlencode_path_segment "$peer_id")
+	netbird_api "DELETE" "/api/peers/$peer_id_escaped"
 }
 
 # Returns the provisioned self-hosted NetBird server directory.

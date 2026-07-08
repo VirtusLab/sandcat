@@ -93,7 +93,15 @@ class RouteDisappearanceWatcher:
             try:
                 revoke_network_binding(backend, binding, "physical reconcile")
             except Exception:
-                pass
+                self._runtime.observability.emit_capability_event(
+                    {
+                        "event": "physical_reconcile_failed",
+                        "capability_ref": ref.value,
+                        "peer_id": binding.peer_id,
+                        "route_id": binding.route_id,
+                        "reason": "physical reconcile",
+                    }
+                )
 
     def poll_once(self) -> None:
         """Poll once for disappeared peers and revoke their capabilities.
@@ -108,6 +116,7 @@ class RouteDisappearanceWatcher:
         Also retries physical disable for REVOKED/EXPIRED bindings whose route
         is still enabled (e.g. after a transient NetBird API failure).
         """
+        self._runtime.process_expired_network_leases()
         self._reconcile_stale_physical_routes()
 
         # Collect all network bindings from catalog

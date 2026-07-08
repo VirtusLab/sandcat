@@ -88,11 +88,20 @@ def load_catalog_into_runtime(runtime: CapabilityRuntime, catalog_path: Path) ->
         ref = CapabilityRef(entry["ref"])
         cap_type = entry.get("type", "tool")
         if cap_type == "network":
+            route_id = entry.get("route_id")
+            if isinstance(route_id, str):
+                route_id = route_id.strip() or None
+                if route_id and route_id.lower() in {
+                    "route-placeholder",
+                    "peer-placeholder",
+                    "placeholder",
+                }:
+                    route_id = None
             binding = NetworkBinding(
                 ref,
                 entry["peer_id"],
                 entry["network"],
-                entry.get("route_id"),
+                route_id,
                 sync_mode_from_catalog(entry),
             )
             runtime.register_network_capability(

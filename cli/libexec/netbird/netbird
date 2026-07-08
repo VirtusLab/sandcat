@@ -16,7 +16,7 @@ Subcommands:
   server stop                                   Stop the local self-hosted NetBird server stack
   server status                                 Show docker compose status for the local server
   peer remove --peer-id <id>                    Remove a peer; wg-client drops the route from wt0
-  route add   --network <cidr> --peer-id <id>   Add a network route
+  route add   --network <cidr> --peer-id <id> [--network-id <id>] [--metric <n>]   Add a network route
   route remove --route-id <id>                  Remove a route by ID
 EOF
 }
@@ -99,7 +99,7 @@ cmd_route() {
     shift || true
     case "$subcmd" in
     add)
-        local network="" peer_id=""
+        local network="" peer_id="" network_id="" metric=""
         while [[ $# -gt 0 ]]; do
             case $1 in
             --network)
@@ -118,6 +118,22 @@ cmd_route() {
                 peer_id="$2"
                 shift 2
                 ;;
+            --network-id)
+                if [[ $# -lt 2 || "$2" == --* ]]; then
+                    echo "Option --network-id requires a value" | error
+                    return 1
+                fi
+                network_id="$2"
+                shift 2
+                ;;
+            --metric)
+                if [[ $# -lt 2 || "$2" == --* ]]; then
+                    echo "Option --metric requires a value" | error
+                    return 1
+                fi
+                metric="$2"
+                shift 2
+                ;;
             *) echo "Unknown option: $1" | error; return 1 ;;
             esac
         done
@@ -131,8 +147,16 @@ cmd_route() {
             echo "--network must be a CIDR (e.g. 10.8.0.0/24), not an interface name" | error
             return 1
         fi
+        if [[ -n "$metric" ]]; then
+            if [[ ! "$metric" =~ ^[0-9]+$ ]] || (( metric < 1 || metric > 9999 )); then
+                echo "Option --metric must be an integer between 1 and 9999" | error
+                return 1
+            fi
+        fi
         local response
-        response=$(netbird_route_add "$network" "$peer_id") || return 1
+        local rid="${network_id:-$(netbird_default_network_id "$network")}"
+        local route_metric="${metric:-9999}"
+        response=$(netbird_route_add "$network" "$peer_id" "$rid" "$route_metric") || return 1
         if command -v jq &>/dev/null; then
             echo "$response" | jq .
         else

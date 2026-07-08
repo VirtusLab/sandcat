@@ -151,7 +151,7 @@ def test_ttl_expiry_disables_network_binding(tmp_path):
     from capability_runtime.netbird_client import MockNetBirdClient
     from capability_runtime.network import NetworkBinding
     from capability_runtime.runtime import CapabilityRuntime
-    from capability_runtime.types import AgentIdentity, CapabilityRef, LeaseId
+    from capability_runtime.types import AgentIdentity, CapabilityRef
 
     client = MockNetBirdClient(
         peers=[{"id": "peer-ttl", "connected": True}],
@@ -162,23 +162,49 @@ def test_ttl_expiry_disables_network_binding(tmp_path):
     ref = CapabilityRef("cap-ttl-test")
     binding = NetworkBinding(ref, "peer-ttl", "172.16.0.0/24", "route-ttl")
     runtime.register_network_capability("ttl_net", ref, binding, LifecycleState.DECLARED)
-    
-    # Lease with short TTL
+
     decision = runtime.request_capability_lease(agent, agent, ref, "testing ttl")
-    
-    # Force expiry by manipulating lease expiry time
-    runtime.lease_manager._leases[decision.lease_id].expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
-    
-    # Check capabilities - should detect expired lease and disable binding
+    runtime.lease_manager._leases[decision.lease_id].expires_at = (
+        datetime.now(timezone.utc) - timedelta(seconds=1)
+    )
+
     bundle = runtime.check_current_capabilities(agent, {})
-    
-    # Peer should still exist, route should be disabled
+
     assert client.peer_exists("peer-ttl")
-    assert client.route_exists("route-ttl")
     routes = [r for r in client.list_routes() if r["id"] == "route-ttl"]
     assert routes[0]["enabled"] is False
-    # Capability should not be in bundle
     assert "ttl_net" not in [n.name for n in bundle.networks]
+
+
+def test_ttl_expiry_via_watcher_poll(tmp_path):
+    """Watcher poll processes TTL expiry without requiring capability.check."""
+    from datetime import datetime, timedelta, timezone
+    from capability_runtime.catalog import LifecycleState
+    from capability_runtime.netbird_client import MockNetBirdClient
+    from capability_runtime.network import NetworkBinding, SyncMode
+    from capability_runtime.route_watcher import RouteDisappearanceWatcher
+    from capability_runtime.runtime import CapabilityRuntime
+    from capability_runtime.types import AgentIdentity, CapabilityRef
+
+    client = MockNetBirdClient(
+        peers=[{"id": "peer-ttl", "connected": True}],
+        routes=[{"id": "route-ttl", "network": "172.16.0.0/24", "enabled": True}],
+    )
+    runtime = CapabilityRuntime(tmp_path / "t.jsonl", "trace-ttl-w", 3, netbird_client=client)
+    agent = AgentIdentity("agent-ttl")
+    ref = CapabilityRef("cap-ttl-watcher")
+    binding = NetworkBinding(ref, "peer-ttl", "172.16.0.0/24", "route-ttl", SyncMode.ROUTE_ENABLE)
+    runtime.register_network_capability("ttl_net", ref, binding, LifecycleState.VISIBLE)
+    decision = runtime.request_capability_lease(agent, agent, ref, "testing ttl")
+    runtime.lease_manager._leases[decision.lease_id].expires_at = (
+        datetime.now(timezone.utc) - timedelta(seconds=1)
+    )
+
+    RouteDisappearanceWatcher(runtime, client).poll_once()
+
+    routes = [r for r in client.list_routes() if r["id"] == "route-ttl"]
+    assert routes[0]["enabled"] is False
+    assert runtime.catalog.get_state(ref) == LifecycleState.EXPIRED
 
 
 def test_ttl_expiry_continues_when_netbird_disable_fails(tmp_path, monkeypatch):

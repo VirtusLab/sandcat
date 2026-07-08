@@ -6,6 +6,7 @@ setup() {
     NETBIRD_CMD="$SCT_LIBEXECDIR/netbird/netbird"
     export NB_MANAGEMENT_URL="https://api.netbird.io"
     export NB_API_TOKEN="test-token"
+    export NB_ROUTE_GROUPS="grp-test"
 }
 
 teardown() {
@@ -74,8 +75,16 @@ teardown() {
 
 @test "netbird route add calls netbird_route_add" {
     stub curl \
-        "-sS -X POST -H 'Authorization: Token test-token' -H 'Accept: application/json' -H 'Content-Type: application/json' -d '{\"network\":\"10.8.0.0/24\",\"peer\":\"abc123\",\"enabled\":true}' -w * https://api.netbird.io/api/routes : printf '%s\n200' '{\"id\":\"route1\"}'"
+        "-sS -X POST -H 'Authorization: Token test-token' -H 'Accept: application/json' -H 'Content-Type: application/json' -d '{\"description\":\"sandcat route 10-8-0-0-24\",\"network_id\":\"10-8-0-0-24\",\"enabled\":true,\"peer\":\"abc123\",\"network\":\"10.8.0.0/24\",\"metric\":9999,\"masquerade\":true,\"groups\":[\"grp-test\"],\"keep_route\":false}' -w * https://api.netbird.io/api/routes : printf '%s\n200' '{\"id\":\"route1\"}'"
     run bash "$NETBIRD_CMD" route add --network 10.8.0.0/24 --peer-id abc123
+    assert_success
+    assert_output --partial "route1"
+}
+
+@test "netbird route add passes explicit --network-id" {
+    stub curl \
+        "-sS -X POST -H 'Authorization: Token test-token' -H 'Accept: application/json' -H 'Content-Type: application/json' -d '{\"description\":\"sandcat route reach-api\",\"network_id\":\"reach-api\",\"enabled\":true,\"peer\":\"abc123\",\"network\":\"100.79.107.115/32\",\"metric\":9999,\"masquerade\":true,\"groups\":[\"grp-test\"],\"keep_route\":false}' -w * https://api.netbird.io/api/routes : printf '%s\n200' '{\"id\":\"route1\"}'"
+    run bash "$NETBIRD_CMD" route add --network 100.79.107.115/32 --peer-id abc123 --network-id reach-api
     assert_success
     assert_output --partial "route1"
 }
@@ -96,6 +105,20 @@ teardown() {
     stub curl \
         "-sS -X DELETE -H 'Authorization: Token test-token' -H 'Accept: application/json' -H 'Content-Type: application/json' -w * https://api.netbird.io/api/routes/route1 : printf '\n200'"
     run bash "$NETBIRD_CMD" route remove --route-id route1
+    assert_success
+}
+
+@test "netbird route remove URL-encodes route id path segment" {
+    stub curl \
+        "-sS -X DELETE -H 'Authorization: Token test-token' -H 'Accept: application/json' -H 'Content-Type: application/json' -w * https://api.netbird.io/api/routes/route%2Fone%3Fx%3D1 : printf '\n200'"
+    run bash "$NETBIRD_CMD" route remove --route-id "route/one?x=1"
+    assert_success
+}
+
+@test "netbird peer remove URL-encodes peer id path segment" {
+    stub curl \
+        "-sS -X DELETE -H 'Authorization: Token test-token' -H 'Accept: application/json' -H 'Content-Type: application/json' -w * https://api.netbird.io/api/peers/peer%2Fabc%3Ffoo%3Dbar : printf '\n200'"
+    run bash "$NETBIRD_CMD" peer remove --peer-id "peer/abc?foo=bar"
     assert_success
 }
 
