@@ -8,9 +8,11 @@ import signal
 import threading
 import time
 from dataclasses import dataclass
+from datetime import timedelta
 from pathlib import Path
 
 from capability_runtime.catalog import LifecycleState
+from capability_runtime.policy import LeasePolicy
 from capability_runtime.netbird_client import MockNetBirdClient, NetBirdClient, RestNetBirdClient
 from capability_runtime.network import NetworkBinding, sync_mode_from_catalog
 from capability_runtime.rpc.dispatcher import RpcDispatcher
@@ -104,6 +106,18 @@ def load_catalog_into_runtime(runtime: CapabilityRuntime, catalog_path: Path) ->
         else:
             if runtime.catalog.get_by_name(name) is None:
                 runtime.catalog.register(name, ref, LifecycleState.DECLARED)
+
+        if "lease_policy" in entry:
+            lp = entry["lease_policy"]
+            runtime.register_lease_policy(
+                name,
+                LeasePolicy(
+                    quota=lp["quota"],
+                    ttl=timedelta(minutes=lp["ttl_minutes"]),
+                    token_budget=lp["token_budget"],
+                    risk_envelope=lp.get("risk_envelope", "medium"),
+                ),
+            )
 
 
 class _WatcherPollThread:

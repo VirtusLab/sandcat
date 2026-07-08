@@ -25,6 +25,7 @@ from capability_runtime.netbird_backend import NetBirdRevocationBackend
 from capability_runtime.netbird_client import NetBirdClient
 from capability_runtime.netbird_sync import grant_network_binding
 from capability_runtime.observability import ObservabilityCollector
+from capability_runtime.policy import LeasePolicy, LeasePolicyNotFound, lease_policy_for, register_lease_policy
 from capability_runtime.revoke import RevocationManager
 from capability_runtime.types import (
     AgentIdentity,
@@ -83,6 +84,10 @@ class CapabilityRuntime:
         """Register a network capability with its binding."""
         self.catalog.register(name, ref, initial_state)
         self.catalog.set_network_binding(ref, binding)
+
+    def register_lease_policy(self, capability_name: str, policy: LeasePolicy) -> None:
+        """Register a lease policy for a capability by name."""
+        register_lease_policy(capability_name, policy)
 
     def check_current_capabilities(
         self, agent_id: AgentIdentity, context: dict
@@ -259,17 +264,23 @@ class CapabilityRuntime:
         now = datetime.now(timezone.utc)
 
         capability_name = self.catalog.get_name(capability_ref)
-        if capability_name == "write_note":
-            quota = 3
-            ttl = timedelta(minutes=5)
-            token_budget = 10_000
-            risk_envelope = "medium"
-        else:
-            # PoC 1 params for create_pr (default)
-            quota = 1
-            ttl = timedelta(minutes=10)
-            token_budget = 25_000
-            risk_envelope = "high"
+        try:
+            policy = lease_policy_for(capability_name)
+            quota = policy.quota
+            ttl = policy.ttl
+            token_budget = policy.token_budget
+            risk_envelope = policy.risk_envelope
+        except LeasePolicyNotFound:
+            if capability_name == "write_note":
+                quota = 3
+                ttl = timedelta(minutes=5)
+                token_budget = 10_000
+                risk_envelope = "medium"
+            else:
+                quota = 1
+                ttl = timedelta(minutes=10)
+                token_budget = 25_000
+                risk_envelope = "high"
 
         decision = self.lease_manager.grant(
             agent_id=agent_id,

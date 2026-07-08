@@ -13,6 +13,16 @@
       "network": "10.8.0.0/24",
       "route_id": "route-placeholder",
       "sync_mode": "route_enable"
+    },
+    {
+      "name": "reach_proxy",
+      "ref": "cap-reach-proxy",
+      "type": "network",
+      "peer_id": "peer-placeholder",
+      "network": "100.64.0.0/32",
+      "sync_mode": "route_enable",
+      "proxy": {"port": 8080, "path_prefix": "/hello"},
+      "lease_policy": {"quota": 5, "ttl_minutes": 15, "token_budget": 10000}
     }
   ]
 }
