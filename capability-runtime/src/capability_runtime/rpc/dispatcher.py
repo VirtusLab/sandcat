@@ -7,6 +7,7 @@ from typing import Any, Literal
 
 from capability_runtime.discover import DiscoveryIntent
 from capability_runtime.errors import CapabilityRuntimeError
+from capability_runtime.l7_record import record_l7_flow
 from capability_runtime.rpc import errors as rpc_errors
 from capability_runtime.runtime import CapabilityRuntime
 from capability_runtime.route_watcher import RouteDisappearanceWatcher
@@ -30,6 +31,7 @@ ADMIN_METHODS = AGENT_METHODS | frozenset(
     {
         "capability.revoke",
         "capability.watch.poll",
+        "capability.l7.record",
     }
 )
 
@@ -99,6 +101,8 @@ class RpcDispatcher:
             return self._handle_revoke(params)
         if method == "capability.watch.poll":
             return self._handle_watch_poll(params)
+        if method == "capability.l7.record":
+            return self._handle_l7_record(params)
         raise RuntimeError(f"unhandled allowed method: {method}")
 
     def _resolve_agent_id(self, params: dict) -> AgentIdentity:
@@ -144,6 +148,22 @@ class RpcDispatcher:
             raise ValueError("route watcher not configured")
         self._watcher.poll_once()
         return {"polled": True}
+
+    def _handle_l7_record(self, params: dict) -> dict:
+        agent_id = self._resolve_agent_id(params)
+        host = params["host"]
+        method = params["method"]
+        status = params["status"]
+        trace_id = params.get("trace_id")
+        recorded = record_l7_flow(
+            self._runtime,
+            agent_id,
+            host=host,
+            method=method,
+            status=status,
+            trace_id=trace_id,
+        )
+        return {"recorded": recorded}
 
 
 def _parse_revoke_target(runtime: CapabilityRuntime, target: str) -> LeaseId | CapabilityRef:
