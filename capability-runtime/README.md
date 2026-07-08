@@ -45,6 +45,13 @@ Phase 3 realizes this thesis by binding each network capability to a NetBird pee
 - Grant failure rolls back the lease (fail closed); observability emits `physical_sync: enabled` on successful network lease
 - mitmproxy remains egress inspection only — no per-request L7 allowlist from bundle
 
+**In scope (Phase 3e — proxy-peer gateway):**
+
+- Catalog `lease_policy` on network capabilities overrides PoC hardcoded quotas in `request_capability_lease`
+- Admin-only `capability.l7.record` RPC decrements network lease quota from post-hoc mitmproxy flow records
+- `l7_record.py` matches flow host to active network binding CIDR and calls `record_action`
+- mitmproxy addon emits `l7_flow` events when `CAPABILITY_L7_RECORD=1` (best-effort Unix socket to admin surface)
+
 **Out of scope / known limitations:**
 
 - Token budget enforcement (`token_budget` is stored but not decremented)
@@ -178,9 +185,10 @@ Automated unit tests and PoC demo, plus printed manual live-smoke steps (NetBird
 
 ```bash
 bash scripts/phase3c_engineering_gate.sh
+bash scripts/phase3e_engineering_gate.sh
 ```
 
-Manual steps map to the [Phase 3c spec §11 success criteria](../../docs/superpowers/specs/2026-06-30-capability-netbird-policy-sync-phase3c-design.md#11-success-criteria-engineering-gate-before-phase-4). For catalog ID setup before live smoke, see [Catalog IDs for live smoke](../../cli/README.md#catalog-ids-for-live-smoke) in the CLI README.
+Manual steps map to the [Phase 3c spec §11 success criteria](../../docs/superpowers/specs/2026-06-30-capability-netbird-policy-sync-phase3c-design.md#11-success-criteria-engineering-gate-before-phase-4) and [Phase 3e spec §9](../../docs/superpowers/specs/2026-07-08-capability-proxy-peer-gateway-phase3e-design.md). For catalog ID setup before live smoke, see [Catalog IDs for live smoke](../../cli/README.md#catalog-ids-for-live-smoke) in the CLI README.
 
 ## Layout
 
@@ -194,7 +202,8 @@ Manual steps map to the [Phase 3c spec §11 success criteria](../../docs/superpo
 | `netbird_sync.py` | Grant/revoke orchestration helpers for network bindings |
 | `route_watcher.py` | `RouteDisappearanceWatcher` — physical disappearance → logical revoke |
 | `lease.py` / `revoke.py` | Grant, quota, revocation |
-| `policy.py` | PoC lease parameters (not in core runtime) |
+| `policy.py` | Lease parameters (PoC defaults + catalog `lease_policy` registration) |
+| `l7_record.py` | Post-hoc L7 flow → network lease quota decrement |
 | `observability.py` | JSONL trace + replay |
 | `agent_loop.py` | Check-then-act harness |
 | `mcp_adapter.py` | Transport-agnostic MCP tool wrapper |
