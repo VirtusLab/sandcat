@@ -8,7 +8,11 @@ from urllib.error import HTTPError
 
 import pytest
 
-from capability_runtime.netbird_client import MockNetBirdClient, RestNetBirdClient
+from capability_runtime.netbird_client import (
+    MockNetBirdClient,
+    NetBirdApiError,
+    RestNetBirdClient,
+)
 
 
 def test_mock_client_tracks_peers_and_routes():
@@ -142,5 +146,5 @@ def test_rest_client_raises_on_http_error(monkeypatch):
     monkeypatch.setenv("NB_API_TOKEN", "test-token")
     monkeypatch.setattr("capability_runtime.netbird_client.urlopen", fake_urlopen)
 
-    with pytest.raises(HTTPError):
+    with pytest.raises(NetBirdApiError, match="HTTP 404"):
         RestNetBirdClient().remove_peer("peer-missing")

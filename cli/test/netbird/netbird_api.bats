@@ -8,6 +8,7 @@ setup() {
     mkdir -p "$HOME/.config/sandcat"
     export NB_MANAGEMENT_URL="https://api.netbird.io"
     export NB_API_TOKEN="test-token"
+    export NB_ROUTE_GROUPS="grp-test"
 }
 
 teardown() {
@@ -29,9 +30,26 @@ teardown() {
     assert_output --partial "peer1"
 }
 
-@test "netbird_route_add calls POST /api/routes with network and peer" {
+@test "netbird_route_add calls POST /api/routes with required fields" {
     stub curl \
-        "-sS -X POST -H 'Authorization: Token test-token' -H 'Accept: application/json' -H 'Content-Type: application/json' -d '{\"network\":\"10.8.0.0/24\",\"peer\":\"peer1\",\"enabled\":true}' -w * https://api.netbird.io/api/routes : printf '%s\n200' '{\"id\":\"route1\"}'"
+        "-sS -X POST -H 'Authorization: Token test-token' -H 'Accept: application/json' -H 'Content-Type: application/json' -d '{\"description\":\"sandcat route 10-8-0-0-24\",\"network_id\":\"10-8-0-0-24\",\"enabled\":true,\"peer\":\"peer1\",\"network\":\"10.8.0.0/24\",\"metric\":9999,\"masquerade\":true,\"groups\":[\"grp-test\"],\"keep_route\":false}' -w * https://api.netbird.io/api/routes : printf '%s\n200' '{\"id\":\"route1\"}'"
+    run netbird_route_add "10.8.0.0/24" "peer1"
+    assert_success
+}
+
+@test "netbird_route_add accepts explicit network_id" {
+    stub curl \
+        "-sS -X POST -H 'Authorization: Token test-token' -H 'Accept: application/json' -H 'Content-Type: application/json' -d '{\"description\":\"sandcat route reach-api\",\"network_id\":\"reach-api\",\"enabled\":true,\"peer\":\"peer1\",\"network\":\"10.8.0.0/24\",\"metric\":9999,\"masquerade\":true,\"groups\":[\"grp-test\"],\"keep_route\":false}' -w * https://api.netbird.io/api/routes : printf '%s\n200' '{\"id\":\"route1\"}'"
+    run netbird_route_add "10.8.0.0/24" "peer1" "reach-api"
+    assert_success
+}
+
+@test "netbird_route_add discovers All group when groups unset" {
+    unset NB_ROUTE_GROUPS
+    stub curl \
+        "-sS -X GET -H 'Authorization: Token test-token' -H 'Accept: application/json' -H 'Content-Type: application/json' -w * https://api.netbird.io/api/groups?name=All : printf '%s\n200' '[{\"id\":\"grp-all\",\"name\":\"All\"}]'"
+    stub curl \
+        "-sS -X POST -H 'Authorization: Token test-token' -H 'Accept: application/json' -H 'Content-Type: application/json' -d '{\"description\":\"sandcat route 10-8-0-0-24\",\"network_id\":\"10-8-0-0-24\",\"enabled\":true,\"peer\":\"peer1\",\"network\":\"10.8.0.0/24\",\"metric\":9999,\"masquerade\":true,\"groups\":[\"grp-all\"],\"keep_route\":false}' -w * https://api.netbird.io/api/routes : printf '%s\n200' '{\"id\":\"route1\"}'"
     run netbird_route_add "10.8.0.0/24" "peer1"
     assert_success
 }
@@ -84,4 +102,24 @@ teardown() {
     export NB_MANAGEMENT_URL="http://localhost:33073/api"
     run netbird_management_base_url
     assert_output "http://localhost:33073"
+}
+
+@test "netbird_urlencode_path_segment encodes reserved characters" {
+    run netbird_urlencode_path_segment "route/one?x=1"
+    assert_success
+    assert_output "route%2Fone%3Fx%3D1"
+}
+
+@test "netbird_route_add escapes peer_id in JSON body" {
+    stub curl \
+        "-sS -X POST -H 'Authorization: Token test-token' -H 'Accept: application/json' -H 'Content-Type: application/json' -d '{\"description\":\"sandcat route 10-8-0-0-24\",\"network_id\":\"10-8-0-0-24\",\"enabled\":true,\"peer\":\"peer\\\"evil\",\"network\":\"10.8.0.0/24\",\"metric\":9999,\"masquerade\":true,\"groups\":[\"grp-test\"],\"keep_route\":false}' -w * https://api.netbird.io/api/routes : printf '%s\n200' '{\"id\":\"route1\"}'"
+    run netbird_route_add "10.8.0.0/24" 'peer"evil'
+    assert_success
+}
+
+@test "netbird_route_remove URL-encodes route id path segment" {
+    stub curl \
+        "-sS -X DELETE -H 'Authorization: Token test-token' -H 'Accept: application/json' -H 'Content-Type: application/json' -w * https://api.netbird.io/api/routes/route%2Fone%3Fx%3D1 : printf '\n200'"
+    run netbird_route_remove "route/one?x=1"
+    assert_success
 }

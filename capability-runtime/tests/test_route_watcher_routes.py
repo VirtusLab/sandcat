@@ -1,6 +1,11 @@
 from capability_runtime.netbird_client import MockNetBirdClient
 from capability_runtime.network import NetworkBinding, SyncMode
+from capability_runtime.catalog import LifecycleState
+from capability_runtime.route_watcher import RouteDisappearanceWatcher
+from capability_runtime.runtime import CapabilityRuntime
+from capability_runtime.types import AgentIdentity
 from capability_runtime.types import CapabilityRef
+import json
 
 
 def test_get_route_state_enabled():
@@ -117,11 +122,6 @@ def test_watcher_reconciles_route_after_failed_physical_revoke(tmp_path, monkeyp
 
 
 def test_watcher_ignores_declared_binding_when_route_disabled(tmp_path):
-    from capability_runtime.catalog import LifecycleState
-    from capability_runtime.route_watcher import RouteDisappearanceWatcher
-    from capability_runtime.runtime import CapabilityRuntime
-    from capability_runtime.types import CapabilityRef
-
     client = MockNetBirdClient(
         peers=[{"id": "peer-abc"}],
         routes=[{"id": "route-1", "network": "10.8.0.0/24", "peer": "peer-abc", "enabled": False}],
@@ -134,3 +134,31 @@ def test_watcher_ignores_declared_binding_when_route_disabled(tmp_path):
     RouteDisappearanceWatcher(runtime, client).poll_once()
 
     assert runtime.catalog.get_state(ref) == LifecycleState.DECLARED
+
+
+def test_watcher_emits_event_when_reconcile_disable_fails(tmp_path, monkeypatch):
+    client = MockNetBirdClient(
+        peers=[{"id": "peer-abc"}],
+        routes=[{"id": "route-1", "network": "10.8.0.0/24", "peer": "peer-abc", "enabled": True}],
+    )
+    runtime = CapabilityRuntime(tmp_path / "t.jsonl", "trace-rw-fail", 7, netbird_client=client)
+    agent = AgentIdentity("agent-1")
+    ref = CapabilityRef("cap-reach-api")
+    binding = NetworkBinding(ref, "peer-abc", "10.8.0.0/24", "route-1", SyncMode.ROUTE_ENABLE)
+    runtime.register_network_capability("reach_api", ref, binding, LifecycleState.VISIBLE)
+    runtime.request_capability_lease(agent, agent, ref, "need api")
+    runtime.revoke_capability(AgentIdentity("operator"), ref, "operator revoke")
+    client._routes[0]["enabled"] = True
+
+    def always_fail(_binding):
+        raise RuntimeError("netbird still down")
+
+    monkeypatch.setattr(client, "disable_binding", always_fail)
+
+    RouteDisappearanceWatcher(runtime, client).poll_once()
+
+    events = [json.loads(line) for line in (tmp_path / "t.jsonl").read_text().splitlines() if line]
+    reconcile_failures = [e for e in events if e.get("event") == "physical_reconcile_failed"]
+    assert reconcile_failures
+    assert reconcile_failures[-1]["capability_ref"] == "cap-reach-api"
+    assert reconcile_failures[-1]["route_id"] == "route-1"

@@ -10,6 +10,100 @@ from urllib.request import Request, urlopen
 from capability_runtime.network import NetworkBinding, SyncMode
 
 
+def _default_network_id(network: str) -> str:
+    """NetBird network_id (1-40 chars) derived from a CIDR."""
+    return network.replace(".", "-").replace("/", "-")[:40]
+
+
+DEFAULT_ROUTE_METRIC = 9999
+DEFAULT_ROUTE_MASQUERADE = True
+DEFAULT_ROUTE_KEEP_ROUTE = False
+
+
+class NetBirdApiError(RuntimeError):
+    def __init__(self, method: str, path: str, code: int, detail: str) -> None:
+        self.method = method
+        self.path = path
+        self.code = code
+        self.detail = detail
+        super().__init__(
+            f"NetBird API {method} {path} failed (HTTP {code}): {detail}"
+        )
+
+
+def _network_id_for_binding(binding: NetworkBinding) -> str:
+    ref = binding.capability_ref.value
+    if ref.startswith("cap-"):
+        ref = ref[4:]
+    slug = ref.replace("_", "-")[:40]
+    if slug:
+        return slug
+    return _default_network_id(binding.network)
+
+
+def _effective_route_id(route_id: str | None) -> str | None:
+    """Treat template placeholders and empty strings as no route id."""
+    if route_id is None:
+        return None
+    normalized = route_id.strip().lower()
+    if normalized in {"", "route-placeholder", "peer-placeholder", "placeholder"}:
+        return None
+    return route_id.strip()
+
+
+def build_route_create_payload(
+    *,
+    network: str,
+    peer_id: str,
+    network_id: str,
+    groups: list[str],
+    metric: int = DEFAULT_ROUTE_METRIC,
+    masquerade: bool = DEFAULT_ROUTE_MASQUERADE,
+    keep_route: bool = DEFAULT_ROUTE_KEEP_ROUTE,
+) -> dict[str, Any]:
+    """NetBird POST /api/routes body with all required fields."""
+    if not groups:
+        raise ValueError("route distribution groups must not be empty")
+    return {
+        "description": f"sandcat route {network_id}",
+        "network_id": network_id,
+        "enabled": True,
+        "peer": peer_id,
+        "network": network,
+        "metric": metric,
+        "masquerade": masquerade,
+        "groups": groups,
+        "keep_route": keep_route,
+    }
+
+
+_ROUTE_PUT_KEYS = (
+    "description",
+    "network_id",
+    "enabled",
+    "peer",
+    "peer_groups",
+    "network",
+    "domains",
+    "metric",
+    "masquerade",
+    "groups",
+    "keep_route",
+    "access_control_groups",
+    "skip_auto_apply",
+)
+
+
+def route_put_body(route: dict[str, Any], *, enabled: bool | None = None) -> dict[str, Any]:
+    """Build PUT /api/routes/{id} body from a GET route (NetBird has no PATCH)."""
+    body: dict[str, Any] = {
+        key: route[key] for key in _ROUTE_PUT_KEYS if key in route and route[key] is not None
+    }
+    if enabled is not None:
+        body["enabled"] = enabled
+    return body
+
+
 class NetBirdClient(Protocol):
     def list_peers(self) -> list[dict]: ...
 
@@ -75,11 +169,20 @@ class MockNetBirdClient:
         if binding.sync_mode is not SyncMode.ROUTE_ENABLE:
             return binding
 
-        if binding.route_id:
+        route_id = _effective_route_id(binding.route_id)
+        if route_id:
             for route in self._routes:
-                if route.get("id") == binding.route_id:
+                if route.get("id") == route_id:
                     route["enabled"] = True
-            return binding
+                    return binding
+
+        for route in self._routes:
+            if (
+                route.get("peer") == binding.peer_id
+                and route.get("network") == binding.network
+            ):
+                route["enabled"] = True
+                return replace(binding, route_id=route["id"])
 
         route_id = f"route-{self._next_route_id}"
         self._next_route_id += 1
@@ -139,6 +242,12 @@ class RestNetBirdClient:
     def list_routes(self) -> list[dict]:
         return self._request("GET", "/api/routes")
 
+    def list_groups(self, *, name: str | None = None) -> list[dict]:
+        path = "/api/groups"
+        if name:
+            path = f"{path}?name={name}"
+        return self._request("GET", path)
+
     def remove_peer(self, peer_id: str) -> None:
         self._request("DELETE", f"/api/peers/{peer_id}")
 
@@ -168,24 +277,92 @@ class RestNetBirdClient:
         if binding.sync_mode is not SyncMode.ROUTE_ENABLE:
             return binding
 
-        if binding.route_id:
-            self._request(
-                "PATCH",
-                f"/api/routes/{binding.route_id}",
-                {"enabled": True},
-            )
+        route_id = _effective_route_id(binding.route_id)
+        if route_id and self.route_exists(route_id):
+            self._enable_route(route_id)
             return binding
 
-        created = self._request(
+        existing = self._find_route_for_binding(binding)
+        if existing is not None:
+            resolved_id = str(existing["id"])
+            self._enable_route(resolved_id)
+            return replace(binding, route_id=resolved_id)
+
+        try:
+            created = self._create_route(binding)
+        except NetBirdApiError as exc:
+            if exc.code == 422:
+                existing = self._find_route_for_binding(binding)
+                if existing is not None:
+                    resolved_id = str(existing["id"])
+                    self._enable_route(resolved_id)
+                    return replace(binding, route_id=resolved_id)
+            raise
+
+        return replace(binding, route_id=created["id"])
+
+    def _enable_route(self, route_id: str) -> None:
+        self._set_route_enabled(route_id, True)
+
+    def _set_route_enabled(self, route_id: str, enabled: bool) -> None:
+        route = self._get_route(route_id)
+        self._request(
+            "PUT",
+            f"/api/routes/{route_id}",
+            route_put_body(route, enabled=enabled),
+        )
+
+    def _get_route(self, route_id: str) -> dict:
+        return self._request("GET", f"/api/routes/{route_id}")[0]
+
+    def _create_route(self, binding: NetworkBinding) -> dict:
+        return self._request(
             "POST",
             "/api/routes",
-            {
-                "network": binding.network,
-                "peer": binding.peer_id,
-                "enabled": True,
-            },
+            build_route_create_payload(
+                network=binding.network,
+                peer_id=binding.peer_id,
+                network_id=_network_id_for_binding(binding),
+                groups=self._resolve_route_distribution_groups(),
+            ),
         )[0]
-        return replace(binding, route_id=created["id"])
+
+    def _find_route_for_binding(self, binding: NetworkBinding) -> dict | None:
+        network_id = _network_id_for_binding(binding)
+        for route in self.list_routes():
+            if route.get("peer") != binding.peer_id:
+                continue
+            if route.get("network") == binding.network:
+                return route
+            if route.get("network_id") == network_id:
+                return route
+        return None
+
+    def _http_error(self, method: str, path: str, exc: HTTPError) -> NetBirdApiError:
+        detail = exc.read().decode() if exc.fp else ""
+        return NetBirdApiError(method, path, exc.code, detail)
+
+    def _resolve_route_distribution_groups(self) -> list[str]:
+        from capability_runtime.settings import load_netbird_route_groups
+
+        configured = load_netbird_route_groups()
+        if configured:
+            return configured
+
+        groups = self.list_groups(name="All")
+        for group in groups:
+            if group.get("name") == "All" and group.get("id"):
+                return [str(group["id"])]
+
+        if not groups:
+            groups = self.list_groups()
+        if groups and groups[0].get("id"):
+            return [str(groups[0]["id"])]
+
+        raise RuntimeError(
+            "No NetBird distribution groups found; set netbird_route_groups in "
+            "settings or NB_ROUTE_GROUPS"
+        )
 
     def disable_binding(self, binding: NetworkBinding) -> None:
         if binding.sync_mode is SyncMode.PEER_REMOVE:
@@ -200,11 +377,10 @@ class RestNetBirdClient:
 
         if not binding.route_id:
             return
-        self._request(
-            "PATCH",
-            f"/api/routes/{binding.route_id}",
-            {"enabled": False},
-        )
+        route_id = _effective_route_id(binding.route_id)
+        if not route_id:
+            return
+        self._set_route_enabled(route_id, False)
 
     def _management_base_url(self) -> str:
         base = self._management_url.rstrip("/")
@@ -238,8 +414,8 @@ class RestNetBirdClient:
         try:
             with urlopen(request) as response:
                 raw = response.read().decode()
-        except HTTPError:
-            raise
+        except HTTPError as exc:
+            raise self._http_error(method, path, exc) from exc
 
         if not raw:
             return []
