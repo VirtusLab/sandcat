@@ -1,0 +1,16 @@
+services:
+  proxy-peer:
+    build:
+      context: .
+      dockerfile: Dockerfile.proxy-peer
+      args:
+        NETBIRD_VERSION: ${NETBIRD_VERSION}
+        NETBIRD_SHA256_AMD64: ${NETBIRD_SHA256_AMD64}
+        NETBIRD_SHA256_ARM64: ${NETBIRD_SHA256_ARM64}
+    cap_add:
+      - NET_ADMIN
+    environment:
+      - NB_SETUP_KEY
+      - NB_MANAGEMENT_URL
+      - PROXY_PEER_PORT=8080
+    restart: unless-stopped
