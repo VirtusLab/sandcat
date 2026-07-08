@@ -610,6 +610,16 @@ sandcat capability revoke --ref cap-reach-proxy --reason done
 Without an active lease, traffic to the proxy-peer mesh IP times out even though
 Layer 1 allows the host:port in mitmproxy.
 
+### Usage-metered quota (L7 record)
+
+When `--capability` is enabled, mitmproxy can decrement network lease quota from
+post-hoc flow records. Set `CAPABILITY_L7_RECORD=1` in the mitmproxy service
+environment (compose passes the variable through when capability is enabled; set
+the value in your shell or `.env` before `sandcat compose up`). Each successful
+HTTP response to a mesh or Layer-1-allowed host emits `capability.l7.record` on
+the admin socket; quota exhaustion triggers the same auto-revoke path as tool
+quota.
+
 ## Directory Structure
 
 Each module is contained in its own directory under `cli/libexec/`.
