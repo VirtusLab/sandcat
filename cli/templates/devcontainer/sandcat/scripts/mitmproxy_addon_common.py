@@ -548,6 +548,30 @@ class SandcatAddon:
         rule = self._find_matching_rule(method, host)
         return rule is not None and rule.get("action") == "allow"
 
+    _MESH_CGNAT = ipaddress.ip_network("100.64.0.0/10")
+
+    def _host_matches_network_allow_rule(self, host: str) -> bool:
+        host = host.lower().rstrip(".")
+        for rule in self.network_rules:
+            if rule.get("action") != "allow":
+                continue
+            if fnmatch(host, rule["host"].lower()):
+                return True
+        return False
+
+    @classmethod
+    def _host_in_mesh_cgnat(cls, host: str) -> bool:
+        try:
+            return ipaddress.ip_address(host) in cls._MESH_CGNAT
+        except ValueError:
+            return False
+
+    def _should_record_l7_flow(self, host: str) -> bool:
+        return (
+            self._host_matches_network_allow_rule(host)
+            or self._host_in_mesh_cgnat(host)
+        )
+
     # ----------------------------------------------------------- env writer
 
     @staticmethod
@@ -765,6 +789,26 @@ class SandcatAddon:
     def responseheaders(self, flow: http.HTTPFlow):
         if self._is_streaming_request(flow):
             flow.response.stream = True
+
+    def response(self, flow: http.HTTPFlow):
+        if os.environ.get("CAPABILITY_L7_RECORD") != "1":
+            return
+        if not flow.response or flow.response.status_code is None:
+            return
+
+        host = flow.request.pretty_host
+        if not self._should_record_l7_flow(host):
+            return
+
+        from l7_record_client import record_flow
+
+        agent_id = os.environ.get("SANDCAT_AGENT_ID", "devcontainer-agent")
+        record_flow(
+            agent_id=agent_id,
+            host=host,
+            method=flow.request.method,
+            status=flow.response.status_code,
+        )
 
     def dns_request(self, flow: dns.DNSFlow):
         question = flow.request.question

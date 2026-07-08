@@ -464,6 +464,36 @@ enable_capability() {
 		yq -i '.services.agent.depends_on.capability-runtime.condition = "service_started"' "$compose_file"
 	fi
 
+	local proxy_compose="$compose_dir/sandcat/compose-proxy.yml"
+	if [[ -f "$proxy_compose" ]]; then
+		local has_cap_vol
+		has_cap_vol=$(yq '[.volumes | keys[]? | select(. == "capability-socket")] | length' "$proxy_compose")
+		if [[ "$has_cap_vol" -eq 0 ]]; then
+			yq -i '.volumes.capability-socket = {}' "$proxy_compose"
+		fi
+
+		local has_mitm_cap_vol has_l7_client has_l7_record has_mitm_agent_id
+		has_mitm_cap_vol=$(yq '[.services.mitmproxy.volumes[]? | select(. == "capability-socket:/run/sandcat-capability:ro")] | length' "$proxy_compose")
+		if [[ "$has_mitm_cap_vol" -eq 0 ]]; then
+			yq -i '.services.mitmproxy.volumes += ["capability-socket:/run/sandcat-capability:ro"]' "$proxy_compose"
+		fi
+
+		has_l7_client=$(yq '[.services.mitmproxy.volumes[]? | select(. == "./scripts/l7_record_client.py:/scripts/l7_record_client.py:ro")] | length' "$proxy_compose")
+		if [[ "$has_l7_client" -eq 0 ]]; then
+			yq -i '.services.mitmproxy.volumes += ["./scripts/l7_record_client.py:/scripts/l7_record_client.py:ro"]' "$proxy_compose"
+		fi
+
+		has_l7_record=$(yq '[.services.mitmproxy.environment[]? | select(. == "CAPABILITY_L7_RECORD")] | length' "$proxy_compose")
+		if [[ "$has_l7_record" -eq 0 ]]; then
+			yq -i '.services.mitmproxy.environment = ((.services.mitmproxy.environment // []) + ["CAPABILITY_L7_RECORD"])' "$proxy_compose"
+		fi
+
+		has_mitm_agent_id=$(yq '[.services.mitmproxy.environment[]? | select(. == "SANDCAT_AGENT_ID=devcontainer-agent")] | length' "$proxy_compose")
+		if [[ "$has_mitm_agent_id" -eq 0 ]]; then
+			yq -i '.services.mitmproxy.environment = ((.services.mitmproxy.environment // []) + ["SANDCAT_AGENT_ID=devcontainer-agent"])' "$proxy_compose"
+		fi
+	fi
+
 	_enable_capability_mcp_config "$(dirname "$compose_dir")" "$compose_dir/devcontainer.json"
 }
 
