@@ -129,6 +129,7 @@ add_secret_provider_tokens_to_user_settings() {
 #   --1password - Deprecated; same as --secret-provider 1password
 #   --features - Comma-separated optional non-provider features (tui)
 #   --capability - Enable capability-runtime sidecar (requires --netbird)
+#   --proxy-peer - Enable proxy-peer gateway stack (requires --netbird and --capability)
 init() {
 	require yq
 
@@ -151,6 +152,7 @@ init() {
 	local provisioned_netbird_server="false"
 	local netbird_selfhosted_quickstart="false"
 	local capability="false"
+	local proxy_peer="false"
 
 	while [[ $# -gt 0 ]]
 	do
@@ -210,6 +212,10 @@ init() {
 			capability="true"
 			shift 1
 			;;
+		--proxy-peer)
+			proxy_peer="true"
+			shift 1
+			;;
 		--netbird-server)
 			netbird_server="$2"
 			netbird_server_provided=true
@@ -236,6 +242,14 @@ init() {
 	fi
 	if [[ "$capability" == "true" && "$netbird" != "true" ]]; then
 		echo "--capability requires --netbird" | error
+		return 1
+	fi
+	if [[ "$proxy_peer" == "true" && "$netbird" != "true" ]]; then
+		echo "--proxy-peer requires --netbird" | error
+		return 1
+	fi
+	if [[ "$proxy_peer" == "true" && "$capability" != "true" ]]; then
+		echo "--proxy-peer requires --capability" | error
 		return 1
 	fi
 	if [[ "$netbird_server_provided" == "true" ]]; then
@@ -521,6 +535,9 @@ init() {
 	fi
 	if [[ "$capability" == "true" ]]; then
 		devcontainer_args+=(--capability)
+	fi
+	if [[ "$proxy_peer" == "true" ]]; then
+		devcontainer_args+=(--proxy-peer)
 	fi
 	devcontainer "${devcontainer_args[@]}"
 

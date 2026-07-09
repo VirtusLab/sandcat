@@ -8,6 +8,7 @@ setup() {
 	mkdir -p "$COMPOSE_DIR/sandcat"
 	cp "$SCT_TEMPLATEDIR/devcontainer/compose-all.yml" "$COMPOSE_DIR/compose-all.yml"
 	cp "$SCT_TEMPLATEDIR/devcontainer/sandcat/compose-capability.yml" "$COMPOSE_DIR/sandcat/compose-capability.yml"
+	cp "$SCT_TEMPLATEDIR/devcontainer/sandcat/compose-proxy.yml" "$COMPOSE_DIR/sandcat/compose-proxy.yml"
 }
 
 teardown() {
@@ -45,4 +46,21 @@ teardown() {
 
 	run yq '[.services.agent.environment[] | select(. == "SANDCAT_AGENT_ID=devcontainer-agent")] | length' "$COMPOSE_DIR/compose-all.yml"
 	assert_output "1"
+}
+
+@test "enable_capability mounts capability admin socket into mitmproxy" {
+	enable_capability "$COMPOSE_DIR"
+	yq -e '.services.mitmproxy.volumes[] | select(. == "capability-socket:/run/sandcat-capability")' \
+		"$COMPOSE_DIR/sandcat/compose-proxy.yml"
+	yq -e '.services.mitmproxy.volumes[] | select(. == "./scripts/l7_record_client.py:/scripts/l7_record_client.py:ro")' \
+		"$COMPOSE_DIR/sandcat/compose-proxy.yml"
+	yq -e '.volumes.capability-socket' "$COMPOSE_DIR/sandcat/compose-proxy.yml"
+}
+
+@test "enable_capability passes CAPABILITY_L7_RECORD through mitmproxy" {
+	enable_capability "$COMPOSE_DIR"
+	yq -e '.services.mitmproxy.environment[] | select(. == "CAPABILITY_L7_RECORD")' \
+		"$COMPOSE_DIR/sandcat/compose-proxy.yml"
+	yq -e '.services.mitmproxy.environment[] | select(. == "SANDCAT_AGENT_ID=devcontainer-agent")' \
+		"$COMPOSE_DIR/sandcat/compose-proxy.yml"
 }

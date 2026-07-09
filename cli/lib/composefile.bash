@@ -311,13 +311,15 @@ add_jetbrains_capabilities() {
 	yq -i '(.services.agent.cap_add[] | select(. == "FOWNER")) head_comment = "JetBrains IDE: bypass ownership checks on IDE-managed files"' "$compose_file"
 }
 
-# Injects NetBird version and per-arch checksum build args into wg-client's
-# compose build section, sourced from netbird.env (sibling to compose-proxy.yml).
+# Injects NetBird version and per-arch checksum build args into a service's
+# compose build section, sourced from netbird.env (sibling to the compose file).
 # Args:
-#   $1 - Path to compose-proxy.yml
+#   $1 - Path to compose file
+#   $2 - Service name (default: wg-client)
 apply_netbird_build_args() {
 	require yq
 	local compose_file=$1
+	local service_name=${2:-wg-client}
 	local netbird_env
 	netbird_env="$(dirname "$compose_file")/netbird.env"
 
@@ -334,10 +336,25 @@ apply_netbird_build_args() {
 	: "${NETBIRD_SHA256_ARM64:?NETBIRD_SHA256_ARM64 missing from $netbird_env}"
 
 	yq -i "
-		.services.\"wg-client\".build.args.NETBIRD_VERSION = \"${NETBIRD_VERSION}\" |
-		.services.\"wg-client\".build.args.NETBIRD_SHA256_AMD64 = \"${NETBIRD_SHA256_AMD64}\" |
-		.services.\"wg-client\".build.args.NETBIRD_SHA256_ARM64 = \"${NETBIRD_SHA256_ARM64}\"
+		.services.\"${service_name}\".build.args.NETBIRD_VERSION = \"${NETBIRD_VERSION}\" |
+		.services.\"${service_name}\".build.args.NETBIRD_SHA256_AMD64 = \"${NETBIRD_SHA256_AMD64}\" |
+		.services.\"${service_name}\".build.args.NETBIRD_SHA256_ARM64 = \"${NETBIRD_SHA256_ARM64}\"
 	" "$compose_file"
+}
+
+# Copies proxy-peer compose stack and injects NetBird build args.
+# Args:
+#   $1 - Path to the devcontainer directory (parent of sandcat/)
+enable_proxy_peer() {
+	require yq
+	local compose_dir=$1
+	local src="$SCT_TEMPLATEDIR/devcontainer/sandcat/compose-proxy-peer.yml"
+	local dst="$compose_dir/sandcat/compose-proxy-peer.yml"
+	cp "$src" "$dst"
+	cp "$SCT_TEMPLATEDIR/devcontainer/sandcat/Dockerfile.proxy-peer" "$compose_dir/sandcat/"
+	cp "$SCT_TEMPLATEDIR/devcontainer/sandcat/scripts/proxy-peer-init.sh" "$compose_dir/sandcat/scripts/"
+	cp "$SCT_TEMPLATEDIR/devcontainer/sandcat/scripts/proxy-peer-hello.py" "$compose_dir/sandcat/scripts/"
+	apply_netbird_build_args "$dst" "proxy-peer"
 }
 
 # Adds NB_SETUP_KEY to the wg-client service's environment in the deployed
@@ -445,6 +462,36 @@ enable_capability() {
 	has_dep=$(yq '.services.agent.depends_on.capability-runtime.condition // ""' "$compose_file")
 	if [[ "$has_dep" != "service_started" ]]; then
 		yq -i '.services.agent.depends_on.capability-runtime.condition = "service_started"' "$compose_file"
+	fi
+
+	local proxy_compose="$compose_dir/sandcat/compose-proxy.yml"
+	if [[ -f "$proxy_compose" ]]; then
+		local has_cap_vol
+		has_cap_vol=$(yq '[.volumes | keys[]? | select(. == "capability-socket")] | length' "$proxy_compose")
+		if [[ "$has_cap_vol" -eq 0 ]]; then
+			yq -i '.volumes.capability-socket = {}' "$proxy_compose"
+		fi
+
+		local has_mitm_cap_vol has_l7_client has_l7_record has_mitm_agent_id
+		has_mitm_cap_vol=$(yq '[.services.mitmproxy.volumes[]? | select(. == "capability-socket:/run/sandcat-capability")] | length' "$proxy_compose")
+		if [[ "$has_mitm_cap_vol" -eq 0 ]]; then
+			yq -i '.services.mitmproxy.volumes += ["capability-socket:/run/sandcat-capability"]' "$proxy_compose"
+		fi
+
+		has_l7_client=$(yq '[.services.mitmproxy.volumes[]? | select(. == "./scripts/l7_record_client.py:/scripts/l7_record_client.py:ro")] | length' "$proxy_compose")
+		if [[ "$has_l7_client" -eq 0 ]]; then
+			yq -i '.services.mitmproxy.volumes += ["./scripts/l7_record_client.py:/scripts/l7_record_client.py:ro"]' "$proxy_compose"
+		fi
+
+		has_l7_record=$(yq '[.services.mitmproxy.environment[]? | select(. == "CAPABILITY_L7_RECORD")] | length' "$proxy_compose")
+		if [[ "$has_l7_record" -eq 0 ]]; then
+			yq -i '.services.mitmproxy.environment = ((.services.mitmproxy.environment // []) + ["CAPABILITY_L7_RECORD"])' "$proxy_compose"
+		fi
+
+		has_mitm_agent_id=$(yq '[.services.mitmproxy.environment[]? | select(. == "SANDCAT_AGENT_ID=devcontainer-agent")] | length' "$proxy_compose")
+		if [[ "$has_mitm_agent_id" -eq 0 ]]; then
+			yq -i '.services.mitmproxy.environment = ((.services.mitmproxy.environment // []) + ["SANDCAT_AGENT_ID=devcontainer-agent"])' "$proxy_compose"
+		fi
 	fi
 
 	_enable_capability_mcp_config "$(dirname "$compose_dir")" "$compose_dir/devcontainer.json"

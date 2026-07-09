@@ -27,6 +27,10 @@ Options:
   Adds a `capability-runtime` compose service, mounts a shared Unix socket volume
   into the agent container, and installs `capability-mcp-bridge` for Cursor MCP.
   NetBird API credentials stay in the sidecar — they are not injected into the agent.
+- `--proxy-peer` - Enable the proxy-peer gateway stack (requires `--netbird` and `--capability`).
+  Deploys a dedicated NetBird `proxy-peer` compose service and copies a Layer 1
+  mitmproxy settings example (`.sandcat/settings.proxy-peer.example.json`) for
+  deny-by-default egress. Pair with `--capability` for Layer 2 lease/revoke control.
 - `--netbird-server` - NetBird management server mode (requires `--netbird`):
   `cloud` | `new` | `quickstart` | `<http(s)://url>`. `new` provisions a local
   localhost template; `quickstart` prints the official NetBird install command for
@@ -58,6 +62,9 @@ sandcat init --agent claude --ide vscode --netbird --name myproject
 
 # With NetBird + capability sidecar (reachability == capability)
 sandcat init --agent cursor --ide vscode --netbird --capability --name myproject
+
+# With NetBird + proxy-peer gateway (two-layer control)
+sandcat init --agent cursor --ide vscode --netbird --capability --proxy-peer --name myproject
 ```
 
 #### Proton Pass setup (scoped Personal Access Token)
@@ -529,6 +536,89 @@ Replace placeholders in `capability-catalog.json` before leasing `reach_api`:
 2. `sandcat netbird route list` (or NetBird dashboard) — copy route ID if pre-provisioned
 3. Re-init or edit `.devcontainer/sandcat/capability-catalog.json`
 4. Restart capability-runtime: `docker compose restart capability-runtime`
+
+## Proxy-peer gateway (Phase 3e)
+
+When initialized with `--proxy-peer` (requires `--netbird` and `--capability`), sandcat deploys a
+dedicated NetBird `proxy-peer` gateway peer and operationalizes a **two-layer**
+control model for agent egress:
+
+```
+Layer 1 — static mitmproxy baseline (always on)
+  deny-by-default; only proxy-peer mesh IP:8080 allowed
+
+Layer 2 — dynamic NetBird lease/revoke (capability-runtime)
+  lease enables route to proxy-peer; revoke or quota exhaustion disables it
+```
+
+| Layer | Mechanism | What it controls |
+|-------|-----------|------------------|
+| **Layer 1** | mitmproxy `network` rules in `.sandcat/settings.json` | Static egress menu — agent can only reach the proxy-peer gateway IP on port 8080 |
+| **Layer 2** | `capability-runtime` + NetBird route sync (Phase 3c) | Dynamic reachability — route to proxy-peer exists only while leased |
+
+Layer 1 blocks direct egress (e.g. `curl https://example.com`) even when Layer 2
+has no active lease. Layer 2 gates whether the agent can actually reach the
+proxy-peer mesh endpoint at all.
+
+### Setup
+
+```bash
+sandcat init --agent cursor --ide vscode --netbird --capability --proxy-peer --name myproject
+docker compose -f .devcontainer/sandcat/compose-proxy-peer.yml up -d --build
+sandcat compose up -d
+```
+
+Init copies the Layer 1 template from
+[`templates/settings-proxy-peer.json`](templates/settings-proxy-peer.json) to
+`.sandcat/settings.proxy-peer.example.json`. The template is deny-by-default with
+a single allow rule for the proxy-peer gateway:
+
+```json
+{
+  "network": [
+    {
+      "action": "allow",
+      "host": "REPLACE_PROXY_PEER_MESH_IP",
+      "port": 8080,
+      "comment": "Layer 1: only proxy-peer gateway; replace IP after enrollment"
+    }
+  ]
+}
+```
+
+### Operator merge workflow
+
+After `proxy-peer` enrolls, apply Layer 1 to the live mitmproxy profile:
+
+1. `sandcat netbird status` — note the `proxy-peer` peer's mesh IP (e.g. `100.64.0.5`).
+2. Merge the example into project settings — either:
+   - **Copy:** `cp .sandcat/settings.proxy-peer.example.json .sandcat/settings.json`
+   - **Merge:** add the `network` array (or individual allow rule) from the example into your existing `.sandcat/settings.json`
+3. Replace `REPLACE_PROXY_PEER_MESH_IP` with the mesh IP from step 1.
+4. `sandcat restart-proxy` — reload mitmproxy with the Layer 1 profile.
+
+Layer 2 uses the existing capability sidecar paths. Configure `cap-reach-proxy`
+in `capability-catalog.json` with the proxy-peer `peer_id` and
+`<mesh-ip>/32`, then lease/revoke as usual:
+
+```bash
+sandcat capability lease --ref cap-reach-proxy --justification "need gateway access"
+sandcat run curl -sf http://<mesh-ip>:8080/hello   # succeeds while leased
+sandcat capability revoke --ref cap-reach-proxy --reason done
+```
+
+Without an active lease, traffic to the proxy-peer mesh IP times out even though
+Layer 1 allows the host:port in mitmproxy.
+
+### Usage-metered quota (L7 record)
+
+When `--capability` is enabled, mitmproxy can decrement network lease quota from
+post-hoc flow records. Set `CAPABILITY_L7_RECORD=1` in the mitmproxy service
+environment (compose passes the variable through when capability is enabled; set
+the value in your shell or `.env` before `sandcat compose up`). Each successful
+HTTP response to a mesh or Layer-1-allowed host emits `capability.l7.record` on
+the admin socket; quota exhaustion triggers the same auto-revoke path as tool
+quota.
 
 ## Directory Structure
 

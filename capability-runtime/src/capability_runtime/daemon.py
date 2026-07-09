@@ -8,9 +8,11 @@ import signal
 import threading
 import time
 from dataclasses import dataclass
+from datetime import timedelta
 from pathlib import Path
 
 from capability_runtime.catalog import LifecycleState
+from capability_runtime.policy import LeasePolicy
 from capability_runtime.netbird_client import MockNetBirdClient, NetBirdClient, RestNetBirdClient
 from capability_runtime.network import NetworkBinding, sync_mode_from_catalog
 from capability_runtime.rpc.dispatcher import RpcDispatcher
@@ -114,6 +116,18 @@ def load_catalog_into_runtime(runtime: CapabilityRuntime, catalog_path: Path) ->
             if runtime.catalog.get_by_name(name) is None:
                 runtime.catalog.register(name, ref, LifecycleState.DECLARED)
 
+        if "lease_policy" in entry:
+            lp = entry["lease_policy"]
+            runtime.register_lease_policy(
+                name,
+                LeasePolicy(
+                    quota=lp["quota"],
+                    ttl=timedelta(minutes=lp["ttl_minutes"]),
+                    token_budget=lp["token_budget"],
+                    risk_envelope=lp.get("risk_envelope", "medium"),
+                ),
+            )
+
 
 class _WatcherPollThread:
     def __init__(self, watcher: RouteDisappearanceWatcher, interval: float) -> None:
@@ -145,6 +159,44 @@ class _WatcherPollThread:
             self._stop.wait(self._interval)
 
 
+class _LeaseExpiryThread:
+    """Wake at nearest lease expiry to process TTL promptly."""
+
+    def __init__(self, runtime: CapabilityRuntime) -> None:
+        self._runtime = runtime
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
+
+    def start(self) -> None:
+        if self._thread is not None and self._thread.is_alive():
+            return
+        self._stop.clear()
+        self._thread = threading.Thread(
+            target=self._run,
+            name="lease-expiry",
+            daemon=True,
+        )
+        self._thread.start()
+
+    def stop(self) -> None:
+        self._stop.set()
+        if self._thread is not None:
+            self._thread.join(timeout=2.0)
+            self._thread = None
+
+    def _run(self) -> None:
+        while not self._stop.is_set():
+            now = time.time()
+            expiry = self._runtime.next_network_lease_expiry()
+            if expiry is None:
+                self._stop.wait(1.0)
+                continue
+            wait_s = max(0.0, expiry.timestamp() - now)
+            if self._stop.wait(wait_s):
+                break
+            self._runtime.process_expired_network_leases()
+
+
 class CapabilityDaemon:
     """Run runtime, route watcher, and agent/admin RPC sockets."""
 
@@ -155,6 +207,7 @@ class CapabilityDaemon:
         load_catalog_into_runtime(self._runtime, config.catalog_path)
         self._watcher = RouteDisappearanceWatcher(self._runtime, self._netbird_client)
         self._watcher_thread = _WatcherPollThread(self._watcher, config.watch_interval)
+        self._lease_expiry_thread = _LeaseExpiryThread(self._runtime)
         self._agent_server = UnixRpcServer(
             config.agent_socket,
             RpcDispatcher(
@@ -173,7 +226,8 @@ class CapabilityDaemon:
                 bound_agent_id="operator",
                 watcher=self._watcher,
             ),
-            socket_mode=0o600,
+            # mitmproxy runs as non-root and must connect for L7 quota (phase 3e).
+            socket_mode=0o666,
         )
         self._running = False
 
@@ -184,6 +238,7 @@ class CapabilityDaemon:
     def start(self) -> None:
         if self._running:
             return
+        self._lease_expiry_thread.start()
         self._watcher_thread.start()
         self._agent_server.start()
         self._admin_server.start()
@@ -194,6 +249,7 @@ class CapabilityDaemon:
             return
         self._admin_server.stop()
         self._agent_server.stop()
+        self._lease_expiry_thread.stop()
         self._watcher_thread.stop()
         self._running = False
 
