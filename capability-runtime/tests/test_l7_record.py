@@ -94,3 +94,30 @@ def test_admin_surface_records_l7_flow(tmp_path):
     )
     assert "result" in response
     assert response["result"]["recorded"] is True
+
+
+def test_l7_record_does_not_decrement_on_error_status(tmp_path):
+    client = MockNetBirdClient(peers=[{"id": "peer-pp"}], routes=[])
+    runtime = CapabilityRuntime(tmp_path / "t.jsonl", "trace", 1, netbird_client=client)
+    agent = AgentIdentity("devcontainer-agent")
+    ref = CapabilityRef("cap-reach-proxy")
+    binding = NetworkBinding(ref, "peer-pp", "100.64.0.5/32", None, SyncMode.ROUTE_ENABLE)
+    runtime.register_network_capability("reach_proxy", ref, binding, LifecycleState.VISIBLE)
+    register_lease_policy(
+        "reach_proxy",
+        LeasePolicy(
+            quota=2,
+            ttl=timedelta(minutes=15),
+            token_budget=10000,
+            risk_envelope="medium",
+        ),
+    )
+    runtime.request_capability_lease(agent, agent, ref, "test")
+
+    recorded = record_l7_flow(
+        runtime, agent, host="100.64.0.5", method="GET", status=503
+    )
+    assert recorded is False
+
+    bundle = runtime.check_current_capabilities(agent, {})
+    assert "reach_proxy" in [n.name for n in bundle.networks]

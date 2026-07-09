@@ -80,3 +80,17 @@ class LeaseManager:
                 and not self.is_exhausted(lease_id)
             ):
                 yield lease_id, lease
+
+    def iter_active_leases_for_agent(
+        self, agent_id: AgentIdentity, now: datetime, *, is_revoked
+    ):
+        """Yield active leases held by an agent at a point in time."""
+        for lease_id, lease in self._leases.items():
+            if lease.agent_id != agent_id:
+                continue
+            if (
+                not self.is_expired(lease_id, now)
+                and not is_revoked(lease_id)
+                and not self.is_exhausted(lease_id)
+            ):
+                yield lease_id, lease
