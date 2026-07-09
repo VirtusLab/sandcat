@@ -187,7 +187,8 @@ class CapabilityDaemon:
                 bound_agent_id="operator",
                 watcher=self._watcher,
             ),
-            socket_mode=0o600,
+            # mitmproxy runs as non-root and must connect for L7 quota (phase 3e).
+            socket_mode=0o666,
         )
         self._running = False
 

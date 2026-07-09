@@ -548,8 +548,6 @@ class SandcatAddon:
         rule = self._find_matching_rule(method, host)
         return rule is not None and rule.get("action") == "allow"
 
-    _MESH_CGNAT = ipaddress.ip_network("100.64.0.0/10")
-
     def _host_matches_network_allow_rule(self, host: str) -> bool:
         host = host.lower().rstrip(".")
         for rule in self.network_rules:
@@ -558,19 +556,6 @@ class SandcatAddon:
             if fnmatch(host, rule["host"].lower()):
                 return True
         return False
-
-    @classmethod
-    def _host_in_mesh_cgnat(cls, host: str) -> bool:
-        try:
-            return ipaddress.ip_address(host) in cls._MESH_CGNAT
-        except ValueError:
-            return False
-
-    def _should_record_l7_flow(self, host: str) -> bool:
-        return (
-            self._host_matches_network_allow_rule(host)
-            or self._host_in_mesh_cgnat(host)
-        )
 
     # ----------------------------------------------------------- env writer
 
@@ -795,9 +780,12 @@ class SandcatAddon:
             return
         if not flow.response or flow.response.status_code is None:
             return
+        status = flow.response.status_code
+        if not (200 <= status < 300):
+            return
 
         host = flow.request.pretty_host
-        if not self._should_record_l7_flow(host):
+        if not self._host_matches_network_allow_rule(host):
             return
 
         from l7_record_client import record_flow
@@ -807,7 +795,7 @@ class SandcatAddon:
             agent_id=agent_id,
             host=host,
             method=flow.request.method,
-            status=flow.response.status_code,
+            status=status,
         )
 
     def dns_request(self, flow: dns.DNSFlow):

@@ -90,6 +90,44 @@ def test_invalid_json_returns_parse_error(tmp_path, mock_dispatcher):
         server.stop()
 
 
+def test_l7_record_client_connects_to_world_writable_admin_socket(tmp_path, mock_dispatcher):
+    """mitmproxy runs non-root; admin.sock must be group/world connectable."""
+    sock_path = tmp_path / "admin.sock"
+    server = UnixRpcServer(sock_path, mock_dispatcher, socket_mode=0o666)
+    server.start()
+    try:
+        _wait_for_socket(sock_path)
+        assert oct(sock_path.stat().st_mode & 0o777) == "0o666"
+
+        import importlib.util
+        import os
+
+        os.environ["CAPABILITY_ADMIN_SOCKET"] = str(sock_path)
+
+        script = (
+            Path(__file__).resolve().parents[2]
+            / "cli/templates/devcontainer/sandcat/scripts/l7_record_client.py"
+        )
+        spec = importlib.util.spec_from_file_location("l7_record_client", script)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+
+        mod.record_flow(
+            agent_id="devcontainer-agent",
+            host="100.64.0.5",
+            method="GET",
+            status=200,
+        )
+        deadline = time.time() + 2.0
+        while time.time() < deadline and mock_dispatcher.handle.call_count == 0:
+            time.sleep(0.01)
+        mock_dispatcher.handle.assert_called_once()
+        request = mock_dispatcher.handle.call_args[0][0]
+        assert request["method"] == "capability.l7.record"
+    finally:
+        server.stop()
+
+
 def test_socket_mode_allows_non_owner_connect(tmp_path, mock_dispatcher):
     sock_path = tmp_path / "agent.sock"
     server = UnixRpcServer(sock_path, mock_dispatcher, socket_mode=0o666)

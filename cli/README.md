@@ -27,7 +27,7 @@ Options:
   Adds a `capability-runtime` compose service, mounts a shared Unix socket volume
   into the agent container, and installs `capability-mcp-bridge` for Cursor MCP.
   NetBird API credentials stay in the sidecar — they are not injected into the agent.
-- `--proxy-peer` - Enable the proxy-peer gateway stack (requires `--netbird`).
+- `--proxy-peer` - Enable the proxy-peer gateway stack (requires `--netbird` and `--capability`).
   Deploys a dedicated NetBird `proxy-peer` compose service and copies a Layer 1
   mitmproxy settings example (`.sandcat/settings.proxy-peer.example.json`) for
   deny-by-default egress. Pair with `--capability` for Layer 2 lease/revoke control.
@@ -539,7 +539,7 @@ Replace placeholders in `capability-catalog.json` before leasing `reach_api`:
 
 ## Proxy-peer gateway (Phase 3e)
 
-When initialized with `--proxy-peer` (requires `--netbird`), sandcat deploys a
+When initialized with `--proxy-peer` (requires `--netbird` and `--capability`), sandcat deploys a
 dedicated NetBird `proxy-peer` gateway peer and operationalizes a **two-layer**
 control model for agent egress:
 

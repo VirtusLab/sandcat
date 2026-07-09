@@ -20,22 +20,20 @@ def _host_in_binding_network(host: str, network: str) -> bool:
         return False
 
 
+def _is_billable_l7_status(status: int) -> bool:
+    return 200 <= status < 300
+
+
 def _find_active_network_lease_for_host(
     runtime: CapabilityRuntime,
     agent_id: AgentIdentity,
     host: str,
     now: datetime,
 ) -> LeaseId | None:
-    for lease_id, lease in runtime.lease_manager._leases.items():
-        if lease.agent_id != agent_id:
-            continue
-        if runtime.lease_manager.is_expired(lease_id, now):
-            continue
-        if runtime.revocation_manager.is_lease_revoked(lease_id):
-            continue
-        if runtime.lease_manager.is_exhausted(lease_id):
-            continue
-
+    is_revoked = runtime.revocation_manager.is_lease_revoked
+    for lease_id, lease in runtime.lease_manager.iter_active_leases_for_agent(
+        agent_id, now, is_revoked=is_revoked
+    ):
         binding = runtime.catalog.get_network_binding(lease.capability_ref)
         if binding is None:
             continue
@@ -63,9 +61,15 @@ def record_l7_flow(
     """Record an L7 flow against a matching network lease quota.
 
     Returns True when a matching active lease was found and quota decremented.
+    Successful HTTP responses (2xx) decrement quota; other statuses are logged only.
     """
     now = datetime.now(timezone.utc)
-    lease_id = _find_active_network_lease_for_host(runtime, agent, host, now)
+    billable = _is_billable_l7_status(status)
+    lease_id = (
+        _find_active_network_lease_for_host(runtime, agent, host, now)
+        if billable
+        else None
+    )
 
     event: dict[str, Any] = {
         "event": "l7_flow",
@@ -81,7 +85,7 @@ def record_l7_flow(
 
     runtime.observability.emit_capability_event(event)
 
-    if lease_id is None:
+    if not billable or lease_id is None:
         return False
 
     runtime.record_action(agent, agent, lease_id, now)

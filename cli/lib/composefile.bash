@@ -473,9 +473,9 @@ enable_capability() {
 		fi
 
 		local has_mitm_cap_vol has_l7_client has_l7_record has_mitm_agent_id
-		has_mitm_cap_vol=$(yq '[.services.mitmproxy.volumes[]? | select(. == "capability-socket:/run/sandcat-capability:ro")] | length' "$proxy_compose")
+		has_mitm_cap_vol=$(yq '[.services.mitmproxy.volumes[]? | select(. == "capability-socket:/run/sandcat-capability")] | length' "$proxy_compose")
 		if [[ "$has_mitm_cap_vol" -eq 0 ]]; then
-			yq -i '.services.mitmproxy.volumes += ["capability-socket:/run/sandcat-capability:ro"]' "$proxy_compose"
+			yq -i '.services.mitmproxy.volumes += ["capability-socket:/run/sandcat-capability"]' "$proxy_compose"
 		fi
 
 		has_l7_client=$(yq '[.services.mitmproxy.volumes[]? | select(. == "./scripts/l7_record_client.py:/scripts/l7_record_client.py:ro")] | length' "$proxy_compose")

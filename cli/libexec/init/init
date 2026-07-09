@@ -129,7 +129,7 @@ add_secret_provider_tokens_to_user_settings() {
 #   --1password - Deprecated; same as --secret-provider 1password
 #   --features - Comma-separated optional non-provider features (tui)
 #   --capability - Enable capability-runtime sidecar (requires --netbird)
-#   --proxy-peer - Enable proxy-peer gateway stack (requires --netbird)
+#   --proxy-peer - Enable proxy-peer gateway stack (requires --netbird and --capability)
 init() {
 	require yq
 
@@ -246,6 +246,10 @@ init() {
 	fi
 	if [[ "$proxy_peer" == "true" && "$netbird" != "true" ]]; then
 		echo "--proxy-peer requires --netbird" | error
+		return 1
+	fi
+	if [[ "$proxy_peer" == "true" && "$capability" != "true" ]]; then
+		echo "--proxy-peer requires --capability" | error
 		return 1
 	fi
 	if [[ "$netbird_server_provided" == "true" ]]; then
