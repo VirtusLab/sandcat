@@ -17,7 +17,7 @@ source "$SCT_LIBDIR/devcontainer.bash"
 #   --ide - The IDE name (e.g., "vscode", "jetbrains", "none") (optional)
 #   --netbird-management-url - NetBird management server URL for wg-client (optional)
 #   --capability - Enable capability-runtime sidecar (requires --netbird)
-#   --proxy-peer - Enable proxy-peer gateway stack (requires --netbird)
+#   --proxy-peer - Enable proxy-peer gateway stack (requires --netbird and --capability)
 devcontainer() {
 	local settings_file=""
 	local project_path=""
@@ -112,6 +112,10 @@ devcontainer() {
 	fi
 	if [[ "$proxy_peer" == "true" && "$netbird" != "true" ]]; then
 		echo "--proxy-peer requires --netbird" | error
+		return 1
+	fi
+	if [[ "$proxy_peer" == "true" && "$capability" != "true" ]]; then
+		echo "--proxy-peer requires --capability" | error
 		return 1
 	fi
 

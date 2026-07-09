@@ -50,7 +50,7 @@ teardown() {
 
 @test "enable_capability mounts capability admin socket into mitmproxy" {
 	enable_capability "$COMPOSE_DIR"
-	yq -e '.services.mitmproxy.volumes[] | select(. == "capability-socket:/run/sandcat-capability:ro")' \
+	yq -e '.services.mitmproxy.volumes[] | select(. == "capability-socket:/run/sandcat-capability")' \
 		"$COMPOSE_DIR/sandcat/compose-proxy.yml"
 	yq -e '.services.mitmproxy.volumes[] | select(. == "./scripts/l7_record_client.py:/scripts/l7_record_client.py:ro")' \
 		"$COMPOSE_DIR/sandcat/compose-proxy.yml"

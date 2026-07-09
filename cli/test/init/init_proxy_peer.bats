@@ -31,6 +31,14 @@ teardown() {
 	assert_output --partial "--proxy-peer requires --netbird"
 }
 
+@test "init rejects --proxy-peer without --capability" {
+	run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" \
+		--stacks "" --proxy web --features "" --secret-provider none \
+		--netbird --netbird-server cloud --proxy-peer
+	assert_failure
+	assert_output --partial "--proxy-peer requires --capability"
+}
+
 @test "init --netbird --capability --proxy-peer copies compose-proxy-peer.yml" {
 	mkdir -p "$PROJECT_DIR/.sandcat"
 	touch "$PROJECT_DIR/.sandcat/settings.json"
@@ -54,7 +62,7 @@ teardown() {
 
 	run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" \
 		--stacks "" --proxy web --features "" --secret-provider none \
-		--netbird --netbird-server cloud --proxy-peer
+		--netbird --netbird-server cloud --capability --proxy-peer
 	assert_success
 
 	[[ -f "$PROJECT_DIR/.sandcat/settings.proxy-peer.example.json" ]]
