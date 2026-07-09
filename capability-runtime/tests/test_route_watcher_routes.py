@@ -81,7 +81,7 @@ def test_watcher_revokes_when_route_disabled_with_active_lease(tmp_path):
     assert runtime.catalog.get_state(ref) == LifecycleState.REVOKED
 
 
-def test_watcher_reconciles_route_after_failed_physical_revoke(tmp_path, monkeypatch):
+def test_operator_revoke_succeeds_after_retry_when_disable_recovers(tmp_path, monkeypatch):
     from capability_runtime.catalog import LifecycleState
     from capability_runtime.route_watcher import RouteDisappearanceWatcher
     from capability_runtime.runtime import CapabilityRuntime
@@ -108,12 +108,15 @@ def test_watcher_reconciles_route_after_failed_physical_revoke(tmp_path, monkeyp
         return original_disable(binding)
 
     monkeypatch.setattr(client, "disable_binding", flaky_disable)
-    runtime.revoke_capability(AgentIdentity("operator"), ref, "security")
-    assert runtime.catalog.get_state(ref) == LifecycleState.REVOKED
+    import pytest
+
+    with pytest.raises(RuntimeError, match="netbird down"):
+        runtime.revoke_capability(AgentIdentity("operator"), ref, "security")
+    assert runtime.catalog.get_state(ref) == LifecycleState.LEASED
     routes = [r for r in client.list_routes() if r["id"] == "route-1"]
     assert routes[0]["enabled"] is True
 
-    RouteDisappearanceWatcher(runtime, client).poll_once()
+    runtime.revoke_capability(AgentIdentity("operator"), ref, "security")
 
     routes = [r for r in client.list_routes() if r["id"] == "route-1"]
     assert routes[0]["enabled"] is False

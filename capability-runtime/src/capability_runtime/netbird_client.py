@@ -5,6 +5,7 @@ import os
 from dataclasses import replace
 from typing import Any, Protocol
 from urllib.error import HTTPError
+from urllib.parse import quote
 from urllib.request import Request, urlopen
 
 from capability_runtime.network import NetworkBinding, SyncMode
@@ -249,10 +250,10 @@ class RestNetBirdClient:
         return self._request("GET", path)
 
     def remove_peer(self, peer_id: str) -> None:
-        self._request("DELETE", f"/api/peers/{peer_id}")
+        self._request("DELETE", f"/api/peers/{_urlencode_path_segment(peer_id)}")
 
     def remove_route(self, route_id: str) -> None:
-        self._request("DELETE", f"/api/routes/{route_id}")
+        self._request("DELETE", f"/api/routes/{_urlencode_path_segment(route_id)}")
 
     def peer_exists(self, peer_id: str) -> bool:
         return any(peer.get("id") == peer_id for peer in self.list_peers())
@@ -308,12 +309,12 @@ class RestNetBirdClient:
         route = self._get_route(route_id)
         self._request(
             "PUT",
-            f"/api/routes/{route_id}",
+            f"/api/routes/{_urlencode_path_segment(route_id)}",
             route_put_body(route, enabled=enabled),
         )
 
     def _get_route(self, route_id: str) -> dict:
-        return self._request("GET", f"/api/routes/{route_id}")[0]
+        return self._request("GET", f"/api/routes/{_urlencode_path_segment(route_id)}")[0]
 
     def _create_route(self, binding: NetworkBinding) -> dict:
         return self._request(
@@ -423,3 +424,7 @@ class RestNetBirdClient:
         if isinstance(parsed, list):
             return parsed
         return [parsed]
+
+
+def _urlencode_path_segment(value: str) -> str:
+    return quote(value, safe="")
