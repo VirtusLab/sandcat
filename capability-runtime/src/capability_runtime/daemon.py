@@ -159,6 +159,44 @@ class _WatcherPollThread:
             self._stop.wait(self._interval)
 
 
+class _LeaseExpiryThread:
+    """Wake at nearest lease expiry to process TTL promptly."""
+
+    def __init__(self, runtime: CapabilityRuntime) -> None:
+        self._runtime = runtime
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
+
+    def start(self) -> None:
+        if self._thread is not None and self._thread.is_alive():
+            return
+        self._stop.clear()
+        self._thread = threading.Thread(
+            target=self._run,
+            name="lease-expiry",
+            daemon=True,
+        )
+        self._thread.start()
+
+    def stop(self) -> None:
+        self._stop.set()
+        if self._thread is not None:
+            self._thread.join(timeout=2.0)
+            self._thread = None
+
+    def _run(self) -> None:
+        while not self._stop.is_set():
+            now = time.time()
+            expiry = self._runtime.next_network_lease_expiry()
+            if expiry is None:
+                self._stop.wait(1.0)
+                continue
+            wait_s = max(0.0, expiry.timestamp() - now)
+            if self._stop.wait(wait_s):
+                break
+            self._runtime.process_expired_network_leases()
+
+
 class CapabilityDaemon:
     """Run runtime, route watcher, and agent/admin RPC sockets."""
 
@@ -169,6 +207,7 @@ class CapabilityDaemon:
         load_catalog_into_runtime(self._runtime, config.catalog_path)
         self._watcher = RouteDisappearanceWatcher(self._runtime, self._netbird_client)
         self._watcher_thread = _WatcherPollThread(self._watcher, config.watch_interval)
+        self._lease_expiry_thread = _LeaseExpiryThread(self._runtime)
         self._agent_server = UnixRpcServer(
             config.agent_socket,
             RpcDispatcher(
@@ -199,6 +238,7 @@ class CapabilityDaemon:
     def start(self) -> None:
         if self._running:
             return
+        self._lease_expiry_thread.start()
         self._watcher_thread.start()
         self._agent_server.start()
         self._admin_server.start()
@@ -209,6 +249,7 @@ class CapabilityDaemon:
             return
         self._admin_server.stop()
         self._agent_server.stop()
+        self._lease_expiry_thread.stop()
         self._watcher_thread.stop()
         self._running = False
 

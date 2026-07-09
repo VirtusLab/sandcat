@@ -1,7 +1,10 @@
 # capability-runtime/tests/test_re_lease_after_revoke.py
 from datetime import datetime, timedelta, timezone
 
+import pytest
+
 from capability_runtime.catalog import LifecycleState
+from capability_runtime.errors import CapabilityUnknown
 from capability_runtime.netbird_client import MockNetBirdClient
 from capability_runtime.network import NetworkBinding, SyncMode
 from capability_runtime.runtime import CapabilityRuntime
@@ -22,12 +25,11 @@ def test_re_lease_after_revoke_by_ref(tmp_path):
     runtime.revoke_capability(_OPERATOR, ref, "done")
     assert runtime.catalog.get_state(ref) == LifecycleState.REVOKED
 
-    decision2 = runtime.request_capability_lease(agent, agent, ref, "second lease")
-    assert decision2.lease_id is not None
+    with pytest.raises(CapabilityUnknown):
+        runtime.request_capability_lease(agent, agent, ref, "second lease")
     assert len(client.list_routes()) == 1
     bundle = runtime.check_current_capabilities(agent, {})
-    assert "reach_api" in [n.name for n in bundle.networks]
-    assert bundle.networks[0].lease_id == decision2.lease_id
+    assert "reach_api" not in [n.name for n in bundle.networks]
 
 
 def test_re_lease_after_expiry(tmp_path):

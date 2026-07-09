@@ -93,11 +93,18 @@ class CapabilityRuntime:
                 binding = self.catalog.get_network_binding(lease.capability_ref)
                 if binding is None:
                     continue
-                physical_sync = "disabled"
                 try:
                     revoke_network_binding(self._netbird_backend, binding, "TTL expired")
                 except Exception:
-                    physical_sync = "failed"
+                    self.observability.emit_capability_event(
+                        {
+                            "event": "physical_sync_failed",
+                            "lease_id": lease_id.value,
+                            "capability_ref": lease.capability_ref.value,
+                            "reason": "TTL expired",
+                        }
+                    )
+                    continue
                 self.revocation_manager.revoke_by_lease(lease_id, "TTL expired")
                 self.catalog.set_state(lease.capability_ref, LifecycleState.EXPIRED)
                 self.observability.emit_capability_event(
@@ -106,9 +113,27 @@ class CapabilityRuntime:
                         "lease_id": lease_id.value,
                         "capability_ref": lease.capability_ref.value,
                         "reason": "TTL expired",
-                        "physical_sync": physical_sync,
+                        "physical_sync": "disabled",
                     }
                 )
+
+    def next_network_lease_expiry(self, now: datetime | None = None) -> datetime | None:
+        """Return earliest expiry among active network leases."""
+        if now is None:
+            now = datetime.now(timezone.utc)
+
+        next_expiry: datetime | None = None
+        for lease_id, lease in self.lease_manager._leases.items():
+            if self.revocation_manager.is_lease_revoked(lease_id):
+                continue
+            if self.lease_manager.is_exhausted(lease_id):
+                continue
+            if self.catalog.get_network_binding(lease.capability_ref) is None:
+                continue
+            expiry = lease.expires_at
+            if next_expiry is None or expiry < next_expiry:
+                next_expiry = expiry
+        return next_expiry
 
     def register_network_capability(
         self,
@@ -258,14 +283,12 @@ class CapabilityRuntime:
         _assert_caller(caller, agent_id)
         # Check capability exists
         state = self.catalog.get_state(capability_ref)
-        # REVOKED/EXPIRED remain leasable so operators can re-grant after revoke/TTL
-        # without sidecar restart. Physical routes are disabled on revoke/expiry;
-        # a new lease re-enables via NetBird (see test_re_lease_after_revoke.py).
+        # REVOKED is intentionally not leasable from the agent surface: operator
+        # revoke acts as a durable stop until lifecycle state changes externally.
         leasable = {
             LifecycleState.DECLARED,
             LifecycleState.DISCOVERABLE,
             LifecycleState.VISIBLE,
-            LifecycleState.REVOKED,
             LifecycleState.EXPIRED,
         }
         if state not in leasable:
@@ -378,12 +401,9 @@ class CapabilityRuntime:
                 if binding is not None and self._netbird_backend is not None:
                     from capability_runtime.netbird_sync import revoke_network_binding
 
+                    revoke_network_binding(self._netbird_backend, binding, reason)
                     physical_sync = "disabled"
-                    try:
-                        revoke_network_binding(self._netbird_backend, binding, reason)
-                        physical_revocation = True
-                    except Exception:
-                        physical_sync = "failed"
+                    physical_revocation = True
             self.revocation_manager.revoke_by_lease(target, reason)
             self._bundle_version += 1
             event: dict[str, object] = {
@@ -404,12 +424,9 @@ class CapabilityRuntime:
             if binding is not None and self._netbird_backend is not None:
                 from capability_runtime.netbird_sync import revoke_network_binding
 
+                revoke_network_binding(self._netbird_backend, binding, reason)
                 physical_sync = "disabled"
-                try:
-                    revoke_network_binding(self._netbird_backend, binding, reason)
-                    physical_revocation = True
-                except Exception:
-                    physical_sync = "failed"
+                physical_revocation = True
 
             # Perform logical revocation
             self.revocation_manager.revoke_by_ref(target, reason)
