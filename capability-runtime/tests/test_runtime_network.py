@@ -48,8 +48,9 @@ def test_revoke_network_capability_calls_netbird_backend(tmp_path):
     assert "reach_api" not in [n.name for n in bundle.networks]
 
 
-def test_revoke_by_ref_continues_when_netbird_disable_fails(tmp_path, monkeypatch):
-    import json
+def test_revoke_by_ref_fails_closed_when_netbird_disable_fails(tmp_path, monkeypatch):
+
+    import pytest
 
     from capability_runtime.catalog import LifecycleState
     from capability_runtime.netbird_client import MockNetBirdClient
@@ -73,20 +74,14 @@ def test_revoke_by_ref_continues_when_netbird_disable_fails(tmp_path, monkeypatc
         raise RuntimeError("netbird down")
 
     monkeypatch.setattr(client, "disable_binding", boom)
-    runtime.revoke_capability(operator, ref, "security")
+    with pytest.raises(RuntimeError, match="netbird down"):
+        runtime.revoke_capability(operator, ref, "security")
 
     bundle = runtime.check_current_capabilities(agent, {})
-    assert "reach_api" not in [n.name for n in bundle.networks]
+    assert "reach_api" in [n.name for n in bundle.networks]
+    assert runtime.catalog.get_state(ref) == LifecycleState.LEASED
     routes = [r for r in client.list_routes() if r["id"] == "route-1"]
     assert routes[0]["enabled"] is True
-
-    events = [
-        json.loads(line)
-        for line in (tmp_path / "t.jsonl").read_text().strip().split("\n")
-        if line
-    ]
-    revoke_events = [e for e in events if e.get("event") == "capability_revoked"]
-    assert revoke_events[-1]["physical_sync"] == "failed"
 
 
 def test_revoke_non_network_capability_does_not_call_netbird(tmp_path):
@@ -207,7 +202,7 @@ def test_ttl_expiry_via_watcher_poll(tmp_path):
     assert runtime.catalog.get_state(ref) == LifecycleState.EXPIRED
 
 
-def test_ttl_expiry_continues_when_netbird_disable_fails(tmp_path, monkeypatch):
+def test_ttl_expiry_fails_closed_when_netbird_disable_fails(tmp_path, monkeypatch):
     from datetime import datetime, timedelta, timezone
     from capability_runtime.catalog import LifecycleState
     from capability_runtime.netbird_client import MockNetBirdClient
@@ -234,3 +229,6 @@ def test_ttl_expiry_continues_when_netbird_disable_fails(tmp_path, monkeypatch):
 
     bundle = runtime.check_current_capabilities(agent, {})
     assert "reach_api" not in [n.name for n in bundle.networks]
+    assert runtime.catalog.get_state(ref) == LifecycleState.LEASED
+    routes = [r for r in client.list_routes() if r["id"] == "route-1"]
+    assert routes[0]["enabled"] is True

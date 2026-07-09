@@ -58,10 +58,10 @@ def test_rest_client_remove_peer(monkeypatch):
     monkeypatch.setattr("capability_runtime.netbird_client.urlopen", fake_urlopen)
 
     client = RestNetBirdClient()
-    client.remove_peer("peer-abc")
+    client.remove_peer("peer/abc 1")
 
     assert captured["method"] == "DELETE"
-    assert captured["url"] == "https://api.netbird.io/api/peers/peer-abc"
+    assert captured["url"] == "https://api.netbird.io/api/peers/peer%2Fabc%201"
     assert captured["headers"]["Authorization"] == "Token test-token"
 
 
@@ -77,10 +77,10 @@ def test_rest_client_remove_route(monkeypatch):
     monkeypatch.setattr("capability_runtime.netbird_client.urlopen", fake_urlopen)
 
     client = RestNetBirdClient()
-    client.remove_route("route-1")
+    client.remove_route("route/1 a")
 
     assert captured["method"] == "DELETE"
-    assert captured["url"] == "https://api.netbird.io/api/routes/route-1"
+    assert captured["url"] == "https://api.netbird.io/api/routes/route%2F1%20a"
 
 
 def test_rest_client_list_peers(monkeypatch):
