@@ -603,6 +603,39 @@ commands are available inside the container. Remove any mount whose source does
 not exist on your host — Docker will otherwise create an empty directory in its
 place.
 
+**Multi-line prompts.** Composing a multi-line prompt with `⌘+Enter` does not
+work on macOS — the terminal reserves the `⌘` modifier and never transmits it
+over the PTY, so `sandcat attach` (and Claude Code) only ever receive a plain
+`Enter`. This is not sandcat-specific and cannot be fixed inside the container.
+Use one of these instead:
+
+- **`\` then `Enter`** — inserts a newline in any terminal with no setup. The
+  simplest option.
+- **`Option+Enter`** — Claude Code's macOS default. In Apple Terminal, first
+  enable *Settings → Profiles → Keyboard → Use Option as Meta key*; iTerm2 sends
+  it out of the box.
+- **`Shift+Enter`** — the most familiar combination, but Claude Code only
+  receives whatever bytes the terminal chooses to send for it, so it needs a
+  one-time mapping in the **host** terminal. Claude Code's `/terminal-setup` is
+  meant to install this, but it has two traps in this setup: it configures the
+  host terminal, so running it from Claude Code *inside* the sandbox does
+  nothing; and it caches an "installed" flag, so a second run reports *"already
+  enabled"* even when the terminal was never actually changed. The reliable route
+  is to map the key by hand:
+  - **iTerm2** — Settings → Keys → Key Bindings → `+`, record `Shift+Enter`,
+    choose *Send Hex Codes* and enter `0x1b 0x0d` (this is `Option+Enter`, which
+    Claude Code treats as a newline). GUI bindings take effect immediately. To
+    confirm it worked, run `cat -v` in the sandbox shell and press `Shift+Enter`:
+    it should print `^[` instead of a blank line.
+  - **VS Code integrated terminal** — add to `keybindings.json`:
+
+    ```json
+    { "key": "shift+enter",
+      "command": "workbench.action.terminal.sendSequence",
+      "args": { "text": "\u001b\r" },
+      "when": "terminalFocus" }
+    ```
+
 ### Cursor CLI
 
 Cursor CLI support is available via `sandcat init --agent cursor`.
