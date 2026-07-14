@@ -40,6 +40,15 @@ services:
       interval: 2s
       timeout: 2s
       retries: 15
+      # Without a start_period, retries*interval (~30s) is the whole window to
+      # finish init and touch /tmp/wg-ready. On a cold Docker VM the init's many
+      # forked steps (jq, wg, ip, iptables, dnsmasq, ss) run slowly and can
+      # exceed 30s, so early failures exhaust the retries and the container is
+      # wrongly marked unhealthy — aborting the run with "dependency wg-client
+      # failed to start ... is unhealthy". Failures during the start_period
+      # don't count; a single success ends it immediately, so a healthy start
+      # is still detected without delay.
+      start_period: 120s
 
   mitmproxy:
     image: mitmproxy/mitmproxy:latest
