@@ -59,6 +59,8 @@ RUN if MISE_JAVA=$(mise where java 2>/dev/null); then \
     } >> "$HOME/.bashrc"; \
     fi
 
+# __DEVBOX_INSTALL__
+
 # __AGENT_DOCKER_HOME_PREP__
 
 USER root

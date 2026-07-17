@@ -118,7 +118,7 @@ add_secret_provider_tokens_to_user_settings() {
 #   --proxy - Proxy UI mode: web (default) or tui
 #   --secret-provider / --sp - Secret backend: none, 1password, protonpass
 #   --1password - Deprecated; same as --secret-provider 1password
-#   --features - Comma-separated optional non-provider features (tui)
+#   --features - Comma-separated optional non-provider features (tui, devbox)
 init() {
 	require yq
 
@@ -134,6 +134,7 @@ init() {
 	local onepassword_alias=false
 	local features_csv=""
 	local features_provided=false
+	local devbox_enabled=false
 
 	while [[ $# -gt 0 ]]
 	do
@@ -270,16 +271,22 @@ init() {
 		return 1
 	fi
 
-	# Optional non-provider features (tui → mitmproxy console)
+	# Optional non-provider features (tui → mitmproxy console,
+	# devbox → custom Nix packages in the agent image)
 	if [[ "$features_provided" != "true" ]]; then
-		local available_features=("tui (mitmproxy console instead of web UI)")
+		local available_features=(
+			"tui (mitmproxy console instead of web UI)"
+			"devbox (custom Nix packages via devbox.json)"
+		)
 		local selected_features
 		selected_features=$(select_multiple "Select optional features (comma-separated numbers, empty for none):" "${available_features[@]}")
+		# select_multiple returns full labels; match feature keywords and
+		# ignore the remaining label words.
 		if [[ -n "$selected_features" ]]; then
 			for f in $selected_features; do
 				case "$f" in
-					tui*) proxy_mode="tui" ;;
-					*) echo "Unknown feature: $f (expected: tui)" | error; return 1 ;;
+					tui) proxy_mode="tui" ;;
+					devbox) devbox_enabled=true ;;
 				esac
 			done
 		fi
@@ -289,11 +296,12 @@ init() {
 			for f in $features_csv; do
 				case "$f" in
 					tui) proxy_mode="tui" ;;
+					devbox) devbox_enabled=true ;;
 					1password)
 						echo "Use --secret-provider 1password instead of --features 1password" | error
 						return 1
 						;;
-					*) echo "Unknown feature: $f (expected: tui)" | error; return 1 ;;
+					*) echo "Unknown feature: $f (expected: tui, devbox)" | error; return 1 ;;
 				esac
 			done
 		fi
@@ -354,6 +362,9 @@ init() {
 		--proxy "$proxy_mode"
 		--secret-provider "$secret_provider"
 	)
+	if [[ "$devbox_enabled" == "true" ]]; then
+		devcontainer_args+=(--devbox)
+	fi
 	devcontainer "${devcontainer_args[@]}"
 
 	# Summary
@@ -361,6 +372,9 @@ init() {
 	echo "Initialization complete." | info
 	if [[ -n "$stacks_resolved" ]]; then
 		echo "  Stacks:           $stacks_resolved (edit .devcontainer/Dockerfile.app to change versions)" | info
+	fi
+	if [[ "$devbox_enabled" == "true" ]]; then
+		echo "  Devbox:           edit .devcontainer/devbox.json to add packages, then rebuild (sandcat run --build)" | info
 	fi
 	echo "  Project settings: $SCT_PROJECT_DIR/settings.json (network rules)" | info
 	echo "  User settings:    ~/.config/sandcat/settings.json (git identity, API keys)" | info

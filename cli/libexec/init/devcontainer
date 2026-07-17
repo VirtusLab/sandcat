@@ -15,6 +15,7 @@ source "$SCT_LIBDIR/devcontainer.bash"
 #   --project-path - Path to the project directory
 #   --agent - The agent name (e.g., "claude")
 #   --ide - The IDE name (e.g., "vscode", "jetbrains", "none") (optional)
+#   --devbox - Enable the devbox custom-packages feature (optional)
 devcontainer() {
 	local settings_file=""
 	local project_path=""
@@ -24,6 +25,7 @@ devcontainer() {
 	local stacks=""
 	local proxy_mode="web"
 	local secret_provider="none"
+	local devbox=false
 
 	while [[ $# -gt 0 ]]
 	do
@@ -72,6 +74,10 @@ devcontainer() {
 			secret_provider="1password"
 			shift 1
 			;;
+		--devbox)
+			devbox=true
+			shift 1
+			;;
 		*)
 			echo "Unknown option: $1" | error
 			return 1
@@ -106,6 +112,7 @@ devcontainer() {
 		customize_devcontainer_extensions "$devcontainer_dir/devcontainer.json"
 	fi
 	customize_agent_templates "$devcontainer_dir" "$agent"
+	customize_devbox "$devcontainer_dir" "$devbox"
 
 	if [[ "$proxy_mode" == "tui" ]]; then
 		set_proxy_tui_mode "$devcontainer_dir/sandcat/compose-proxy.yml"

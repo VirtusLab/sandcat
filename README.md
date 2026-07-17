@@ -112,6 +112,43 @@ Selecting `scala` automatically includes `java` as a dependency. Stacks also
 install the corresponding VS Code extension (e.g. `rust-analyzer` for Rust,
 `metals` for Scala).
 
+#### Custom packages with devbox
+
+For tools not covered by the base image or mise stacks, enable the `devbox`
+feature to declare extra Nix packages in a [devbox](https://www.jetify.com/devbox)
+config:
+
+```bash
+sandcat init --features devbox
+```
+
+This creates `.devcontainer/devbox.json` and extends the generated
+`Dockerfile.app` to install the listed packages at image build time. Add
+packages (search them on [nixhub.io](https://www.nixhub.io/)), then rebuild.
+For example, to give the agent [yq](https://github.com/mikefarah/yq) for YAML
+processing, [shellcheck](https://www.shellcheck.net/) for linting its shell
+scripts, and [hyperfine](https://github.com/sharkdp/hyperfine) for
+benchmarking:
+
+```json
+{
+  "packages": ["yq-go@latest", "shellcheck", "hyperfine"]
+}
+```
+
+(Staples like `jq`, `ripgrep`, `fd`, and `gh` are already in the base image —
+devbox is for everything beyond that.)
+
+```bash
+sandcat run --build
+```
+
+Every shell inside the sandbox — including the agent's — has the packages on
+`PATH`. Installs are build-time only: `devbox add` inside the sandbox is not
+supported, and no Nix download hosts are added to the network allowlist. To
+pin package versions, commit a `devbox.lock` next to `devbox.json`; the build
+picks it up automatically.
+
 Optional volume mounts (agent config, `.git`, `.idea`) are written into the
 generated `.devcontainer/compose-all.yml`. See [Customizing optional volume
 mounts](#customizing-optional-volume-mounts) below. For scripted `sandcat init`,
@@ -229,7 +266,9 @@ source does not exist on your host.
 
 **`Dockerfile.app`** — uses [mise](https://mise.jdx.dev/) to manage language
 toolchains. Stacks selected during `sandcat init` are added as `RUN mise use -g`
-lines. You can edit the versions or add more stacks after init. Some runtimes
+lines. You can edit the versions or add more stacks after init. With the
+`devbox` feature enabled, a devbox block installs the packages listed in
+`.devcontainer/devbox.json` at build time. Some runtimes
 need extra configuration to trust the mitmproxy CA — see [TLS and CA
 certificates](#tls-and-ca-certificates).
 

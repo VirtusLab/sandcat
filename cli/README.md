@@ -19,7 +19,7 @@ Options:
 - `--proxy` - Proxy UI mode: `web` (default, mitmweb browser UI) or `tui` (mitmproxy console, use with `sandcat proxy` to attach)
 - `--secret-provider` / `--sp` - Secret backend: `none` (default), `1password`, `protonpass` (skips prompt when set)
 - `--1password` - Deprecated alias for `--secret-provider 1password`
-- `--features` - Comma-separated optional non-provider features: `tui` (proxy console mode; prefer `--proxy tui`)
+- `--features` - Comma-separated optional non-provider features: `tui` (proxy console mode; prefer `--proxy tui`), `devbox` (custom Nix packages from `.devcontainer/devbox.json`, baked into the agent image at build time)
 - `--name` - Project name for Docker Compose (default: derived from directory name)
 - `--path` - Project directory (default: current directory)
 

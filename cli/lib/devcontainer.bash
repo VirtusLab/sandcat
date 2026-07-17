@@ -4,6 +4,8 @@
 source "$SCT_LIBDIR/stacks.bash"
 # shellcheck source=agents.bash
 source "$SCT_LIBDIR/agents.bash"
+# shellcheck source=devbox.bash
+source "$SCT_LIBDIR/devbox.bash"
 
 # Replaces __PROJECT_NAME__ placeholder with the actual project name in devcontainer.json.
 #
