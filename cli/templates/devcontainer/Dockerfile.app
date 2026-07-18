@@ -1,25 +1,9 @@
 FROM mcr.microsoft.com/devcontainers/base:debian
 
 # ca-certificates, curl, git are already in the devcontainers base image.
-# fd-find:  fast file finder (aliased to fd below)
-# fzf:      fuzzy finder for files and command history
-# gh:       GitHub CLI (official apt repo for newer releases)
 # gosu:     drops privileges in the entrypoint
-# jq:       JSON processor
-# ripgrep:  fast recursive grep (rg)
-# tmux:     terminal multiplexer
-# vim:      text editor
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates curl fd-find fzf gosu jq ripgrep tmux vim \
-    && mkdir -p /etc/apt/keyrings \
-    && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
-      | dd of=/etc/apt/keyrings/githubcli-archive-keyring.gpg \
-    && chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg \
-    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
-      > /etc/apt/sources.list.d/github-cli.list \
-    && apt-get update \
-    && apt-get install -y --no-install-recommends gh \
-    && ln -s $(which fdfind) /usr/local/bin/fd \
+    && apt-get install -y --no-install-recommends gosu \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --chmod=755 sandcat/scripts/app-init.sh /usr/local/bin/app-init.sh

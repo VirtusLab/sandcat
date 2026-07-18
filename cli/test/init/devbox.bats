@@ -40,7 +40,7 @@ teardown() {
 @test "customize_devbox enabled copies the starter devbox.json" {
 	customize_devbox "$DEVCONTAINER_DIR" true
 
-	run yq -e '.packages | length == 0' "$DEVCONTAINER_DIR/devbox.json"
+	run yq -e '.packages | length == 7' "$DEVCONTAINER_DIR/devbox.json"
 	assert_success
 }
 
@@ -77,7 +77,7 @@ teardown() {
 		--ide vscode \
 		--devbox
 
-	run yq -e '.packages | length == 0' "$PROJECT_DIR/.devcontainer/devbox.json"
+	run yq -e '.packages | length == 7' "$PROJECT_DIR/.devcontainer/devbox.json"
 	assert_success
 	run grep 'RUN devbox global install' "$PROJECT_DIR/.devcontainer/Dockerfile.app"
 	assert_success

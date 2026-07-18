@@ -1,3 +1,11 @@
 {
-  "packages": []
+  "packages": [
+    "fd@latest",
+    "fzf@latest",
+    "gh@latest",
+    "jq@latest",
+    "ripgrep@latest",
+    "tmux@latest",
+    "vim@latest"
+  ]
 }
