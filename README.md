@@ -114,30 +114,21 @@ install the corresponding VS Code extension (e.g. `rust-analyzer` for Rust,
 
 #### Custom packages with devbox
 
-For tools not covered by the base image or mise stacks, enable the `devbox`
-feature to declare extra Nix packages in a [devbox](https://www.jetify.com/devbox)
-config:
-
-```bash
-sandcat init --features devbox
-```
-
-This creates `.devcontainer/devbox.json` and extends the generated
-`Dockerfile.app` to install the listed packages at image build time. Add
-packages (search them on [nixhub.io](https://www.nixhub.io/)), then rebuild.
-For example, to give the agent [yq](https://github.com/mikefarah/yq) for YAML
-processing, [shellcheck](https://www.shellcheck.net/) for linting its shell
-scripts, and [hyperfine](https://github.com/sharkdp/hyperfine) for
-benchmarking:
+Developer tools in the sandbox are declared as Nix packages in a
+[devbox](https://www.jetify.com/devbox) config. `sandcat init` creates
+`.devcontainer/devbox.json`, pre-filled with a base set of staples (`fd`,
+`fzf`, `gh`, `jq`, `ripgrep`, `tmux`, and `vim`), and the generated
+`Dockerfile.app` installs the listed packages at image build time. Add packages (search them
+on [nixhub.io](https://www.nixhub.io/)), then rebuild. For example, to give
+the agent [yq](https://github.com/mikefarah/yq) for YAML processing,
+[shellcheck](https://www.shellcheck.net/) for linting its shell scripts, and
+[hyperfine](https://github.com/sharkdp/hyperfine) for benchmarking, append:
 
 ```json
 {
   "packages": ["yq-go@latest", "shellcheck", "hyperfine"]
 }
 ```
-
-(Staples like `jq`, `ripgrep`, `fd`, and `gh` are already in the base image —
-devbox is for everything beyond that.)
 
 ```bash
 sandcat run --build
@@ -266,8 +257,8 @@ source does not exist on your host.
 
 **`Dockerfile.app`** — uses [mise](https://mise.jdx.dev/) to manage language
 toolchains. Stacks selected during `sandcat init` are added as `RUN mise use -g`
-lines. You can edit the versions or add more stacks after init. With the
-`devbox` feature enabled, a devbox block installs the packages listed in
+lines. You can edit the versions or add more stacks after init. A devbox
+block installs the packages listed in
 `.devcontainer/devbox.json` at build time. Some runtimes
 need extra configuration to trust the mitmproxy CA — see [TLS and CA
 certificates](#tls-and-ca-certificates).

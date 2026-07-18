@@ -31,25 +31,20 @@ USER vscode
 EOF
 }
 
-# Applies the devbox feature to a generated devcontainer directory.
-# When enabled: copies the starter devbox.json (unless one already exists,
-# so re-init keeps user edits) and expands the __DEVBOX_INSTALL__
-# placeholder in Dockerfile.app. When disabled: drops the placeholder line.
+# Applies devbox to a generated devcontainer directory: copies the starter
+# devbox.json (unless one already exists, so re-init keeps user edits) and
+# expands the __DEVBOX_INSTALL__ placeholder in Dockerfile.app.
 # Args:
 #   $1 - Path to devcontainer directory
-#   $2 - "true" to enable, anything else disables
 customize_devbox() {
 	local devcontainer_dir=$1
-	local enabled=$2
 
-	local block=""
-	if [[ "$enabled" == "true" ]]; then
-		if [[ ! -f "$devcontainer_dir/devbox.json" ]]; then
-			cp "$SCT_TEMPLATEDIR/devbox.json" "$devcontainer_dir/devbox.json"
-		fi
-		block=$(devbox_dockerfile_block)
+	if [[ ! -f "$devcontainer_dir/devbox.json" ]]; then
+		cp "$SCT_TEMPLATEDIR/devbox.json" "$devcontainer_dir/devbox.json"
 	fi
 
+	local block
+	block=$(devbox_dockerfile_block)
 	apply_template_placeholders "$devcontainer_dir/Dockerfile.app" \
 		"__DEVBOX_INSTALL__" "$block"
 }

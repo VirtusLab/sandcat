@@ -1,11 +1,11 @@
 {
   "packages": [
-    "fd@latest",
-    "fzf@latest",
-    "gh@latest",
-    "jq@latest",
-    "ripgrep@latest",
-    "tmux@latest",
-    "vim@latest"
+    "fd@latest",      // fast file finder
+    "fzf@latest",     // fuzzy finder for files and command history
+    "gh@latest",      // GitHub CLI
+    "jq@latest",      // JSON processor
+    "ripgrep@latest", // fast recursive grep (rg)
+    "tmux@latest",    // terminal multiplexer
+    "vim@latest"      // text editor
   ]
 }
