@@ -116,7 +116,7 @@ devcontainer() {
 	customize_compose_file "$rel_settings_file" "$compose_file" "$agent" "$ide" "$project_name"
 	set_project_name "$compose_file" "$project_name"
 
-	customize_devcontainer_json "$devcontainer_dir/devcontainer.json" "$project_name"
+	customize_devcontainer_json "$devcontainer_dir/devcontainer.json" "$project_name" "$ide"
 
 	echo "Devcontainer dir created at ${devcontainer_dir#"$project_path"/}" | info
 }

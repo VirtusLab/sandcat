@@ -5,21 +5,67 @@ source "$SCT_LIBDIR/stacks.bash"
 # shellcheck source=agents.bash
 source "$SCT_LIBDIR/agents.bash"
 
-# Replaces __PROJECT_NAME__ placeholder with the actual project name in devcontainer.json.
+# Replaces __PROJECT_NAME__ placeholder with the actual project name and
+# selects the IDE-specific customizations block in devcontainer.json.
 #
 # Uses `sed` because `yq` does not support JSONC
 # Args:
 #   $1 - Path to the devcontainer.json file
 #   $2 - Project name to substitute
+#   $3 - IDE name: vscode | jetbrains | none (defaults to vscode)
 customize_devcontainer_json() {
 	local devcontainer_json=$1
 	local project_name=$2
+	local ide=${3:-vscode}
 
 	# Use sed in a way that works on both BSD (macOS) and GNU (Linux)
 	# Escape sed metacharacters in project_name (& and \ have special meaning)
 	local escaped_name
 	escaped_name=$(printf '%s' "$project_name" | sed 's/[&\\/]/\\&/g')
 	sed -i.bak "s/__PROJECT_NAME__/${escaped_name}/g" "$devcontainer_json" && rm -f "${devcontainer_json}.bak"
+
+	apply_ide_customizations "$devcontainer_json" "$ide"
+}
+
+# Rewrites the customizations block based on the selected IDE.
+#
+# The template wraps the vscode block with marker comment lines. Behavior:
+#   - vscode:    strip marker lines, keep block as-is
+#   - jetbrains: replace the vscode block with a JetBrains block
+#   - none:      drop the entire customizations block
+#
+# Args:
+#   $1 - Path to the devcontainer.json file
+#   $2 - IDE name: vscode | jetbrains | none
+apply_ide_customizations() {
+	local file=$1
+	local ide=$2
+
+	local tmpfile="${file}.tmp"
+	local in_block=0
+	local line
+	while IFS= read -r line || [[ -n "$line" ]]; do
+		case "$line" in
+			*"__CUSTOMIZATIONS_START__"*)
+				in_block=1
+				if [[ "$ide" == "jetbrains" ]]; then
+					# JetBrains Gateway / IDE Services reads customizations.jetbrains.
+					# `backend` selects which JetBrains product opens the project;
+					# IntelliJ is a safe default and users can edit it per project.
+					printf '\t"customizations": {\n\t\t"jetbrains": {\n\t\t\t"backend": "IntelliJ",\n\t\t\t"plugins": [],\n\t\t\t"settings": {}\n\t\t}\n\t}\n'
+				fi
+				continue
+				;;
+			*"__CUSTOMIZATIONS_END__"*)
+				in_block=0
+				continue
+				;;
+		esac
+		if [[ $in_block -eq 0 || "$ide" == "vscode" ]]; then
+			printf '%s\n' "$line"
+		fi
+	done < "$file" > "$tmpfile"
+	mv "$tmpfile" "$file"
 }
 
 # Inserts RUN mise lines into the Dockerfile for selected stacks.

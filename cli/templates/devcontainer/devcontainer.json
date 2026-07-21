@@ -25,6 +25,7 @@
 		"GPG_AGENT_INFO": "",
 		"GIT_ASKPASS": ""
 	},
+	// __CUSTOMIZATIONS_START__
 	"customizations": {
 		"vscode": {
 			"extensions": [
@@ -49,4 +50,5 @@
 			}
 		}
 	}
+	// __CUSTOMIZATIONS_END__
 }
