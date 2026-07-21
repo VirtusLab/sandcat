@@ -3,6 +3,14 @@
 	"dockerComposeFile": "compose-all.yml",
 	"service": "agent",
 	"workspaceFolder": "/workspaces/__PROJECT_NAME__",
+	// Preserve the compose `command` so the container's ENTRYPOINT
+	// (app-init.sh) runs on start — it installs the mitmproxy CA,
+	// adopts wg-client's resolv.conf, loads sandcat.env, and drops
+	// to the vscode user. Without this, JetBrains Gateway silently
+	// overrides the command and skips app-init.sh, bypassing
+	// sandcat's security boundary. Matches the Dev Containers spec
+	// default for dockerComposeFile scenarios.
+	"overrideCommand": false,
 	// Remove credential sockets that VS Code forwards into the container
 	// (SSH agent, git credential helper).  Clearing env vars alone only
 	// hides the paths — the socket files in /tmp can still be discovered
