@@ -145,7 +145,13 @@ def _find_peer_by_dns_label(peers: list[dict], label: str) -> dict | None:
 def _resolve_dns_label(binding: NetworkBinding, peers: list[dict]) -> NetworkBinding:
     """If binding has dns_label, resolve peer_id and network from peers list.
 
-    Returns a new NetworkBinding with resolved peer_id and network (<ip>/32).
+    Returns a new NetworkBinding with resolved peer_id, network (<ip>/32), and
+    route_id cleared. Clearing route_id is intentional: after a proxy-peer
+    recreation the peer has a new ID and a new mesh IP, so any cached route_id
+    targets a deleted peer. Clearing it forces enable_binding to match by
+    peer+network or create a fresh route, preventing a stale orphan route from
+    being re-enabled.
+
     Raises PeerResolutionError if no matching peer is found.
     Leaves binding unchanged if dns_label is not set.
     """
@@ -162,7 +168,9 @@ def _resolve_dns_label(binding: NetworkBinding, peers: list[dict]) -> NetworkBin
         raise PeerResolutionError(binding.dns_label)
     # Strip CIDR suffix from IP if present (some APIs return "100.64.0.5/16")
     ip = ip.split("/")[0]
-    return replace(binding, peer_id=peer_id, network=f"{ip}/32")
+    # Clear route_id so enable_binding searches by peer+network or creates a
+    # new route rather than enabling a cached (and potentially stale) route_id.
+    return replace(binding, peer_id=peer_id, network=f"{ip}/32", route_id=None)
 
 
 class MockNetBirdClient:

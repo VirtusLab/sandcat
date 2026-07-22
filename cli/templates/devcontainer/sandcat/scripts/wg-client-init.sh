@@ -152,7 +152,17 @@ netbird_dns_nameserver_ip() {
         ) // empty
     ' 2>/dev/null) || true
 
-    [[ -n "$ip" ]] && printf '%s\n' "$ip"
+    # Validate: accept only bare IPv4 or IPv6 addresses (no newlines, no paths,
+    # no dnsmasq option syntax). Rejects anything that would inject config lines.
+    if [[ -n "$ip" ]]; then
+        # IPv4: four dotted octets; IPv6: colon-hex (including ::1 and full forms)
+        if [[ "$ip" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]] \
+            || [[ "$ip" =~ ^[0-9a-fA-F:]+$ && "$ip" == *:* ]]; then
+            printf '%s\n' "$ip"
+        else
+            echo "wg-client: netbird_dns_nameserver_ip: discarding non-IP value from JSON: ${ip@Q}" >&2
+        fi
+    fi
     return 0
 }
 
@@ -622,6 +632,11 @@ supervise_netbird_daemon() {
                 --interface-name "${iface}" || true
             set_netbird_fwmark "${iface}" || true
         fi
+        # Retry the NetBird DNS forward on every iteration. patch_dnsmasq_for_netbird
+        # is idempotent (skips if the line is already present), so this is safe.
+        # Nameservers are pushed from the management server after enrollment;
+        # they may not be available at container start time.
+        patch_dnsmasq_for_netbird "${DNSMASQ_CONF}" 2>/dev/null || true
     done
 }
 
