@@ -2,9 +2,9 @@
   "network": [
     {
       "action": "allow",
-      "host": "REPLACE_PROXY_PEER_MESH_IP",
+      "host": "peer-proxy.netbird.selfhosted",
       "port": 8080,
-      "comment": "Layer 1: only proxy-peer gateway; replace IP after enrollment"
+      "comment": "Layer 1 NetBird DNS mode: stable FQDN survives proxy-peer recreate. For IP-only fallback use the mesh IP instead."
     }
   ]
 }

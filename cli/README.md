@@ -545,7 +545,7 @@ control model for agent egress:
 
 ```
 Layer 1 — static mitmproxy baseline (always on)
-  deny-by-default; only proxy-peer mesh IP:8080 allowed
+  deny-by-default; only proxy-peer FQDN (peer-proxy.netbird.selfhosted):8080 allowed
 
 Layer 2 — dynamic NetBird lease/revoke (capability-runtime)
   lease enables route to proxy-peer; revoke or quota exhaustion disables it
@@ -553,7 +553,7 @@ Layer 2 — dynamic NetBird lease/revoke (capability-runtime)
 
 | Layer | Mechanism | What it controls |
 |-------|-----------|------------------|
-| **Layer 1** | mitmproxy `network` rules in `.sandcat/settings.json` | Static egress menu — agent can only reach the proxy-peer gateway IP on port 8080 |
+| **Layer 1** | mitmproxy `network` rules in `.sandcat/settings.json` | Static egress menu — agent can only reach the proxy-peer gateway on port 8080 |
 | **Layer 2** | `capability-runtime` + NetBird route sync (Phase 3c) | Dynamic reachability — route to proxy-peer exists only while leased |
 
 Layer 1 blocks direct egress (e.g. `curl https://example.com`) even when Layer 2
@@ -570,44 +570,55 @@ sandcat compose up -d
 
 Init copies the Layer 1 template from
 [`templates/settings-proxy-peer.json`](templates/settings-proxy-peer.json) to
-`.sandcat/settings.proxy-peer.example.json`. The template is deny-by-default with
-a single allow rule for the proxy-peer gateway:
+`.sandcat/settings.proxy-peer.example.json`. The template uses a stable NetBird FQDN:
 
 ```json
 {
   "network": [
     {
       "action": "allow",
-      "host": "REPLACE_PROXY_PEER_MESH_IP",
+      "host": "peer-proxy.netbird.selfhosted",
       "port": 8080,
-      "comment": "Layer 1: only proxy-peer gateway; replace IP after enrollment"
+      "comment": "Layer 1 NetBird DNS mode: stable FQDN survives proxy-peer recreate."
     }
   ]
 }
 ```
 
-### Operator merge workflow
+### Operator merge workflow (NetBird DNS mode — recommended)
 
-After `proxy-peer` enrolls, apply Layer 1 to the live mitmproxy profile:
+The default template targets `peer-proxy.netbird.selfhosted` — no manual IP
+editing required after proxy-peer recreate, as long as the NetBird peer name
+stays stable.
 
-1. `sandcat netbird status` — note the `proxy-peer` peer's mesh IP (e.g. `100.64.0.5`).
-2. Merge the example into project settings — either:
+**One-time dashboard prerequisite:** enable DNS / Nameservers for group **All**
+in the NetBird management dashboard. This publishes the nameserver to enrolled
+peers so that `peer-proxy.netbird.selfhosted` resolves inside the agent.
+
+1. Merge the example into project settings:
    - **Copy:** `cp .sandcat/settings.proxy-peer.example.json .sandcat/settings.json`
-   - **Merge:** add the `network` array (or individual allow rule) from the example into your existing `.sandcat/settings.json`
-3. Replace `REPLACE_PROXY_PEER_MESH_IP` with the mesh IP from step 1.
-4. `sandcat restart-proxy` — reload mitmproxy with the Layer 1 profile.
+   - **Merge:** add the `network` array from the example into your existing `.sandcat/settings.json`
+2. `sandcat restart-proxy` — reload mitmproxy with the Layer 1 profile.
+3. Verify DNS inside wg-client: `getent hosts peer-proxy.netbird.selfhosted`
 
-Layer 2 uses the existing capability sidecar paths. Configure `cap-reach-proxy`
-in `capability-catalog.json` with the proxy-peer `peer_id` and
-`<mesh-ip>/32`, then lease/revoke as usual:
+`capability-catalog.json` already has `dns_label: "peer-proxy.netbird.selfhosted"` for `cap-reach-proxy`. No IP to update after recreate.
 
 ```bash
 sandcat capability lease --ref cap-reach-proxy --justification "need gateway access"
-sandcat run curl -sf http://<mesh-ip>:8080/hello   # succeeds while leased
+sandcat run curl -sf http://peer-proxy.netbird.selfhosted:8080/hello   # succeeds while leased
 sandcat capability revoke --ref cap-reach-proxy --reason done
 ```
 
-Without an active lease, traffic to the proxy-peer mesh IP times out even though
+### IP-only fallback (NetBird DNS not enabled)
+
+If the NetBird dashboard DNS is not configured, use the mesh IP directly:
+
+1. `sandcat netbird status` — note the `proxy-peer` peer's mesh IP (e.g. `100.64.0.5`).
+2. In `.sandcat/settings.json` replace the `host` value with the mesh IP.
+3. In `capability-catalog.json` set `peer_id` and `network: "<mesh-ip>/32"` directly (omit `dns_label`).
+4. `sandcat restart-proxy` + restart capability-runtime.
+
+Without an active lease, traffic to the proxy-peer endpoint times out even though
 Layer 1 allows the host:port in mitmproxy.
 
 ### Usage-metered quota (L7 record)

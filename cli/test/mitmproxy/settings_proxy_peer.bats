@@ -4,7 +4,7 @@ setup() {
 	load "$BATS_TEST_DIRNAME/../composefile/test_helper"
 }
 
-@test "settings-proxy-peer.json allows proxy-peer mesh IP on port 8080" {
+@test "settings-proxy-peer.json allows proxy-peer by FQDN on port 8080" {
 	local template="$SCT_TEMPLATEDIR/settings-proxy-peer.json"
 
 	[[ -f "$template" ]]
@@ -15,5 +15,5 @@ setup() {
 
 	run yq -r '.network[] | select(.action == "allow") | .host' "$template"
 	assert_success
-	assert_output "REPLACE_PROXY_PEER_MESH_IP"
+	assert_output "peer-proxy.netbird.selfhosted"
 }
