@@ -105,6 +105,7 @@ def load_catalog_into_runtime(runtime: CapabilityRuntime, catalog_path: Path) ->
                 entry["network"],
                 route_id,
                 sync_mode_from_catalog(entry),
+                dns_label=entry.get("dns_label") or None,
             )
             runtime.register_network_capability(
                 name,
