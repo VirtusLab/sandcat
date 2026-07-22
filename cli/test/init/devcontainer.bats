@@ -46,3 +46,11 @@ teardown() {
 	run grep '__STACK_EXTENSIONS__' "$DEVCONTAINER_JSON"
 	assert_success
 }
+
+@test "devcontainer.json template sets overrideCommand to false" {
+	# Required so the container's ENTRYPOINT (app-init.sh) runs on start —
+	# JetBrains Gateway historically defaults overrideCommand to true for
+	# compose scenarios, bypassing app-init.sh and sandcat's security setup.
+	run grep '"overrideCommand": false' "$DEVCONTAINER_JSON"
+	assert_success
+}
