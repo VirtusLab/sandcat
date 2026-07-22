@@ -20,6 +20,17 @@ def _host_in_binding_network(host: str, network: str) -> bool:
         return False
 
 
+def _host_matches_dns_label(host: str, dns_label: str | None) -> bool:
+    """Return True when host matches binding's dns_label (case-insensitive).
+
+    Used when the agent curls via FQDN (e.g. peer-proxy.netbird.selfhosted)
+    rather than a mesh IP, so the L7 flow host is a hostname, not an IP.
+    """
+    if not dns_label:
+        return False
+    return host.lower() == dns_label.lower()
+
+
 def _is_billable_l7_status(status: int) -> bool:
     return 200 <= status < 300
 
@@ -37,7 +48,10 @@ def _find_active_network_lease_for_host(
         binding = runtime.catalog.get_network_binding(lease.capability_ref)
         if binding is None:
             continue
-        if not _host_in_binding_network(host, binding.network):
+        if not (
+            _host_in_binding_network(host, binding.network)
+            or _host_matches_dns_label(host, binding.dns_label)
+        ):
             continue
 
         state = runtime.catalog.get_state(lease.capability_ref)
