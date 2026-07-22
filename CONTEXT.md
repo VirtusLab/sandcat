@@ -41,7 +41,7 @@ _Avoid_: network kill switch (too vague)
 Runtime catalog transition to `Revoked` — capability disappears from the bundle regardless of physical path.
 
 **Network Binding**:
-The link between a network capability and concrete NetBird identifiers (`peer_id`, `network` CIDR, optional `route_id`).
+The link between a network capability and concrete NetBird identifiers (`peer_id`, `network` CIDR, optional `route_id`, optional `dns_label`). When `dns_label` is set (e.g. `peer-proxy.netbird.selfhosted`), capability-runtime resolves the current `peer_id` and mesh IP from the NetBird peers API at lease time, so catalog entries survive proxy-peer container recreates without manual IP edits. See [NetBird DNS Targeting spec](docs/superpowers/specs/2026-07-20-proxy-peer-netbird-dns-design.md).
 
 ## Relationships
 
