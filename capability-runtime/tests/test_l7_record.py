@@ -121,3 +121,128 @@ def test_l7_record_does_not_decrement_on_error_status(tmp_path):
 
     bundle = runtime.check_current_capabilities(agent, {})
     assert "reach_proxy" in [n.name for n in bundle.networks]
+
+
+def test_l7_record_fqdn_host_matches_dns_label_lease(tmp_path):
+    """L7 flow with FQDN host is matched to the lease when binding has dns_label."""
+    client = MockNetBirdClient(
+        peers=[
+            {
+                "id": "peer-actual-id",
+                "ip": "100.64.0.99",
+                "dns_label": "peer-proxy.netbird.selfhosted",
+                "connected": True,
+            }
+        ],
+        routes=[],
+    )
+    runtime = CapabilityRuntime(tmp_path / "t.jsonl", "trace-fqdn-l7", 2, netbird_client=client)
+    agent = AgentIdentity("devcontainer-agent")
+    ref = CapabilityRef("cap-reach-proxy")
+    # Binding as stored in catalog (after dns_label resolution during lease, the
+    # catalog binding still carries dns_label so L7 matching can use it)
+    binding = NetworkBinding(
+        ref,
+        peer_id="peer-placeholder",
+        network="0.0.0.0/32",
+        route_id=None,
+        dns_label="peer-proxy.netbird.selfhosted",
+    )
+    runtime.register_network_capability("reach_proxy", ref, binding, LifecycleState.VISIBLE)
+    register_lease_policy(
+        "reach_proxy",
+        LeasePolicy(
+            quota=2,
+            ttl=timedelta(minutes=15),
+            token_budget=10000,
+            risk_envelope="medium",
+        ),
+    )
+    runtime.request_capability_lease(agent, agent, ref, "test fqdn")
+
+    # Agent curls via FQDN — mitmproxy records host as the FQDN, not the mesh IP
+    recorded = record_l7_flow(
+        runtime, agent, host="peer-proxy.netbird.selfhosted", method="GET", status=200
+    )
+    assert recorded is True
+
+
+def test_l7_record_fqdn_quota_exhaustion_revokes_route(tmp_path):
+    """Quota exhaustion via FQDN L7 flows triggers route revocation."""
+    client = MockNetBirdClient(
+        peers=[
+            {
+                "id": "peer-actual-id",
+                "ip": "100.64.0.99",
+                "dns_label": "peer-proxy.netbird.selfhosted",
+                "connected": True,
+            }
+        ],
+        routes=[],
+    )
+    runtime = CapabilityRuntime(tmp_path / "t.jsonl", "trace-fqdn-quota", 3, netbird_client=client)
+    agent = AgentIdentity("devcontainer-agent")
+    ref = CapabilityRef("cap-reach-proxy")
+    binding = NetworkBinding(
+        ref,
+        peer_id="peer-placeholder",
+        network="0.0.0.0/32",
+        route_id=None,
+        dns_label="peer-proxy.netbird.selfhosted",
+    )
+    runtime.register_network_capability("reach_proxy", ref, binding, LifecycleState.VISIBLE)
+    register_lease_policy(
+        "reach_proxy",
+        LeasePolicy(
+            quota=2,
+            ttl=timedelta(minutes=15),
+            token_budget=10000,
+            risk_envelope="medium",
+        ),
+    )
+    runtime.request_capability_lease(agent, agent, ref, "test fqdn quota")
+
+    # Two FQDN flows exhaust quota=2
+    record_l7_flow(runtime, agent, host="peer-proxy.netbird.selfhosted", method="GET", status=200)
+    record_l7_flow(runtime, agent, host="peer-proxy.netbird.selfhosted", method="GET", status=200)
+
+    bundle = runtime.check_current_capabilities(agent, {})
+    assert "reach_proxy" not in [n.name for n in bundle.networks], (
+        "Quota exhaustion via FQDN flows must revoke the network capability"
+    )
+
+
+def test_l7_record_fqdn_case_insensitive(tmp_path):
+    """dns_label match is case-insensitive (DNS is case-insensitive)."""
+    client = MockNetBirdClient(
+        peers=[
+            {
+                "id": "peer-pp",
+                "ip": "100.64.0.99",
+                "dns_label": "peer-proxy.netbird.selfhosted",
+            }
+        ],
+        routes=[],
+    )
+    runtime = CapabilityRuntime(tmp_path / "t.jsonl", "trace-fqdn-ci", 4, netbird_client=client)
+    agent = AgentIdentity("devcontainer-agent")
+    ref = CapabilityRef("cap-reach-proxy")
+    binding = NetworkBinding(
+        ref,
+        peer_id="peer-pp",
+        network="100.64.0.99/32",
+        route_id=None,
+        dns_label="peer-proxy.netbird.selfhosted",
+    )
+    runtime.register_network_capability("reach_proxy", ref, binding, LifecycleState.VISIBLE)
+    register_lease_policy(
+        "reach_proxy",
+        LeasePolicy(quota=5, ttl=timedelta(minutes=15), token_budget=10000, risk_envelope="medium"),
+    )
+    runtime.request_capability_lease(agent, agent, ref, "case test")
+
+    # mitmproxy may observe the host in a different case; still should match
+    recorded = record_l7_flow(
+        runtime, agent, host="Peer-Proxy.NetBird.SelfHosted", method="GET", status=200
+    )
+    assert recorded is True
