@@ -147,6 +147,66 @@ def test_find_peer_by_dns_label_returns_none_when_missing():
     assert client.find_peer_by_dns_label("not-there") is None
 
 
+def test_dns_label_resolution_clears_stale_route_id(tmp_path):
+    """After proxy-peer recreation, stale route_id is discarded and a new route is created for the new peer."""
+    from capability_runtime.catalog import LifecycleState
+    from capability_runtime.netbird_client import MockNetBirdClient
+    from capability_runtime.network import NetworkBinding
+    from capability_runtime.runtime import CapabilityRuntime
+    from capability_runtime.types import AgentIdentity, CapabilityRef
+
+    # Simulate proxy-peer recreation: new peer ID and new mesh IP
+    client = MockNetBirdClient(
+        peers=[
+            {
+                "id": "peer-new-id",
+                "ip": "100.64.0.99",
+                "dns_label": "peer-proxy.netbird.selfhosted",
+                "connected": True,
+            }
+        ],
+        # An orphan route from the old peer enrollment still exists
+        routes=[
+            {
+                "id": "old-route-1",
+                "network": "100.64.0.5/32",
+                "peer": "peer-old-id",
+                "enabled": False,
+            }
+        ],
+    )
+    runtime = CapabilityRuntime(
+        tmp_path / "t.jsonl", "trace-stale", 5, netbird_client=client
+    )
+    agent = AgentIdentity("agent-1")
+    ref = CapabilityRef("cap-reach-proxy")
+    # Catalog still has the old route_id cached from before recreation
+    binding = NetworkBinding(
+        ref,
+        peer_id="peer-old-id",
+        network="100.64.0.5/32",
+        route_id="old-route-1",
+        dns_label="peer-proxy.netbird.selfhosted",
+    )
+    runtime.register_network_capability(
+        "reach_proxy", ref, binding, LifecycleState.DECLARED
+    )
+
+    runtime.request_capability_lease(agent, agent, ref, "test stale route")
+
+    routes = client.list_routes()
+    # Old route must NOT have been re-enabled
+    old = next((r for r in routes if r["id"] == "old-route-1"), None)
+    assert old is None or old.get("enabled") is False, (
+        "Stale route for deleted peer must not be enabled"
+    )
+    # A new route targeting the resolved peer/IP must exist
+    new_routes = [r for r in routes if r.get("peer") == "peer-new-id"]
+    assert len(new_routes) == 1, "Expected one new route for the recreated peer"
+    assert new_routes[0]["network"] == "100.64.0.99/32"
+    assert new_routes[0]["enabled"] is True
+
+
 def test_load_catalog_dns_label_sets_binding_field(tmp_path):
     """load_catalog_into_runtime stores dns_label on NetworkBinding."""
     import json
