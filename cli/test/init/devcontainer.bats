@@ -54,3 +54,62 @@ teardown() {
 	run grep '"overrideCommand": false' "$DEVCONTAINER_JSON"
 	assert_success
 }
+
+@test "customize_devcontainer_json keeps customizations.vscode when ide is vscode" {
+	customize_devcontainer_json "$DEVCONTAINER_JSON" "my-project" "vscode"
+
+	run grep '"vscode":' "$DEVCONTAINER_JSON"
+	assert_success
+	refute_output --partial '"jetbrains"'
+}
+
+@test "customize_devcontainer_json defaults to vscode when ide is omitted" {
+	customize_devcontainer_json "$DEVCONTAINER_JSON" "my-project"
+
+	run grep '"vscode":' "$DEVCONTAINER_JSON"
+	assert_success
+}
+
+@test "customize_devcontainer_json emits customizations.jetbrains when ide is jetbrains" {
+	customize_devcontainer_json "$DEVCONTAINER_JSON" "my-project" "jetbrains"
+
+	run grep '"jetbrains":' "$DEVCONTAINER_JSON"
+	assert_success
+	run grep '"backend": "IntelliJ"' "$DEVCONTAINER_JSON"
+	assert_success
+}
+
+@test "customize_devcontainer_json omits vscode block when ide is jetbrains" {
+	customize_devcontainer_json "$DEVCONTAINER_JSON" "my-project" "jetbrains"
+
+	run grep -c '"vscode":' "$DEVCONTAINER_JSON"
+	assert_output "0"
+}
+
+@test "customize_devcontainer_json drops customizations block when ide is none" {
+	customize_devcontainer_json "$DEVCONTAINER_JSON" "my-project" "none"
+
+	run grep -c '"customizations":' "$DEVCONTAINER_JSON"
+	assert_output "0"
+}
+
+@test "customize_devcontainer_json strips __CUSTOMIZATIONS markers for vscode" {
+	customize_devcontainer_json "$DEVCONTAINER_JSON" "my-project" "vscode"
+
+	run grep -c '__CUSTOMIZATIONS_' "$DEVCONTAINER_JSON"
+	assert_output "0"
+}
+
+@test "customize_devcontainer_json strips __CUSTOMIZATIONS markers for jetbrains" {
+	customize_devcontainer_json "$DEVCONTAINER_JSON" "my-project" "jetbrains"
+
+	run grep -c '__CUSTOMIZATIONS_' "$DEVCONTAINER_JSON"
+	assert_output "0"
+}
+
+@test "customize_devcontainer_json strips __CUSTOMIZATIONS markers for none" {
+	customize_devcontainer_json "$DEVCONTAINER_JSON" "my-project" "none"
+
+	run grep -c '__CUSTOMIZATIONS_' "$DEVCONTAINER_JSON"
+	assert_output "0"
+}
