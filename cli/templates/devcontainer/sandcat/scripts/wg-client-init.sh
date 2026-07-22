@@ -21,6 +21,9 @@ DNSMASQ_CONF="/etc/dnsmasq-sandcat.conf"
 # for sibling app-init scripts to copy into their own /etc/resolv.conf.
 SHARED_RESOLV_CONF="/run/sandcat/resolv.conf"
 
+# NetBird mesh DNS domain for split-DNS forwarding (may be overridden per deployment).
+NETBIRD_DNS_DOMAIN="${NETBIRD_DNS_DOMAIN:-netbird.selfhosted}"
+
 # Poll a command until it returns success or a timeout is hit.
 #
 # Args:
@@ -128,6 +131,66 @@ write_resolv_conf() {
         echo "nameserver 127.0.0.1"
         if [[ "$#" -gt 0 ]]; then echo "search $*"; fi
     } > "$resolv_conf"
+}
+
+# Extract the first NetBird nameserver IP from `netbird status --json`.
+# Outputs the IP on stdout and returns 0, or outputs nothing and returns 0 if
+# DNS is not configured (caller must treat empty output as "not available").
+#
+# The NetBird management server pushes nameserver groups to enrolled peers;
+# the JSON path tried here matches the structure emitted by NetBird >= 0.28.
+netbird_dns_nameserver_ip() {
+    local ns_json
+    ns_json=$(netbird status --json 2>/dev/null) || return 0
+
+    local ip
+    ip=$(printf '%s' "$ns_json" | jq -r '
+        first(
+            (.nameservers // .dns // [])[]
+            | (.servers // .ips // [])[]
+            | select(type == "string" and length > 0)
+        ) // empty
+    ' 2>/dev/null) || true
+
+    [[ -n "$ip" ]] && printf '%s\n' "$ip"
+    return 0
+}
+
+# Append a NetBird domain-scoped DNS forward to the dnsmasq config and
+# reload dnsmasq (SIGHUP) so queries for $NETBIRD_DNS_DOMAIN resolve via
+# the NetBird nameserver instead of the catch-all upstream.
+#
+# Safe to call when NetBird DNS is not configured: logs one line and exits
+# cleanly (does not modify the config).
+#
+# Args:
+#   $1 - path to the dnsmasq config file to update
+patch_dnsmasq_for_netbird() {
+    local conf="$1"
+
+    local ns_ip
+    ns_ip=$(netbird_dns_nameserver_ip)
+
+    if [[ -z "$ns_ip" ]]; then
+        echo "wg-client: NetBird DNS nameserver not available (Nameservers: 0/0); skipping forward for ${NETBIRD_DNS_DOMAIN}." >&2
+        return 0
+    fi
+
+    local forward_line="server=/${NETBIRD_DNS_DOMAIN}/${ns_ip}"
+
+    # Idempotent: only write if line is not already present.
+    if ! grep -qF "$forward_line" "$conf" 2>/dev/null; then
+        printf '%s\n' "$forward_line" >> "$conf"
+        echo "wg-client: added dnsmasq forward: $forward_line"
+    fi
+
+    # Reload dnsmasq to pick up the new domain forward.
+    local dnsmasq_pid
+    dnsmasq_pid=$(pgrep -x dnsmasq 2>/dev/null | head -1 || true)
+    if [[ -n "$dnsmasq_pid" ]]; then
+        kill -HUP "$dnsmasq_pid"
+        echo "wg-client: dnsmasq (pid $dnsmasq_pid) reloaded for NetBird DNS forward."
+    fi
 }
 
 main() {
@@ -287,6 +350,12 @@ main() {
     start_netbird "wt0"
     set_netbird_fwmark "wt0"
     supervise_netbird_daemon "wt0" &
+
+    # Forward NetBird mesh DNS domain via the local dnsmasq instance so that
+    # FQDNs like peer-proxy.netbird.selfhosted resolve inside the agent. This
+    # is a best-effort call: if the nameserver is not yet published (dashboard
+    # DNS not enabled or NetBird not fully enrolled), it logs and continues.
+    patch_dnsmasq_for_netbird "$DNSMASQ_CONF"
 
     # Signal readiness to containers waiting on the healthcheck.
     touch /tmp/wg-ready
