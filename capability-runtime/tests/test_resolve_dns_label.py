@@ -1,0 +1,184 @@
+"""Tests for dns_label resolution in NetworkBinding at lease time."""
+from __future__ import annotations
+
+
+def test_lease_with_dns_label_resolves_peer_id_and_enables_route(tmp_path):
+    """Lease with dns_label resolves peer_id + mesh IP via peers API, enables /32 route."""
+    from capability_runtime.catalog import LifecycleState
+    from capability_runtime.netbird_client import MockNetBirdClient
+    from capability_runtime.network import NetworkBinding
+    from capability_runtime.runtime import CapabilityRuntime
+    from capability_runtime.types import AgentIdentity, CapabilityRef
+
+    client = MockNetBirdClient(
+        peers=[
+            {
+                "id": "peer-actual-id",
+                "ip": "100.64.0.5",
+                "dns_label": "peer-proxy.netbird.selfhosted",
+                "connected": True,
+            }
+        ],
+        routes=[],
+    )
+    runtime = CapabilityRuntime(
+        tmp_path / "t.jsonl", "trace-dns-1", 1, netbird_client=client
+    )
+    agent = AgentIdentity("agent-1")
+    ref = CapabilityRef("cap-reach-proxy")
+    # Catalog stores stable dns_label; peer_id/network are placeholders
+    binding = NetworkBinding(
+        ref,
+        peer_id="peer-placeholder",
+        network="0.0.0.0/32",
+        route_id=None,
+        dns_label="peer-proxy.netbird.selfhosted",
+    )
+    runtime.register_network_capability(
+        "reach_proxy", ref, binding, LifecycleState.DECLARED
+    )
+
+    runtime.request_capability_lease(agent, agent, ref, "test dns resolution")
+
+    routes = client.list_routes()
+    assert len(routes) == 1, "Expected one route to be created"
+    assert routes[0]["peer"] == "peer-actual-id", "Route must use resolved peer_id"
+    assert routes[0]["network"] == "100.64.0.5/32", "Route must use resolved mesh IP /32"
+    assert routes[0]["enabled"] is True
+
+
+def test_lease_without_dns_label_uses_catalog_peer_id_directly(tmp_path):
+    """IP-only binding (no dns_label) creates route with catalog peer_id unchanged."""
+    from capability_runtime.catalog import LifecycleState
+    from capability_runtime.netbird_client import MockNetBirdClient
+    from capability_runtime.network import NetworkBinding
+    from capability_runtime.runtime import CapabilityRuntime
+    from capability_runtime.types import AgentIdentity, CapabilityRef
+
+    client = MockNetBirdClient(
+        peers=[{"id": "peer-direct", "connected": True}],
+        routes=[],
+    )
+    runtime = CapabilityRuntime(
+        tmp_path / "t.jsonl", "trace-dns-2", 2, netbird_client=client
+    )
+    agent = AgentIdentity("agent-1")
+    ref = CapabilityRef("cap-reach-api")
+    binding = NetworkBinding(ref, "peer-direct", "10.8.0.0/24", route_id=None)
+    runtime.register_network_capability(
+        "reach_api", ref, binding, LifecycleState.DECLARED
+    )
+
+    runtime.request_capability_lease(agent, agent, ref, "direct ip")
+
+    routes = client.list_routes()
+    assert len(routes) == 1
+    assert routes[0]["peer"] == "peer-direct"
+    assert routes[0]["network"] == "10.8.0.0/24"
+
+
+def test_lease_with_dns_label_not_found_raises(tmp_path):
+    """Lease with dns_label that matches no peer raises PeerResolutionError."""
+    import pytest
+
+    from capability_runtime.catalog import LifecycleState
+    from capability_runtime.errors import PeerResolutionError
+    from capability_runtime.netbird_client import MockNetBirdClient
+    from capability_runtime.network import NetworkBinding
+    from capability_runtime.runtime import CapabilityRuntime
+    from capability_runtime.types import AgentIdentity, CapabilityRef
+
+    client = MockNetBirdClient(peers=[], routes=[])
+    runtime = CapabilityRuntime(
+        tmp_path / "t.jsonl", "trace-dns-3", 3, netbird_client=client
+    )
+    agent = AgentIdentity("agent-1")
+    ref = CapabilityRef("cap-reach-proxy")
+    binding = NetworkBinding(
+        ref,
+        peer_id="peer-placeholder",
+        network="0.0.0.0/32",
+        route_id=None,
+        dns_label="missing.netbird.selfhosted",
+    )
+    runtime.register_network_capability(
+        "reach_proxy", ref, binding, LifecycleState.DECLARED
+    )
+
+    with pytest.raises(PeerResolutionError, match="missing.netbird.selfhosted"):
+        runtime.request_capability_lease(agent, agent, ref, "test missing peer")
+
+
+def test_find_peer_by_dns_label_exact_match():
+    """find_peer_by_dns_label returns peer dict on exact dns_label match."""
+    from capability_runtime.netbird_client import MockNetBirdClient
+
+    client = MockNetBirdClient(
+        peers=[
+            {"id": "p1", "dns_label": "peer-proxy.netbird.selfhosted", "ip": "100.64.0.5"},
+            {"id": "p2", "dns_label": "other.netbird.selfhosted", "ip": "100.64.0.6"},
+        ]
+    )
+    peer = client.find_peer_by_dns_label("peer-proxy.netbird.selfhosted")
+    assert peer is not None
+    assert peer["id"] == "p1"
+
+
+def test_find_peer_by_dns_label_prefix_match():
+    """find_peer_by_dns_label matches when label equals hostname prefix of FQDN."""
+    from capability_runtime.netbird_client import MockNetBirdClient
+
+    client = MockNetBirdClient(
+        peers=[
+            {"id": "p1", "dns_label": "peer-proxy.netbird.selfhosted", "ip": "100.64.0.5"},
+        ]
+    )
+    # Short name matches if FQDN starts with "<short>."
+    peer = client.find_peer_by_dns_label("peer-proxy")
+    assert peer is not None
+    assert peer["id"] == "p1"
+
+
+def test_find_peer_by_dns_label_returns_none_when_missing():
+    """find_peer_by_dns_label returns None when no peer matches."""
+    from capability_runtime.netbird_client import MockNetBirdClient
+
+    client = MockNetBirdClient(peers=[{"id": "p1", "dns_label": "other", "ip": "1.2.3.4"}])
+    assert client.find_peer_by_dns_label("not-there") is None
+
+
+def test_load_catalog_dns_label_sets_binding_field(tmp_path):
+    """load_catalog_into_runtime stores dns_label on NetworkBinding."""
+    import json
+
+    from capability_runtime.daemon import load_catalog_into_runtime
+    from capability_runtime.netbird_client import MockNetBirdClient
+    from capability_runtime.runtime import CapabilityRuntime
+    from capability_runtime.types import CapabilityRef
+
+    catalog = {
+        "capabilities": [
+            {
+                "name": "reach_proxy",
+                "ref": "cap-reach-proxy",
+                "type": "network",
+                "dns_label": "peer-proxy.netbird.selfhosted",
+                "peer_id": "peer-placeholder",
+                "network": "0.0.0.0/32",
+                "sync_mode": "route_enable",
+            }
+        ]
+    }
+    catalog_path = tmp_path / "capability-catalog.json"
+    catalog_path.write_text(json.dumps(catalog))
+
+    client = MockNetBirdClient()
+    runtime = CapabilityRuntime(
+        tmp_path / "t.jsonl", "trace-dns-4", 4, netbird_client=client
+    )
+    load_catalog_into_runtime(runtime, catalog_path)
+
+    ref = CapabilityRef("cap-reach-proxy")
+    binding = runtime.catalog.get_network_binding(ref)
+    assert binding is not None
+    assert binding.dns_label == "peer-proxy.netbird.selfhosted"

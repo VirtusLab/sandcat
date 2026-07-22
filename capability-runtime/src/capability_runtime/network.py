@@ -20,6 +20,7 @@ class NetworkBinding:
     network: str
     route_id: str | None
     sync_mode: SyncMode = field(default=SyncMode.ROUTE_ENABLE)
+    dns_label: str | None = field(default=None)
 
 
 def sync_mode_from_catalog(entry: dict[str, Any]) -> SyncMode:

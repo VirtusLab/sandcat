@@ -44,3 +44,12 @@ class CallerIdentityMismatch(CapabilityRuntimeError):
         super().__init__(
             f"Caller identity mismatch: {caller.value} != {subject.value}"
         )
+
+
+class PeerResolutionError(CapabilityRuntimeError):
+    def __init__(self, dns_label: str) -> None:
+        self.dns_label = dns_label
+        super().__init__(
+            f"No NetBird peer found for dns_label={dns_label!r}; "
+            "ensure proxy-peer is enrolled and NetBird peer name matches"
+        )

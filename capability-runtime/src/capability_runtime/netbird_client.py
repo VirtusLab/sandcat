@@ -124,6 +124,46 @@ class NetBirdClient(Protocol):
 
     def disable_binding(self, binding: NetworkBinding) -> None: ...
 
+    def find_peer_by_dns_label(self, label: str) -> dict | None: ...
+
+
+def _find_peer_by_dns_label(peers: list[dict], label: str) -> dict | None:
+    """Return the first peer whose dns_label matches label (exact or prefix).
+
+    Exact match: peer["dns_label"] == label
+    Prefix match: label has no dot and peer["dns_label"].startswith(label + ".")
+    """
+    for peer in peers:
+        peer_label = peer.get("dns_label", "")
+        if peer_label == label:
+            return peer
+        if "." not in label and peer_label.startswith(label + "."):
+            return peer
+    return None
+
+
+def _resolve_dns_label(binding: NetworkBinding, peers: list[dict]) -> NetworkBinding:
+    """If binding has dns_label, resolve peer_id and network from peers list.
+
+    Returns a new NetworkBinding with resolved peer_id and network (<ip>/32).
+    Raises PeerResolutionError if no matching peer is found.
+    Leaves binding unchanged if dns_label is not set.
+    """
+    if not binding.dns_label:
+        return binding
+    from capability_runtime.errors import PeerResolutionError
+
+    peer = _find_peer_by_dns_label(peers, binding.dns_label)
+    if peer is None:
+        raise PeerResolutionError(binding.dns_label)
+    peer_id = peer["id"]
+    ip = peer.get("ip", peer.get("address", ""))
+    if not ip:
+        raise PeerResolutionError(binding.dns_label)
+    # Strip CIDR suffix from IP if present (some APIs return "100.64.0.5/16")
+    ip = ip.split("/")[0]
+    return replace(binding, peer_id=peer_id, network=f"{ip}/32")
+
 
 class MockNetBirdClient:
     def __init__(
@@ -161,7 +201,11 @@ class MockNetBirdClient:
                 return "disabled" if route.get("enabled") is False else "enabled"
         return "missing"
 
+    def find_peer_by_dns_label(self, label: str) -> dict | None:
+        return _find_peer_by_dns_label(self._peers, label)
+
     def enable_binding(self, binding: NetworkBinding) -> NetworkBinding:
+        binding = _resolve_dns_label(binding, self._peers)
         if binding.sync_mode is SyncMode.PEER_REMOVE:
             return binding
         if binding.sync_mode is SyncMode.ACL_POLICY:
@@ -269,7 +313,11 @@ class RestNetBirdClient:
                 return "disabled" if route.get("enabled") is False else "enabled"
         return "missing"
 
+    def find_peer_by_dns_label(self, label: str) -> dict | None:
+        return _find_peer_by_dns_label(self.list_peers(), label)
+
     def enable_binding(self, binding: NetworkBinding) -> NetworkBinding:
+        binding = _resolve_dns_label(binding, self.list_peers())
         if binding.sync_mode is SyncMode.PEER_REMOVE:
             return binding
         if binding.sync_mode is SyncMode.ACL_POLICY:
