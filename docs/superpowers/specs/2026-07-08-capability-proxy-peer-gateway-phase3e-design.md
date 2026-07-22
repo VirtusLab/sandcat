@@ -72,11 +72,11 @@ flowchart TB
 ## 3. Goals
 
 1. **proxy-peer container** — enrolls as NetBird peer (`NET_ADMIN`), exposes minimal HTTP surface on mesh IP.
-2. **Layer 1 template** — sandcat settings profile allowing only proxy-peer mesh IP (and required infra).
-3. **Layer 2 catalog** — network capabilities map to `proxy-peer` `/32`; lease/revoke uses existing `route_enable` sync.
+2. **Layer 1 template** — sandcat settings profile allowing only proxy-peer gateway (FQDN `peer-proxy.netbird.selfhosted` in DNS mode, or mesh IP as fallback).
+3. **Layer 2 catalog** — network capabilities map to `proxy-peer` `/32`; lease/revoke uses existing `route_enable` sync. Catalog prefers `dns_label` for stable targeting across recreates.
 4. **Catalog-driven lease policy** — per-cap `quota`, `ttl` for network caps (e.g. context7 `action_quota: 5`).
 5. **Flow → quota** — mitmproxy post-hoc `l7_flow` record decrements quota via admin RPC (closes Phase 3c Task 6 gap).
-6. **Engineering gate** — scripted smoke: lease → curl proxy-peer → revoke → unreachable; quota → auto-revoke.
+6. **Engineering gate** — scripted smoke: lease → curl proxy-peer → revoke → unreachable; quota → auto-revoke. Smoke target is `peer-proxy.netbird.selfhosted` when NetBird DNS is enabled (IP fallback documented).
 
 ---
 
