@@ -118,6 +118,14 @@ devcontainer() {
 
 	customize_devcontainer_json "$devcontainer_dir/devcontainer.json" "$project_name" "$ide"
 
+	# JetBrains plugins must be seeded after customize_devcontainer_json emits
+	# the customizations.jetbrains block. No-op for other IDEs.
+	if [[ "$ide" == "jetbrains" && -n "$stacks" ]]; then
+		local stacks_arr_jb=()
+		read -ra stacks_arr_jb <<< "$stacks"
+		customize_devcontainer_plugins "$devcontainer_dir/devcontainer.json" "${stacks_arr_jb[@]}"
+	fi
+
 	echo "Devcontainer dir created at ${devcontainer_dir#"$project_path"/}" | info
 }
 

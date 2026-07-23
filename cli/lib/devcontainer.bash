@@ -105,6 +105,58 @@ customize_dockerfile() {
 	mv "$tmpfile" "$dockerfile"
 }
 
+# Adds JetBrains Marketplace plugins for selected stacks to devcontainer.json.
+# Replaces the empty `"plugins": []` inside the JetBrains customizations
+# block that apply_ide_customizations emits. Symmetric counterpart to
+# customize_devcontainer_extensions() for the VS Code path.
+#
+# Silently no-ops when no stack contributes a JetBrains plugin (e.g. stacks
+# where language support is bundled in the IDE) — the empty array stays.
+#
+# Args:
+#   $1 - Path to the devcontainer.json file
+#   $@ - Stack names (remaining args)
+customize_devcontainer_plugins() {
+	local devcontainer_json=$1
+	shift
+
+	local plugin_ids=()
+	local stack plugin
+	for stack in "$@"; do
+		plugin=$(stack_jetbrains_plugin "$stack")
+		if [[ -n "$plugin" ]]; then
+			plugin_ids+=("$plugin")
+		fi
+	done
+
+	if [[ ${#plugin_ids[@]} -eq 0 ]]; then
+		return 0
+	fi
+
+	# Build the JSON array literal: "id1", "id2", "id3"
+	local joined=""
+	local id
+	for id in "${plugin_ids[@]}"; do
+		if [[ -n "$joined" ]]; then
+			joined+=", "
+		fi
+		joined+="\"${id}\""
+	done
+
+	# Rewrite `"plugins": []` in place. The literal is uniquely emitted by
+	# apply_ide_customizations, so a simple line rewrite is safe here.
+	local tmpfile="${devcontainer_json}.tmp"
+	local line
+	while IFS= read -r line || [[ -n "$line" ]]; do
+		if [[ "$line" == *'"plugins": []'* ]]; then
+			printf '%s\n' "${line//\"plugins\": \[\]/\"plugins\": [${joined}]}"
+		else
+			printf '%s\n' "$line"
+		fi
+	done < "$devcontainer_json" > "$tmpfile"
+	mv "$tmpfile" "$devcontainer_json"
+}
+
 # Adds VS Code extensions for selected stacks to devcontainer.json.
 # Replaces the // __STACK_EXTENSIONS__ placeholder line.
 # Args:
