@@ -34,6 +34,37 @@ stack_extension() {
 	esac
 }
 
+# Returns the JetBrains Marketplace plugin ID for a stack (empty if none).
+# Symmetric to stack_extension() for the JetBrains devcontainer path.
+# Gateway installs entries listed here into the backend IDE at start-up.
+#
+# Notes on editions and bundling:
+#   - node/java: language support is bundled in IntelliJ IDEA (Community
+#     and Ultimate). No plugin needed.
+#   - python: PythonCore is the free plugin that ships with PyCharm
+#     Community and works in IntelliJ IDEA Community as well.
+#   - go/ruby/nodejs-advanced: JetBrains gates these behind Ultimate.
+#     The plugin IDs below install correctly only when the backend is
+#     an Ultimate build (or the language-specific IDE like GoLand,
+#     RubyMine, WebStorm). On Community backends Gateway silently skips
+#     them.
+#   - dotnet: primary JetBrains IDE is Rider (standalone); IntelliJ does
+#     not have a first-party .NET plugin, so we emit nothing.
+#   - rust: JetBrains split Rust into standalone RustRover; the old
+#     intellij-rust plugin was discontinued. Emit nothing until Rust
+#     support is available as a first-party plugin again.
+#   - zig: community-maintained ZigBrains plugin.
+stack_jetbrains_plugin() {
+	case $1 in
+		python) echo "PythonCore" ;;
+		scala)  echo "org.intellij.scala" ;;
+		go)     echo "org.jetbrains.plugins.go" ;;
+		ruby)   echo "org.jetbrains.plugins.ruby" ;;
+		zig)    echo "com.falsepattern.zigbrains" ;;
+		*)      echo "" ;;
+	esac
+}
+
 # Returns space-separated dependency stack names (empty if none).
 stack_deps() {
 	case $1 in
