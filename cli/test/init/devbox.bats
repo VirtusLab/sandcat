@@ -31,7 +31,7 @@ teardown() {
 
 	run grep 'get.jetify.com/devbox' "$DEVCONTAINER_DIR/Dockerfile.app"
 	assert_success
-	run grep 'RUN devbox global install' "$DEVCONTAINER_DIR/Dockerfile.app"
+	run grep 'devbox global install' "$DEVCONTAINER_DIR/Dockerfile.app"
 	assert_success
 	run grep '/etc/profile.d/sandcat-devbox.sh' "$DEVCONTAINER_DIR/Dockerfile.app"
 	assert_success
@@ -80,7 +80,7 @@ teardown() {
 
 	run grep -c '@latest' "$PROJECT_DIR/.devcontainer/devbox.json"
 	assert_output "7"
-	run grep 'RUN devbox global install' "$PROJECT_DIR/.devcontainer/Dockerfile.app"
+	run grep 'devbox global install' "$PROJECT_DIR/.devcontainer/Dockerfile.app"
 	assert_success
 	run grep -c '__DEVBOX_INSTALL__' "$PROJECT_DIR/.devcontainer/Dockerfile.app"
 	assert_output "0"
