@@ -37,65 +37,158 @@ teardown() {
 	assert_success
 }
 
-@test "customize_devbox copies the starter devbox.json" {
-	customize_devbox "$DEVCONTAINER_DIR"
-
-	# devbox.json carries // comments (devbox parses HuJSON), so count
-	# packages with grep instead of a strict-JSON parser like yq.
-	run grep -c '@latest' "$DEVCONTAINER_DIR/devbox.json"
-	assert_output "7"
-	run grep '"ripgrep@latest"' "$DEVCONTAINER_DIR/devbox.json"
-	assert_success
-}
-
-@test "starter devbox.json documents every package with a comment" {
-	customize_devbox "$DEVCONTAINER_DIR"
-
-	run grep -c '@latest.* // ' "$DEVCONTAINER_DIR/devbox.json"
-	assert_output "7"
-}
-
-@test "customize_devbox keeps an existing devbox.json" {
-	echo '{"packages": ["gnuplot@latest"]}' > "$DEVCONTAINER_DIR/devbox.json"
-
-	customize_devbox "$DEVCONTAINER_DIR"
-
-	run yq -e '.packages[0] == "gnuplot@latest"' "$DEVCONTAINER_DIR/devbox.json"
-	assert_success
-}
-
-@test "customize_devbox leaves no placeholder residue" {
+@test "customize_devbox leaves no __DEVBOX_INSTALL__ placeholder residue" {
 	customize_devbox "$DEVCONTAINER_DIR"
 
 	run grep -c '__DEVBOX_INSTALL__' "$DEVCONTAINER_DIR/Dockerfile.app"
 	assert_output "0"
 }
 
-@test "devcontainer always generates devbox.json and Dockerfile block" {
-	devcontainer \
-		--settings-file "$SETTINGS_FILE" \
-		--project-path "$PROJECT_DIR" \
-		--agent claude \
-		--ide vscode
+@test "customize_devbox writes devbox.stack.json with the baseline shell tools" {
+	customize_devbox "$DEVCONTAINER_DIR"
 
-	run grep -c '@latest' "$PROJECT_DIR/.devcontainer/devbox.json"
+	# Baseline packages defined in SCT_DEVBOX_BASELINE_PACKAGES.
+	run jq -r '.packages | length' "$DEVCONTAINER_DIR/devbox.stack.json"
 	assert_output "7"
-	run grep 'devbox global install' "$PROJECT_DIR/.devcontainer/Dockerfile.app"
-	assert_success
-	run grep -c '__DEVBOX_INSTALL__' "$PROJECT_DIR/.devcontainer/Dockerfile.app"
-	assert_output "0"
+	for pkg in fd fzf gh jq ripgrep tmux vim; do
+		run jq -r ".packages | map(select(startswith(\"${pkg}@\"))) | length" "$DEVCONTAINER_DIR/devbox.stack.json"
+		assert_output "1"
+	done
 }
 
-@test "devcontainer keeps an existing devbox.json on re-init" {
-	mkdir -p "$PROJECT_DIR/.devcontainer"
-	echo '{"packages": ["gnuplot@latest"]}' > "$PROJECT_DIR/.devcontainer/devbox.json"
+@test "customize_devbox adds stack packages to devbox.stack.json" {
+	customize_devbox "$DEVCONTAINER_DIR" java
 
+	run jq -r '.packages | length' "$DEVCONTAINER_DIR/devbox.stack.json"
+	assert_output "8"  # 7 baseline + openjdk
+	run jq -e '.packages | any(. == "openjdk@latest")' "$DEVCONTAINER_DIR/devbox.stack.json"
+	assert_success
+}
+
+@test "customize_devbox handles multiple stacks with dependencies" {
+	# Simulating what libexec/init/devcontainer would pass after
+	# resolve_stacks — dependencies come before dependents.
+	customize_devbox "$DEVCONTAINER_DIR" java scala
+
+	# baseline (7) + java (openjdk) + scala (scala, sbt, scala-cli) = 11
+	run jq -r '.packages | length' "$DEVCONTAINER_DIR/devbox.stack.json"
+	assert_output "11"
+	run jq -e '.packages | any(. == "openjdk@latest")' "$DEVCONTAINER_DIR/devbox.stack.json"
+	assert_success
+	run jq -e '.packages | any(. == "scala@latest")' "$DEVCONTAINER_DIR/devbox.stack.json"
+	assert_success
+	run jq -e '.packages | any(. == "sbt@latest")' "$DEVCONTAINER_DIR/devbox.stack.json"
+	assert_success
+}
+
+@test "customize_devbox regenerates devbox.stack.json on re-init (not guarded)" {
+	# First init with java → stack.json has openjdk.
+	customize_devbox "$DEVCONTAINER_DIR" java
+	run jq -e '.packages | any(. == "openjdk@latest")' "$DEVCONTAINER_DIR/devbox.stack.json"
+	assert_success
+
+	# Second init with no stacks → openjdk goes away, baseline stays.
+	customize_devbox "$DEVCONTAINER_DIR"
+	run jq -e '.packages | any(. == "openjdk@latest")' "$DEVCONTAINER_DIR/devbox.stack.json"
+	assert_failure
+	run jq -r '.packages | length' "$DEVCONTAINER_DIR/devbox.stack.json"
+	assert_output "7"
+}
+
+@test "customize_devbox creates devbox.tools.json with empty packages list" {
+	customize_devbox "$DEVCONTAINER_DIR"
+
+	run jq -e '.packages | length == 0' "$DEVCONTAINER_DIR/devbox.tools.json"
+	assert_success
+}
+
+@test "customize_devbox preserves user edits in devbox.tools.json across re-init" {
+	# First init writes the starter.
+	customize_devbox "$DEVCONTAINER_DIR"
+
+	# User adds a package.
+	echo '{"packages": ["hyperfine@latest"]}' > "$DEVCONTAINER_DIR/devbox.tools.json"
+
+	# Re-init with different stacks — tools.json must survive untouched.
+	customize_devbox "$DEVCONTAINER_DIR" python
+
+	run jq -e '.packages[0] == "hyperfine@latest"' "$DEVCONTAINER_DIR/devbox.tools.json"
+	assert_success
+}
+
+@test "devcontainer command generates both devbox files" {
 	devcontainer \
 		--settings-file "$SETTINGS_FILE" \
 		--project-path "$PROJECT_DIR" \
 		--agent claude \
 		--ide vscode
 
-	run yq -e '.packages[0] == "gnuplot@latest"' "$PROJECT_DIR/.devcontainer/devbox.json"
+	run test -f "$PROJECT_DIR/.devcontainer/devbox.stack.json"
 	assert_success
+	run test -f "$PROJECT_DIR/.devcontainer/devbox.tools.json"
+	assert_success
+	# Baseline present.
+	run jq -r '.packages | length' "$PROJECT_DIR/.devcontainer/devbox.stack.json"
+	assert_output "7"
+}
+
+@test "devcontainer command flows --stacks into devbox.stack.json" {
+	# devcontainer expects already-resolved stacks (upper-level init handles
+	# resolve_stacks). Pass "java scala" to mirror the resolved form.
+	devcontainer \
+		--settings-file "$SETTINGS_FILE" \
+		--project-path "$PROJECT_DIR" \
+		--agent claude \
+		--ide vscode \
+		--stacks "java scala"
+
+	# baseline (7) + openjdk + scala + sbt + scala-cli = 11
+	run jq -r '.packages | length' "$PROJECT_DIR/.devcontainer/devbox.stack.json"
+	assert_output "11"
+	run jq -e '.packages | any(. == "openjdk@latest")' "$PROJECT_DIR/.devcontainer/devbox.stack.json"
+	assert_success
+}
+
+# ------------------------------------------------------------------
+# jq merge program (_devbox_merge_jq) exercised via direct piping.
+# ------------------------------------------------------------------
+
+merge_jq() {
+	# shellcheck source=../../lib/devcontainer.bash
+	source "$SCT_LIBDIR/devcontainer.bash"
+	local merge
+	merge=$(_devbox_merge_jq)
+	local stack_json=$1
+	local tools_json=$2
+	jq -s "$merge" <(echo "$stack_json") <(echo "$tools_json")
+}
+
+@test "merge unions disjoint packages" {
+	local out
+	out=$(merge_jq \
+		'{"packages":["jq@latest","fd@latest"]}' \
+		'{"packages":["hyperfine@latest"]}' \
+		| jq -r '.packages | length')
+	assert_equal "$out" "3"
+}
+
+@test "merge deduplicates identical package specs" {
+	local out
+	out=$(merge_jq '{"packages":["jq@latest","fd@latest"]}' '{"packages":["jq@latest"]}' | jq -r '.packages | length')
+	assert_equal "$out" "2"
+}
+
+@test "merge fails on version conflict for the same package name" {
+	run merge_jq \
+		'{"packages":["python@3.12"]}' \
+		'{"packages":["python@3.10"]}'
+	assert_failure
+	assert_output --partial "version conflict"
+	assert_output --partial "python"
+}
+
+@test "merge handles empty tools.json" {
+	local out
+	out=$(merge_jq '{"packages":["jq@latest"]}' '{"packages":[]}' | jq -r '.packages | length')
+	assert_equal "$out" "1"
 }

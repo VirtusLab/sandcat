@@ -39,42 +39,46 @@ for ws_dir in /workspaces/*; do
     fi
 done
 
-# If Java is installed (via mise), import the mitmproxy CA into Java's trust
-# store. Java uses its own cacerts and ignores the system CA store.
+# If openjdk was installed via devbox (as a --stacks java or scala package,
+# or explicitly in devbox.tools.json), import the mitmproxy CA into a
+# writable Java trust store copy. Java has its own cacerts and ignores
+# the system CA store.
+#
+# Key difference from the previous mise-based flow: Nix stores are
+# read-only, so the openjdk cacerts inside the Nix store cannot be
+# modified in place. We copy it to $SANDCAT_DIR first (cp preserves
+# the read-only mode), chmod it writable, and then run keytool on the
+# copy. JAVA_TOOL_OPTIONS in Dockerfile.app already points every JVM
+# at this copy.
 CA_CERT="/mitmproxy-config/mitmproxy-ca-cert.pem"
 
-# Ensure mise is on PATH. `su - vscode` resets the environment and sources
-# only the first of ~/.bash_profile, ~/.bash_login, ~/.profile.  If
-# ~/.bash_profile exists (e.g. created by VS Code on a persistent volume),
-# ~/.profile — where the Dockerfile adds mise — is never read.
-if ! command -v mise >/dev/null 2>&1; then
-    export PATH="/home/vscode/.local/bin:/home/vscode/.local/share/mise/shims:$PATH"
-fi
-
-MISE_JAVA_HOME="$(mise where java 2>/dev/null || true)"
-if [ -n "$MISE_JAVA_HOME" ] && [ -f "$CA_CERT" ]; then
-    # Create a version-independent symlink so JAVA_HOME doesn't depend
-    # on the mise Java version.
+DEVBOX_JAVA_HOME="$HOME/.local/share/devbox/global/default/.devbox/nix/profile/default/lib/openjdk"
+if [ -e "$DEVBOX_JAVA_HOME/bin/keytool" ] && [ -f "$CA_CERT" ]; then
     SANDCAT_DIR="$HOME/.local/share/sandcat"
     mkdir -p "$SANDCAT_DIR"
-    ln -sfn "$MISE_JAVA_HOME" "$SANDCAT_DIR/java-home"
+    # Refresh the symlink each start so a devbox openjdk update lands here.
+    ln -sfn "$DEVBOX_JAVA_HOME" "$SANDCAT_DIR/java-home"
 
-    JAVA_CACERTS="$MISE_JAVA_HOME/lib/security/cacerts"
+    NIX_CACERTS="$DEVBOX_JAVA_HOME/lib/security/cacerts"
     SANDCAT_CACERTS="$SANDCAT_DIR/cacerts"
-    if [ -f "$JAVA_CACERTS" ]; then
-        # Import on first start; on restart the alias already exists (harmless failure).
-        if keytool -importcert -trustcacerts -noprompt \
+    if [ -f "$NIX_CACERTS" ]; then
+        # Copy first (destination inherits Nix store's 0444 mode), then
+        # make writable so keytool can update it. Copying happens every
+        # start so a devbox update to openjdk gets a fresh baseline
+        # before we re-import mitmproxy CA.
+        cp "$NIX_CACERTS" "$SANDCAT_CACERTS"
+        chmod 0644 "$SANDCAT_CACERTS"
+
+        # Import into the writable copy only. The Nix store original stays
+        # untouched (immutable by design). On restart the alias already
+        # exists and the second import is a harmless no-op.
+        if "$DEVBOX_JAVA_HOME/bin/keytool" -importcert -trustcacerts -noprompt \
             -alias mitmproxy \
             -file "$CA_CERT" \
-            -keystore "$JAVA_CACERTS" \
+            -keystore "$SANDCAT_CACERTS" \
             -storepass changeit >/dev/null 2>&1; then
             echo "Imported mitmproxy CA into Java trust store"
         fi
-
-        # Create/update a standalone copy of the trust store (with the mitmproxy
-        # CA) so JAVA_TOOL_OPTIONS can point all JVMs to it — including
-        # ones downloaded later by tools like Coursier (Scala Metals).
-        cp "$JAVA_CACERTS" "$SANDCAT_CACERTS"
 
         # scala-cli is a GraalVM native binary that ignores JAVA_TOOL_OPTIONS
         # and JAVA_HOME for trust store resolution. Pre-create its config

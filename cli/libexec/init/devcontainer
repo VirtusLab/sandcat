@@ -95,18 +95,20 @@ devcontainer() {
 	local project_name
 	project_name="${name:-$(derive_project_name "$project_path")}"
 
-	# Customize Dockerfile and devcontainer.json with selected stacks
+	# Customize devcontainer.json and devbox configs with selected stacks.
+	# Devbox replaces mise as the sole toolchain provider; --stacks still
+	# maps to concrete tools via stack_devbox_packages(), which flow into
+	# devbox.stack.json (regenerated per init).
 	if [[ -n "$stacks" ]]; then
 		local stacks_arr=()
 		read -ra stacks_arr <<< "$stacks"
-		customize_dockerfile "$devcontainer_dir/Dockerfile.app" "${stacks_arr[@]}"
 		customize_devcontainer_extensions "$devcontainer_dir/devcontainer.json" "${stacks_arr[@]}"
+		customize_devbox "$devcontainer_dir" "${stacks_arr[@]}"
 	else
-		customize_dockerfile "$devcontainer_dir/Dockerfile.app"
 		customize_devcontainer_extensions "$devcontainer_dir/devcontainer.json"
+		customize_devbox "$devcontainer_dir"
 	fi
 	customize_agent_templates "$devcontainer_dir" "$agent"
-	customize_devbox "$devcontainer_dir"
 
 	if [[ "$proxy_mode" == "tui" ]]; then
 		set_proxy_tui_mode "$devcontainer_dir/sandcat/compose-proxy.yml"

@@ -4,18 +4,28 @@
 
 STACK_NAMES=(node python java rust go scala ruby dotnet zig)
 
-# Returns the mise install command for a stack.
-stack_mise_cmd() {
+# Returns space-separated devbox package specs for a stack.
+# Format: "<name>@<version>" pairs, where name matches a nixpkgs derivation
+# (browse names on https://www.nixhub.io/) and version follows devbox
+# resolution rules ("latest", "lts", "3", "3.12", exact versions, etc.).
+#
+# Dependency packages (e.g. java/openjdk for scala) are NOT listed here —
+# stack_deps() handles the transitive resolution and each dep contributes
+# its own packages once. This keeps the merge in devbox.stack.json free
+# from duplicated entries that would otherwise trigger version-conflict
+# detection against the same package name.
+stack_devbox_packages() {
 	case $1 in
-		node)   echo "mise use -g node@lts" ;;
-		python) echo "mise use -g python@3" ;;
-		java)   echo "mise use -g java@lts" ;;
-		rust)   echo "mise use -g rust@latest" ;;
-		go)     echo "mise use -g go@latest" ;;
-		scala)  echo "mise use -g scala@latest && mise use -g sbt@latest && mise use -g scala-cli@latest" ;;
-		ruby)   echo "mise use -g ruby@latest" ;;
-		dotnet) echo "mise use -g dotnet@latest" ;;
-		zig)    echo "mise use -g zig@latest" ;;
+		node)   echo "nodejs@lts" ;;
+		python) echo "python@latest" ;;
+		java)   echo "openjdk@latest" ;;
+		rust)   echo "rustc@latest cargo@latest" ;;
+		go)     echo "go@latest" ;;
+		scala)  echo "scala@latest sbt@latest scala-cli@latest" ;;
+		ruby)   echo "ruby@latest" ;;
+		dotnet) echo "dotnet-sdk@latest" ;;
+		zig)    echo "zig@latest" ;;
+		*)      echo "" ;;
 	esac
 }
 

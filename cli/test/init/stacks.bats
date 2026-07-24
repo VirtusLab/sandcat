@@ -11,30 +11,47 @@ teardown() {
 	unstub_all
 }
 
-@test "stack_mise_cmd returns correct command for each stack" {
-	run stack_mise_cmd node
-	assert_output "mise use -g node@lts"
+@test "stack_devbox_packages returns package specs for each stack" {
+	run stack_devbox_packages node
+	assert_output "nodejs@lts"
 
-	run stack_mise_cmd python
-	assert_output "mise use -g python@3"
+	run stack_devbox_packages python
+	assert_output "python@latest"
 
-	run stack_mise_cmd java
-	assert_output "mise use -g java@lts"
+	run stack_devbox_packages java
+	assert_output "openjdk@latest"
 
-	run stack_mise_cmd rust
-	assert_output "mise use -g rust@latest"
+	run stack_devbox_packages rust
+	assert_output "rustc@latest cargo@latest"
 
-	run stack_mise_cmd go
-	assert_output "mise use -g go@latest"
+	run stack_devbox_packages go
+	assert_output "go@latest"
 
-	run stack_mise_cmd scala
-	assert_output "mise use -g scala@latest && mise use -g sbt@latest && mise use -g scala-cli@latest"
+	run stack_devbox_packages scala
+	assert_output "scala@latest sbt@latest scala-cli@latest"
 
-	run stack_mise_cmd ruby
-	assert_output "mise use -g ruby@latest"
+	run stack_devbox_packages ruby
+	assert_output "ruby@latest"
 
-	run stack_mise_cmd dotnet
-	assert_output "mise use -g dotnet@latest"
+	run stack_devbox_packages dotnet
+	assert_output "dotnet-sdk@latest"
+
+	run stack_devbox_packages zig
+	assert_output "zig@latest"
+}
+
+@test "stack_devbox_packages returns empty for unknown stack" {
+	run stack_devbox_packages nosuchstack
+	assert_output ""
+}
+
+@test "stack_devbox_packages omits openjdk from scala (java dep supplies it)" {
+	# Verifies the merge-conflict trap explained in the stacks.bash doc:
+	# both java and scala contributing openjdk would blow up when scala
+	# is selected (which triggers java as a dep). We rely on stack_deps
+	# to provide openjdk transitively.
+	run stack_devbox_packages scala
+	refute_output --partial "openjdk"
 }
 
 @test "stack_extension returns extension ID for stacks with extensions" {

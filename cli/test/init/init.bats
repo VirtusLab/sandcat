@@ -245,7 +245,8 @@ teardown() {
 
 	run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" --stacks "" --proxy web --features "" --secret-provider none
 	assert_success
-	assert_output --partial "Devbox:"
+	assert_output --partial "Devbox tools:"
+	assert_output --partial "Devbox stack:"
 }
 
 @test "init --features tui applies the tui feature" {

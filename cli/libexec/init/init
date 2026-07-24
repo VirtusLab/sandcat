@@ -363,9 +363,10 @@ init() {
 	echo "" >&2
 	echo "Initialization complete." | info
 	if [[ -n "$stacks_resolved" ]]; then
-		echo "  Stacks:           $stacks_resolved (edit .devcontainer/Dockerfile.app to change versions)" | info
+		echo "  Stacks:           $stacks_resolved (devbox packages baked into .devcontainer/devbox.stack.json)" | info
 	fi
-	echo "  Devbox:           edit .devcontainer/devbox.json to add packages, then rebuild (sandcat run --build)" | info
+	echo "  Devbox tools:     edit .devcontainer/devbox.tools.json to add packages, then rebuild (sandcat run --build)" | info
+	echo "  Devbox stack:     .devcontainer/devbox.stack.json is regenerated on every init from --stacks" | info
 	echo "  Project settings: $SCT_PROJECT_DIR/settings.json (network rules)" | info
 	echo "  User settings:    ~/.config/sandcat/settings.json (git identity, API keys)" | info
 	echo "  Devcontainer:     .devcontainer/" | info

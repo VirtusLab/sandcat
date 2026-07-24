@@ -70,43 +70,6 @@ apply_ide_customizations() {
 	mv "$tmpfile" "$file"
 }
 
-# Inserts RUN mise lines into the Dockerfile for selected stacks.
-# Lines are inserted before the "# END STACKS" marker.
-# Args:
-#   $1 - Path to the Dockerfile
-#   $@ - Stack names (remaining args)
-customize_dockerfile() {
-	local dockerfile=$1
-	shift
-	if [[ $# -eq 0 ]]; then
-		return
-	fi
-	local stacks=("$@")
-
-	local run_lines=()
-	local stack cmd
-	for stack in "${stacks[@]}"; do
-		cmd=$(stack_mise_cmd "$stack")
-		if [[ -n "$cmd" ]]; then
-			run_lines+=("RUN ${cmd}")
-		fi
-	done
-
-	# Build the output file, inserting RUN lines before the END STACKS marker.
-	# Uses a while-read loop instead of sed to avoid & escaping issues.
-	local tmpfile="${dockerfile}.tmp"
-	while IFS= read -r line || [[ -n "$line" ]]; do
-		if [[ "$line" == "# END STACKS" ]]; then
-			local l
-			for l in "${run_lines[@]}"; do
-				printf '%s\n' "$l"
-			done
-		fi
-		printf '%s\n' "$line"
-	done < "$dockerfile" > "$tmpfile"
-	mv "$tmpfile" "$dockerfile"
-}
-
 # Adds VS Code extensions for selected stacks to devcontainer.json.
 # Replaces the // __STACK_EXTENSIONS__ placeholder line.
 # Args:
