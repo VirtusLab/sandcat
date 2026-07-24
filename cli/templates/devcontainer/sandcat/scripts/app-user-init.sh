@@ -52,8 +52,16 @@ done
 # at this copy.
 CA_CERT="/mitmproxy-config/mitmproxy-ca-cert.pem"
 
-DEVBOX_JAVA_HOME="$HOME/.local/share/devbox/global/default/.devbox/nix/profile/default/lib/openjdk"
-if [ -e "$DEVBOX_JAVA_HOME/bin/keytool" ] && [ -f "$CA_CERT" ]; then
+# Detect the JDK layout — see Dockerfile.app for the two nixpkgs shapes.
+DEVBOX_PROFILE="$HOME/.local/share/devbox/global/default/.devbox/nix/profile/default"
+DEVBOX_JAVA_HOME=""
+if   [ -e "$DEVBOX_PROFILE/lib/openjdk/bin/keytool" ]; then
+    DEVBOX_JAVA_HOME="$DEVBOX_PROFILE/lib/openjdk"
+elif [ -e "$DEVBOX_PROFILE/bin/keytool" ] && [ -f "$DEVBOX_PROFILE/lib/security/cacerts" ]; then
+    DEVBOX_JAVA_HOME="$DEVBOX_PROFILE"
+fi
+
+if [ -n "$DEVBOX_JAVA_HOME" ] && [ -f "$CA_CERT" ]; then
     SANDCAT_DIR="$HOME/.local/share/sandcat"
     mkdir -p "$SANDCAT_DIR"
     # Refresh the symlink each start so a devbox openjdk update lands here.

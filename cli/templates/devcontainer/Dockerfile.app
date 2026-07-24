@@ -20,16 +20,27 @@ ENV LANG="en_US.UTF-8"
 
 # __DEVBOX_INSTALL__
 
-# If openjdk is installed (via a devbox stack that pulls it — e.g. java or
-# scala), bake JAVA_HOME and JAVA_TOOL_OPTIONS into .bashrc so VS Code's
-# env probe picks them up before the entrypoint runs. Without JAVA_HOME,
-# JVM tooling like Metals fails to find the JDK. JAVA_TOOL_OPTIONS points
-# to a trust store copy that app-user-init.sh populates with the mitmproxy
-# CA at runtime; until then it holds the default Java CAs (harmless).
-# The version-independent symlink lives inside the devbox profile so it
-# survives package updates: devbox rewrites the profile atomically.
-RUN DEVBOX_JAVA="$HOME/.local/share/devbox/global/default/.devbox/nix/profile/default/lib/openjdk"; \
-    if [ -e "$DEVBOX_JAVA/bin/java" ]; then \
+# If a JDK is installed via devbox (java or scala stack, or a user entry
+# in devbox.tools.json), bake JAVA_HOME and JAVA_TOOL_OPTIONS into .bashrc
+# so VS Code's env probe picks them up before the entrypoint runs. Without
+# JAVA_HOME, JVM tooling like Metals fails to find the JDK.
+#
+# Two JDK layouts appear in nixpkgs:
+#   * Nested (nixpkgs `openjdk` package): java at $PROFILE/lib/openjdk/bin/java
+#   * Flat   (`temurin-bin-*`, `jetbrains.jdk*`, `jdk`): java at $PROFILE/bin/java
+# The block below detects whichever is present and points the sandcat
+# symlink at the correct root (so $JAVA_HOME/bin/java always resolves).
+#
+# JAVA_TOOL_OPTIONS points to a trust store copy that app-user-init.sh
+# populates with the mitmproxy CA at runtime; until then it holds the
+# default Java CAs (harmless).
+RUN DEVBOX_PROFILE="$HOME/.local/share/devbox/global/default/.devbox/nix/profile/default"; \
+    if   [ -e "$DEVBOX_PROFILE/lib/openjdk/bin/java" ]; then \
+      DEVBOX_JAVA="$DEVBOX_PROFILE/lib/openjdk"; \
+    elif [ -e "$DEVBOX_PROFILE/bin/java" ] && [ -f "$DEVBOX_PROFILE/lib/security/cacerts" ]; then \
+      DEVBOX_JAVA="$DEVBOX_PROFILE"; \
+    fi; \
+    if [ -n "$DEVBOX_JAVA" ]; then \
       dir="$HOME/.local/share/sandcat"; mkdir -p "$dir"; \
       ln -sfn "$DEVBOX_JAVA" "$dir/java-home"; \
       { echo ''; \

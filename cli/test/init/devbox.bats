@@ -81,7 +81,7 @@ teardown() {
 
 	run jq -r '.packages | length' "$DEVCONTAINER_DIR/devbox.stack.json"
 	assert_output "8"  # 7 baseline + openjdk
-	run jq -e '.packages | any(. == "openjdk@latest")' "$DEVCONTAINER_DIR/devbox.stack.json"
+	run jq -e '.packages | any(. == "temurin-bin-25@latest")' "$DEVCONTAINER_DIR/devbox.stack.json"
 	assert_success
 }
 
@@ -93,7 +93,7 @@ teardown() {
 	# baseline (7) + java (openjdk) + scala (scala, sbt, scala-cli) = 11
 	run jq -r '.packages | length' "$DEVCONTAINER_DIR/devbox.stack.json"
 	assert_output "11"
-	run jq -e '.packages | any(. == "openjdk@latest")' "$DEVCONTAINER_DIR/devbox.stack.json"
+	run jq -e '.packages | any(. == "temurin-bin-25@latest")' "$DEVCONTAINER_DIR/devbox.stack.json"
 	assert_success
 	run jq -e '.packages | any(. == "scala@latest")' "$DEVCONTAINER_DIR/devbox.stack.json"
 	assert_success
@@ -104,12 +104,12 @@ teardown() {
 @test "customize_devbox regenerates devbox.stack.json on re-init (not guarded)" {
 	# First init with java → stack.json has openjdk.
 	customize_devbox "$DEVCONTAINER_DIR" java
-	run jq -e '.packages | any(. == "openjdk@latest")' "$DEVCONTAINER_DIR/devbox.stack.json"
+	run jq -e '.packages | any(. == "temurin-bin-25@latest")' "$DEVCONTAINER_DIR/devbox.stack.json"
 	assert_success
 
 	# Second init with no stacks → openjdk goes away, baseline stays.
 	customize_devbox "$DEVCONTAINER_DIR"
-	run jq -e '.packages | any(. == "openjdk@latest")' "$DEVCONTAINER_DIR/devbox.stack.json"
+	run jq -e '.packages | any(. == "temurin-bin-25@latest")' "$DEVCONTAINER_DIR/devbox.stack.json"
 	assert_failure
 	run jq -r '.packages | length' "$DEVCONTAINER_DIR/devbox.stack.json"
 	assert_output "7"
@@ -165,7 +165,7 @@ teardown() {
 	# baseline (7) + openjdk + scala + sbt + scala-cli = 11
 	run jq -r '.packages | length' "$PROJECT_DIR/.devcontainer/devbox.stack.json"
 	assert_output "11"
-	run jq -e '.packages | any(. == "openjdk@latest")' "$PROJECT_DIR/.devcontainer/devbox.stack.json"
+	run jq -e '.packages | any(. == "temurin-bin-25@latest")' "$PROJECT_DIR/.devcontainer/devbox.stack.json"
 	assert_success
 }
 
