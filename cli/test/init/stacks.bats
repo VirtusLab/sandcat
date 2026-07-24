@@ -19,7 +19,7 @@ teardown() {
 	assert_output "python@latest"
 
 	run stack_devbox_packages java
-	assert_output "javaPackages.compiler.openjdk21@latest"
+	assert_output "openjdk@latest"
 
 	run stack_devbox_packages rust
 	assert_output "rustc@latest cargo@latest"

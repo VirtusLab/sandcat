@@ -18,7 +18,7 @@ stack_devbox_packages() {
 	case $1 in
 		node)   echo "nodejs@lts" ;;
 		python) echo "python@latest" ;;
-		java)   echo "javaPackages.compiler.openjdk21@latest" ;;
+		java)   echo "openjdk@latest" ;;
 		rust)   echo "rustc@latest cargo@latest" ;;
 		go)     echo "go@latest" ;;
 		scala)  echo "scala@latest sbt@latest scala-cli@latest" ;;
