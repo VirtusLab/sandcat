@@ -25,22 +25,19 @@ ENV LANG="en_US.UTF-8"
 # so VS Code's env probe picks them up before the entrypoint runs. Without
 # JAVA_HOME, JVM tooling like Metals fails to find the JDK.
 #
-# Two JDK layouts appear in nixpkgs:
-#   * Nested (nixpkgs `openjdk` package): java at $PROFILE/lib/openjdk/bin/java
-#   * Flat   (`temurin-bin-*`, `jetbrains.jdk*`, `jdk`): java at $PROFILE/bin/java
-# The block below detects whichever is present and points the sandcat
-# symlink at the correct root (so $JAVA_HOME/bin/java always resolves).
+# JDK-distribution-agnostic detection: devbox always exposes bin/java in
+# its profile as a symlink to the actual JDK inside /nix/store/. Following
+# that symlink and stripping bin/ gives the canonical JAVA_HOME for
+# whichever distribution the user picked (openjdk, temurin-bin-*, jdk,
+# jetbrains.jdk*, or any future one) — no hardcoded layout assumptions.
+# Every valid JDK derivation has $JAVA_HOME/lib/security/cacerts inside.
 #
 # JAVA_TOOL_OPTIONS points to a trust store copy that app-user-init.sh
 # populates with the mitmproxy CA at runtime; until then it holds the
 # default Java CAs (harmless).
-RUN DEVBOX_PROFILE="$HOME/.local/share/devbox/global/default/.devbox/nix/profile/default"; \
-    if   [ -e "$DEVBOX_PROFILE/lib/openjdk/bin/java" ]; then \
-      DEVBOX_JAVA="$DEVBOX_PROFILE/lib/openjdk"; \
-    elif [ -e "$DEVBOX_PROFILE/bin/java" ] && [ -f "$DEVBOX_PROFILE/lib/security/cacerts" ]; then \
-      DEVBOX_JAVA="$DEVBOX_PROFILE"; \
-    fi; \
-    if [ -n "$DEVBOX_JAVA" ]; then \
+RUN JAVA_BIN="$HOME/.local/share/devbox/global/default/.devbox/nix/profile/default/bin/java"; \
+    if [ -e "$JAVA_BIN" ]; then \
+      DEVBOX_JAVA="$(dirname $(dirname $(readlink -f "$JAVA_BIN")))"; \
       dir="$HOME/.local/share/sandcat"; mkdir -p "$dir"; \
       ln -sfn "$DEVBOX_JAVA" "$dir/java-home"; \
       { echo ''; \

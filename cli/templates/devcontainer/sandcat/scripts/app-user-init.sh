@@ -52,13 +52,15 @@ done
 # at this copy.
 CA_CERT="/mitmproxy-config/mitmproxy-ca-cert.pem"
 
-# Detect the JDK layout — see Dockerfile.app for the two nixpkgs shapes.
-DEVBOX_PROFILE="$HOME/.local/share/devbox/global/default/.devbox/nix/profile/default"
+# JDK-distribution-agnostic: follow devbox profile's bin/java symlink
+# into /nix/store/ and strip bin/ to get the canonical JAVA_HOME.
+# Works for openjdk, temurin-bin-*, jdk, jetbrains.jdk*, and any other
+# valid JDK derivation — no hardcoded layout assumptions. See the same
+# pattern in Dockerfile.app for the build-time equivalent.
+DEVBOX_JAVA_BIN="$HOME/.local/share/devbox/global/default/.devbox/nix/profile/default/bin/java"
 DEVBOX_JAVA_HOME=""
-if   [ -e "$DEVBOX_PROFILE/lib/openjdk/bin/keytool" ]; then
-    DEVBOX_JAVA_HOME="$DEVBOX_PROFILE/lib/openjdk"
-elif [ -e "$DEVBOX_PROFILE/bin/keytool" ] && [ -f "$DEVBOX_PROFILE/lib/security/cacerts" ]; then
-    DEVBOX_JAVA_HOME="$DEVBOX_PROFILE"
+if [ -e "$DEVBOX_JAVA_BIN" ]; then
+    DEVBOX_JAVA_HOME="$(dirname "$(dirname "$(readlink -f "$DEVBOX_JAVA_BIN")")")"
 fi
 
 if [ -n "$DEVBOX_JAVA_HOME" ] && [ -f "$CA_CERT" ]; then
