@@ -130,25 +130,38 @@ RUN curl -fsSL -L https://nixos.org/nix/install \\
     | sh -s -- --no-daemon --no-modify-profile --yes
 ENV PATH="/home/vscode/.nix-profile/bin:\${PATH}"
 
-# Merge devbox.stack.json (sandcat-managed, regenerated per init) and
-# devbox.tools.json (user-managed, guarded across init) into the single
-# global devbox config that \`devbox global install\` consumes. The jq
-# program halts the build on version conflicts for the same package name.
+# Split into two layers so the common case (user drops a tool into
+# devbox.tools.json) doesn't invalidate the expensive stack install.
+#
+# Layer A — stack packages only. Cached whenever devbox.stack.json is
+# unchanged. This is the ~11-minute step on a cold build; keeping it
+# out of the same COPY as devbox.tools.json lets a tools-only edit
+# skip it entirely.
+COPY --chown=vscode:vscode devbox.stack.json /home/vscode/.local/share/devbox/global/default/devbox.json
+RUN --mount=type=cache,target=/home/vscode/.cache/nix,uid=1000,gid=1000 \\
+    . /home/vscode/.nix-profile/etc/profile.d/nix.sh \\
+ && devbox global install
+
+# Layer B — merge stack + user tools, install the delta. /nix/store from
+# Layer A carries over via the image filesystem, so devbox here only
+# downloads what's new in the merged config (usually just user additions).
+# The jq program halts the build on version conflicts across the two files.
 # devbox.loc[k] is the optional-file COPY idiom: picks up a committed
 # devbox.lock without failing when absent.
 COPY --chown=vscode:vscode devbox.stack.json devbox.tools.json /tmp/
 COPY --chown=vscode:vscode devbox.loc[k] /home/vscode/.local/share/devbox/global/default/
-RUN mkdir -p /home/vscode/.local/share/devbox/global/default \\
- && jq -s '${merge_jq}' /tmp/devbox.stack.json /tmp/devbox.tools.json \\
+RUN --mount=type=cache,target=/home/vscode/.cache/nix,uid=1000,gid=1000 \\
+    jq -s '${merge_jq}' /tmp/devbox.stack.json /tmp/devbox.tools.json \\
     > /home/vscode/.local/share/devbox/global/default/devbox.json \\
+ && . /home/vscode/.nix-profile/etc/profile.d/nix.sh \\
+ && devbox global install \\
  && rm /tmp/devbox.stack.json /tmp/devbox.tools.json
 
-# Install all merged packages into image layers, so nothing downloads at
-# container start. Sourcing nix.sh puts nix on PATH for this RUN layer
-# (ENV alone isn't enough — devbox also needs NIX_PROFILES and
-# NIX_SSL_CERT_FILE set by nix.sh).
-RUN . /home/vscode/.nix-profile/etc/profile.d/nix.sh \\
- && devbox global install
+# BuildKit --mount=type=cache above persists ~/.cache/nix (Nix's HTTP
+# cache for .nar downloads) between builds on the same host. First cold
+# build is unchanged (empty cache); subsequent stack changes reuse
+# already-downloaded .nar files. Not portable to CI without a persistent
+# cache action; harmless if absent (the RUN just downloads fresh).
 
 USER root
 # Hook packages into every shell via the sandcat profile.d sourcing

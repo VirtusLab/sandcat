@@ -37,6 +37,26 @@ teardown() {
 	assert_success
 }
 
+@test "customize_devbox splits stack and tools installs into two layers" {
+	customize_devbox "$DEVCONTAINER_DIR"
+
+	# Match the executable RUN clauses only, not comments that also mention
+	# "devbox global install". Both Layer A and Layer B end their multi-line
+	# RUN with "&& devbox global install".
+	run grep -cE '^ *&& devbox global install' "$DEVCONTAINER_DIR/Dockerfile.app"
+	assert_output "2"
+}
+
+@test "customize_devbox mounts the Nix HTTP cache in install layers" {
+	customize_devbox "$DEVCONTAINER_DIR"
+
+	# BuildKit cache mount on ~/.cache/nix so .nar downloads persist across
+	# builds on the same host. One mount per install layer.
+	run grep -c -- '--mount=type=cache,target=/home/vscode/.cache/nix' \
+		"$DEVCONTAINER_DIR/Dockerfile.app"
+	assert_output "2"
+}
+
 @test "customize_devbox leaves no __DEVBOX_INSTALL__ placeholder residue" {
 	customize_devbox "$DEVCONTAINER_DIR"
 
