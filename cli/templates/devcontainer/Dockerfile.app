@@ -1,11 +1,14 @@
 FROM mcr.microsoft.com/devcontainers/base:debian
 
 # ca-certificates, curl, git are already in the devcontainers base image.
-# gosu: drops privileges in the entrypoint.
-# jq:   used at build time to merge devbox.stack.json + devbox.tools.json
-#       into the single global devbox config (see cli/lib/devbox.bash).
+# gosu:  drops privileges in the entrypoint.
+# jq:    used at build time to merge devbox.stack.json + devbox.tools.json
+#        into the single global devbox config (see cli/lib/devbox.bash).
+# rsync: used by app-init.sh to refresh the image-side /home/vscode snapshot
+#        into the agent-home volume after a rebuild (see snapshot block below
+#        and the sandcat: refresh… section in app-init.sh).
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends gosu jq \
+    && apt-get install -y --no-install-recommends gosu jq rsync \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --chmod=755 sandcat/scripts/app-init.sh /usr/local/bin/app-init.sh
@@ -50,4 +53,27 @@ RUN JAVA_BIN="$HOME/.local/share/devbox/global/default/.devbox/nix/profile/defau
 # __AGENT_DOCKER_HOME_PREP__
 
 USER root
+# Snapshot the image-side /home/vscode state that the agent-home volume
+# will mask at runtime (devbox profile with symlinks into /nix/store, the
+# sandcat helper dir with java-home + baseline cacerts, and .bashrc env
+# hooks). app-init.sh rsyncs this back into the volume when the snapshot
+# hash changes, so rebuilds that add/remove packages or switch JDKs take
+# effect without `docker compose down -v` (which would wipe auth Claude
+# Code and force the IDE backend to re-upload).
+#
+# The hash covers merged devbox.json + .bashrc — the two files that
+# capture "what packages devbox installed" and "what env we bake". Any
+# stack/tools/Java change flips at least one of them; unchanged rebuilds
+# leave the hash stable so app-init.sh skips the sync entirely.
+RUN mkdir -p /opt/sandcat/snapshots \
+ && cp -a /home/vscode/.local/share/devbox /opt/sandcat/snapshots/devbox \
+ && if [ -d /home/vscode/.local/share/sandcat ]; then \
+      cp -a /home/vscode/.local/share/sandcat /opt/sandcat/snapshots/sandcat; \
+    fi \
+ && cp /home/vscode/.bashrc /opt/sandcat/snapshots/bashrc \
+ && sha256sum \
+      /opt/sandcat/snapshots/devbox/global/default/devbox.json \
+      /opt/sandcat/snapshots/bashrc \
+    | sha256sum | cut -d' ' -f1 > /opt/sandcat/snapshots/hash
+
 ENTRYPOINT ["/usr/local/bin/app-init.sh"]

@@ -64,6 +64,51 @@ teardown() {
 	assert_output "0"
 }
 
+@test "Dockerfile.app template installs rsync (needed by home snapshot sync)" {
+	# app-init.sh uses rsync to refresh the image-side /home/vscode
+	# snapshot into the agent-home volume; without it the sync silently
+	# fails and users need `down -v` after every rebuild.
+	run grep -E 'apt-get install .* rsync' \
+		"$DEVCONTAINER_DIR/Dockerfile.app"
+	assert_success
+}
+
+@test "Dockerfile.app template snapshots /home/vscode into /opt/sandcat" {
+	# Snapshot lives outside the agent-home volume mount so app-init.sh
+	# can see fresh image content after a rebuild and rsync it back into
+	# the volume — otherwise the volume masks image updates.
+	run grep 'mkdir -p /opt/sandcat/snapshots' \
+		"$DEVCONTAINER_DIR/Dockerfile.app"
+	assert_success
+	run grep 'cp -a /home/vscode/.local/share/devbox /opt/sandcat/snapshots/devbox' \
+		"$DEVCONTAINER_DIR/Dockerfile.app"
+	assert_success
+	run grep 'cp /home/vscode/.bashrc /opt/sandcat/snapshots/bashrc' \
+		"$DEVCONTAINER_DIR/Dockerfile.app"
+	assert_success
+}
+
+@test "Dockerfile.app template writes a snapshot content hash" {
+	# The hash gates the runtime rsync so unchanged rebuilds skip it.
+	run grep '/opt/sandcat/snapshots/hash' \
+		"$DEVCONTAINER_DIR/Dockerfile.app"
+	assert_success
+}
+
+@test "app-init.sh syncs the image snapshot into the volume" {
+	APP_INIT="$SCT_TEMPLATEDIR/devcontainer/sandcat/scripts/app-init.sh"
+	run grep 'SNAPSHOT_DIR="/opt/sandcat/snapshots"' "$APP_INIT"
+	assert_success
+	# --delete on devbox so removed packages don't leave dangling symlinks.
+	run grep -E 'rsync -a --delete .*SNAPSHOT_DIR/devbox/' "$APP_INIT"
+	assert_success
+	# No --delete on sandcat so app-user-init's runtime cacerts survive.
+	run grep -E 'rsync -a "\$SNAPSHOT_DIR/sandcat/"' "$APP_INIT"
+	assert_success
+	run grep 'VOLUME_HASH_FILE="/home/vscode/.sandcat-snapshot-hash"' "$APP_INIT"
+	assert_success
+}
+
 @test "customize_devbox writes devbox.stack.json with the baseline shell tools" {
 	customize_devbox "$DEVCONTAINER_DIR"
 

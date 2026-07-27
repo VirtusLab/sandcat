@@ -91,6 +91,51 @@ else
     echo "No $SANDCAT_ENV found — env vars and secret substitution disabled"
 fi
 
+# Refresh image-managed home state (devbox profile, sandcat java-home
+# symlink and baseline cacerts, .bashrc env hooks) into the agent-home
+# volume when the image snapshot has changed since last start.
+#
+# The volume masks anything the Dockerfile writes under /home/vscode after
+# it was first initialized, so without this sync, edits to devbox.stack.json
+# or devbox.tools.json (or an updated JDK from the java block) never reach
+# an existing container — users would need `docker compose down -v`, which
+# wipes Claude auth and forces the IDE backend to re-upload.
+#
+# The snapshot lives in /opt/sandcat/snapshots/ (outside the volume mount)
+# and is rebuilt from scratch on every image build (see Dockerfile.app).
+# A content hash gates the rsync so unchanged rebuilds are no-ops.
+SNAPSHOT_DIR="/opt/sandcat/snapshots"
+SNAPSHOT_HASH_FILE="$SNAPSHOT_DIR/hash"
+VOLUME_HASH_FILE="/home/vscode/.sandcat-snapshot-hash"
+if [ -f "$SNAPSHOT_HASH_FILE" ]; then
+    image_hash=$(cat "$SNAPSHOT_HASH_FILE")
+    volume_hash=$(cat "$VOLUME_HASH_FILE" 2>/dev/null || echo "")
+    if [ "$image_hash" != "$volume_hash" ]; then
+        echo "sandcat: image snapshot changed, syncing home state to volume..."
+        # devbox: --delete so removed packages disappear from the profile.
+        # The whole subtree is image-owned; users never edit here directly.
+        rsync -a --delete "$SNAPSHOT_DIR/devbox/" \
+            /home/vscode/.local/share/devbox/
+        # sandcat: no --delete because app-user-init.sh writes cacerts
+        # (with the mitmproxy CA) here at runtime and we don't want to
+        # blow that away between the sync and the reimport.
+        if [ -d "$SNAPSHOT_DIR/sandcat" ]; then
+            mkdir -p /home/vscode/.local/share/sandcat
+            rsync -a "$SNAPSHOT_DIR/sandcat/" \
+                /home/vscode/.local/share/sandcat/
+        fi
+        cp "$SNAPSHOT_DIR/bashrc" /home/vscode/.bashrc
+        chown -R vscode:vscode \
+            /home/vscode/.local/share/devbox \
+            /home/vscode/.bashrc
+        if [ -d /home/vscode/.local/share/sandcat ]; then
+            chown -R vscode:vscode /home/vscode/.local/share/sandcat
+        fi
+        echo "$image_hash" > "$VOLUME_HASH_FILE"
+        chown vscode:vscode "$VOLUME_HASH_FILE"
+    fi
+fi
+
 # Run vscode-user tasks in a login shell so user profile customizations
 # (PATH/NVM/direnv, etc.) are applied. Re-source sandcat.env inside that
 # shell so app-user-init still receives sandcat placeholders and env vars.
