@@ -104,41 +104,71 @@ sandcat init --secret-provider 1password --agent claude --ide vscode
 ```
 
 Available stacks: `node`, `python`, `java`, `rust`, `go`, `scala`, `ruby`,
-`dotnet`, `zig`. Versions default to LTS where available (e.g. Node.js LTS, Java LTS).
-To change versions after init, edit the `mise use` lines in the generated
-`.devcontainer/Dockerfile.app`.
+`dotnet`, `zig`. Versions default to LTS where available (e.g. Node.js LTS,
+Java LTS 21). To change a version for a single project, edit
+`.devcontainer/devbox.stack.json` and rebuild; commit the edit and treat
+any future `sandcat init` as destructive (it regenerates this file). To
+change a default across every project, edit `stack_devbox_packages` in
+`cli/lib/stacks.bash`.
 
 Selecting `scala` automatically includes `java` as a dependency. Stacks also
 install the corresponding VS Code extension (e.g. `rust-analyzer` for Rust,
 `metals` for Scala).
 
-#### Custom packages with devbox
+#### Stack and tool packages via devbox
 
-Developer tools in the sandbox are declared as Nix packages in a
-[devbox](https://www.jetify.com/devbox) config. `sandcat init` creates
-`.devcontainer/devbox.json`, pre-filled with a base set of staples (`fd`,
-`fzf`, `gh`, `jq`, `ripgrep`, `tmux`, and `vim`), and the generated
-`Dockerfile.app` installs the listed packages at image build time. Add packages (search them
-on [nixhub.io](https://www.nixhub.io/)), then rebuild. For example, to give
-the agent [yq](https://github.com/mikefarah/yq) for YAML processing,
-[shellcheck](https://www.shellcheck.net/) for linting its shell scripts, and
-[hyperfine](https://github.com/sharkdp/hyperfine) for benchmarking, append:
+All packages inside the sandbox — both stack toolchains and user tools —
+are managed with [devbox](https://www.jetify.com/devbox), which resolves
+them from Nix. `sandcat init` generates two config files side by side in
+`.devcontainer/`:
+
+**`devbox.stack.json`** — sandcat-managed. Regenerated on every
+`sandcat init` from the `--stacks` selection plus a baseline of shell tools
+every sandbox needs (`fd`, `fzf`, `gh`, `jq`, `ripgrep`, `tmux`, `vim`).
+Do not edit by hand — your changes will be overwritten on the next init.
+
+**`devbox.tools.json`** — user-managed. Written once with an empty
+`packages` list; subsequent `sandcat init` invocations leave it untouched.
+Add project-specific tools here.
+
+At image build time the two files are merged into a single devbox global
+config. Two entries that share a package name but differ in version fail
+the build (e.g. `jq@latest` from the stack file and `jq@1.7.1` added to
+the tools file — both are `jq`, so the merge refuses). Search available
+packages on [nixhub.io](https://www.nixhub.io/).
+
+Example — give the agent [yq](https://github.com/mikefarah/yq),
+[shellcheck](https://www.shellcheck.net/), and
+[hyperfine](https://github.com/sharkdp/hyperfine) by dropping them into
+`devbox.tools.json`:
 
 ```json
 {
-  "packages": ["yq-go@latest", "shellcheck", "hyperfine"]
+  "packages": ["yq-go@latest", "shellcheck@latest", "hyperfine@latest"]
 }
 ```
 
+Then rebuild the agent image:
+
 ```bash
 sandcat run --build
+# or, without starting the full stack:
+docker compose -f .devcontainer/compose-all.yml build agent
 ```
 
-Every shell inside the sandbox — including the agent's — has the packages on
-`PATH`. Installs are build-time only: `devbox add` inside the sandbox is not
-supported, and no Nix download hosts are added to the network allowlist. To
-pin package versions, commit a `devbox.lock` next to `devbox.json`; the build
-picks it up automatically.
+Every shell inside the sandbox — including the agent's — picks up the
+packages on `PATH`. Iterating on `devbox.tools.json` is the fast path:
+the stack install layer stays cached and only the delta downloads
+(typically seconds). Tool additions and removals take effect on the next
+container start without `docker compose down -v` — the entrypoint
+refreshes the devbox profile inside the persistent home volume from a
+snapshot baked into the image whenever the merged config changes.
+
+Installs are build-time only: `devbox add` inside the sandbox is not
+supported, and no Nix download hosts are added to the network allowlist.
+To pin the exact package versions across environments, commit
+`.devcontainer/devbox.lock` next to the JSON files; the build picks it up
+automatically.
 
 Optional volume mounts (agent config, `.git`, `.idea`) are written into the
 generated `.devcontainer/compose-all.yml`. See [Customizing optional volume
@@ -255,13 +285,13 @@ config bind-mounts (for example `~/.claude/*` or `~/.cursor/*`) forward host
 customizations — remove any mount whose
 source does not exist on your host.
 
-**`Dockerfile.app`** — uses [mise](https://mise.jdx.dev/) to manage language
-toolchains. Stacks selected during `sandcat init` are added as `RUN mise use -g`
-lines. You can edit the versions or add more stacks after init. A devbox
-block installs the packages listed in
-`.devcontainer/devbox.json` at build time. Some runtimes
-need extra configuration to trust the mitmproxy CA — see [TLS and CA
-certificates](#tls-and-ca-certificates).
+**`Dockerfile.app`** — installs everything the sandbox needs via
+[devbox](https://www.jetify.com/devbox), a wrapper over Nix. Stack
+toolchains and user tools are merged from `devbox.stack.json` +
+`devbox.tools.json` into a single devbox global profile at build time —
+see [Stack and tool packages via devbox](#stack-and-tool-packages-via-devbox)
+for the two-file model. Some runtimes need extra configuration to trust
+the mitmproxy CA — see [TLS and CA certificates](#tls-and-ca-certificates).
 
 **`devcontainer.json`** — includes VS Code hardening settings (credential socket
 cleanup, workspace trust, disabled local terminal). See [Hardening the VS Code
