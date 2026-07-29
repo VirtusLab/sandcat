@@ -106,8 +106,9 @@ sandcat init --secret-provider 1password --agent claude --ide vscode
 Available stacks: `node`, `python`, `java`, `rust`, `go`, `scala`, `ruby`,
 `dotnet`, `zig`. Versions default to LTS where available (e.g. Node.js LTS,
 Java LTS 25). To change a version for a single project, add the desired
-package to `.devcontainer/devbox.tools.json` — the merge lets tools override
-the stack default.
+package to `.devcontainer/devbox.tools.json` — see [Stack and tool packages
+via devbox](#stack-and-tool-packages-via-devbox) below for how tool entries
+override stack defaults.
 
 Selecting `scala` automatically includes `java` as a dependency. Stacks also
 install the corresponding VS Code extension (e.g. `rust-analyzer` for Rust,
