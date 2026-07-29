@@ -36,6 +36,7 @@ run() {
 	done
 
 	warn_stale_home_volume "$compose_file"
+	ensure_shared_cache_volumes "$compose_file"
 
 	local rc=0
 	docker compose -f "$compose_file" run --rm "${run_opts[@]+"${run_opts[@]}"}" agent "${1-bash}" "${@:2}" || rc=$?

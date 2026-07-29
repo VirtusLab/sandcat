@@ -139,3 +139,41 @@ teardown() {
 	assert_failure
 	assert_output --partial "expected:"
 }
+
+@test "stack_shared_cache_volumes returns six entries for java" {
+	run stack_shared_cache_volumes java
+	assert_success
+	# One line per cache mount, all in "<volume-name>:<container-path>" form.
+	assert_output --partial "sandcat-cache-maven:/home/vscode/.m2/repository"
+	assert_output --partial "sandcat-cache-coursier:/home/vscode/.cache/coursier"
+	assert_output --partial "sandcat-cache-gradle:/home/vscode/.gradle/caches"
+	assert_output --partial "sandcat-cache-gradle-wrapper:/home/vscode/.gradle/wrapper/dists"
+	assert_output --partial "sandcat-cache-ivy:/home/vscode/.ivy2/cache"
+	assert_output --partial "sandcat-cache-sbt-boot:/home/vscode/.sbt/boot"
+
+	local count
+	count=$(stack_shared_cache_volumes java | wc -l)
+	[ "$count" -eq 6 ]
+}
+
+@test "stack_shared_cache_volumes returns empty for stacks without a defined cache set" {
+	# Non-JVM stacks currently contribute no shared caches. Adding
+	# more (npm, cargo, pip) is a follow-up.
+	for stack in node python rust go ruby dotnet zig; do
+		run stack_shared_cache_volumes "$stack"
+		assert_success
+		[ -z "$output" ] || { echo "expected empty for $stack, got: $output"; return 1; }
+	done
+}
+
+@test "stack_shared_cache_volumes for scala relies on stack_deps expansion" {
+	# scala itself contributes nothing directly — java's caches arrive
+	# via resolve_stacks, which callers use to expand dependencies before
+	# passing the list into add_shared_cache_volumes.
+	run stack_shared_cache_volumes scala
+	assert_success
+	[ -z "$output" ]
+
+	run resolve_stacks scala
+	assert_output "java scala"
+}

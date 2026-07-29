@@ -136,6 +136,36 @@ if [ -f "$SNAPSHOT_HASH_FILE" ]; then
     fi
 fi
 
+# Shared-cache volumes (sandcat-cache-*) arrive as root:root because
+# `docker volume create` produces empty root-owned volumes and Docker
+# also creates any intermediate parent directories on the mount path as
+# root when they don't yet exist in the image (e.g. .gradle/ when
+# .gradle/caches/ is the mount target). Normalise ownership on both the
+# mount roots and the intermediate parents so vscode can lay down
+# tool-generated siblings like .m2/settings.xml or .gradle/daemon/.
+#
+# Only the listed directories are touched (non-recursive) — volumes
+# shared with other projects can hold thousands of files, and the tools
+# we care about only need the top-level dirs writable.
+for cache_dir in \
+    /home/vscode/.m2 \
+    /home/vscode/.m2/repository \
+    /home/vscode/.cache \
+    /home/vscode/.cache/coursier \
+    /home/vscode/.gradle \
+    /home/vscode/.gradle/wrapper \
+    /home/vscode/.gradle/caches \
+    /home/vscode/.gradle/wrapper/dists \
+    /home/vscode/.ivy2 \
+    /home/vscode/.ivy2/cache \
+    /home/vscode/.sbt \
+    /home/vscode/.sbt/boot
+do
+    if [ -d "$cache_dir" ]; then
+        chown vscode:vscode "$cache_dir" 2>/dev/null || true
+    fi
+done
+
 # Run vscode-user tasks in a login shell so user profile customizations
 # (PATH/NVM/direnv, etc.) are applied. Re-source sandcat.env inside that
 # shell so app-user-init still receives sandcat placeholders and env vars.

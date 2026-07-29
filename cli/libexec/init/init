@@ -270,10 +270,13 @@ init() {
 		return 1
 	fi
 
-	# Optional non-provider features (tui → mitmproxy console)
+	# Optional non-provider features
+	#   tui             → mitmproxy console instead of web UI
+	#   no-shared-cache → disable shared JVM dependency cache volumes
 	if [[ "$features_provided" != "true" ]]; then
 		local available_features=(
 			"tui (mitmproxy console instead of web UI)"
+			"no-shared-cache (per-project dep cache instead of shared)"
 		)
 		local selected_features
 		selected_features=$(select_multiple "Select optional features (comma-separated numbers, empty for none):" "${available_features[@]}")
@@ -283,6 +286,7 @@ init() {
 			for f in $selected_features; do
 				case "$f" in
 					tui) proxy_mode="tui" ;;
+					no-shared-cache) export SANDCAT_MOUNT_SHARED_CACHE="false" ;;
 				esac
 			done
 		fi
@@ -292,11 +296,12 @@ init() {
 			for f in $features_csv; do
 				case "$f" in
 					tui) proxy_mode="tui" ;;
+					no-shared-cache) export SANDCAT_MOUNT_SHARED_CACHE="false" ;;
 					1password)
 						echo "Use --secret-provider 1password instead of --features 1password" | error
 						return 1
 						;;
-					*) echo "Unknown feature: $f (expected: tui)" | error; return 1 ;;
+					*) echo "Unknown feature: $f (expected: tui, no-shared-cache)" | error; return 1 ;;
 				esac
 			done
 		fi

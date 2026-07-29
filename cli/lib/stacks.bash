@@ -52,6 +52,32 @@ stack_deps() {
 	esac
 }
 
+# Shared JVM dependency caches. Six named volumes covering Maven, Coursier,
+# Gradle (deps + wrapper distributions), Ivy and sbt boot. Only the safe
+# subdirectories are exposed — `.m2/settings.xml`, `.gradle/daemon/`,
+# `.ivy2/local/` etc. stay per-project inside agent-home.
+SCT_STACK_CACHE_JAVA=(
+	"sandcat-cache-maven:/home/vscode/.m2/repository"
+	"sandcat-cache-coursier:/home/vscode/.cache/coursier"
+	"sandcat-cache-gradle:/home/vscode/.gradle/caches"
+	"sandcat-cache-gradle-wrapper:/home/vscode/.gradle/wrapper/dists"
+	"sandcat-cache-ivy:/home/vscode/.ivy2/cache"
+	"sandcat-cache-sbt-boot:/home/vscode/.sbt/boot"
+)
+
+# Returns newline-separated "<volume-name>:<container-path>" cache entries
+# contributed by a stack. Empty output means the stack has no shared caches
+# defined yet — that's the current state for every non-JVM stack.
+#
+# Scala inherits Java's caches via stack_deps: resolve_stacks() expands
+# `scala` to `java scala` before this is called, so the caller sees both
+# and dedups the union.
+stack_shared_cache_volumes() {
+	case $1 in
+		java) printf '%s\n' "${SCT_STACK_CACHE_JAVA[@]}" ;;
+	esac
+}
+
 # Resolves dependencies and deduplicates. Dependencies come before dependents.
 # Args: stack names
 # Output: space-separated resolved stack list

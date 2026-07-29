@@ -96,6 +96,136 @@ teardown() {
 	yq -e '.services.agent.volumes[] | select(. == "../.idea:/workspace/.idea:ro")' "$COMPOSE_FILE"
 }
 
+@test "add_shared_cache_volumes with java stack mounts all six JVM cache paths" {
+	# shellcheck source=../../lib/stacks.bash
+	source "$SCT_LIBDIR/stacks.bash"
+
+	add_shared_cache_volumes "$COMPOSE_FILE" "true" "java"
+
+	# Every SCT_STACK_CACHE_JAVA entry becomes an active volume mount.
+	local entry name path
+	for entry in "${SCT_STACK_CACHE_JAVA[@]}"; do
+		name=${entry%%:*}
+		path=${entry#*:}
+		mount="$name:$path" yq -e \
+			'.services.agent.volumes[] | select(. == env(mount))' "$COMPOSE_FILE"
+	done
+}
+
+@test "add_shared_cache_volumes declares each cache as an external top-level volume" {
+	source "$SCT_LIBDIR/stacks.bash"
+
+	add_shared_cache_volumes "$COMPOSE_FILE" "true" "java"
+
+	# Each cache lives under a stable host-scoped name so multiple compose
+	# projects reference the same physical volume; external:true prevents
+	# `compose down -v` in one project from wiping caches shared elsewhere.
+	local entry name
+	for entry in "${SCT_STACK_CACHE_JAVA[@]}"; do
+		name=${entry%%:*}
+		name="$name" yq -e '.volumes[env(name)].external == true' "$COMPOSE_FILE"
+		name="$name" yq -e '.volumes[env(name)].name == env(name)' "$COMPOSE_FILE"
+	done
+}
+
+@test "add_shared_cache_volumes adds nothing when no matching stack is selected" {
+	# python/node/etc. don't contribute shared caches yet — the compose
+	# file must stay clean of Maven/Coursier/etc. mounts. This is the
+	# case for a Python-only sandbox, which shouldn't carry JVM caches.
+	add_shared_cache_volumes "$COMPOSE_FILE" "true" "python" "node"
+
+	run yq -r '.volumes // {} | keys[]' "$COMPOSE_FILE"
+	refute_output --partial "sandcat-cache-"
+
+	run grep -F 'sandcat-cache-' "$COMPOSE_FILE"
+	assert_failure
+}
+
+@test "add_shared_cache_volumes deduplicates when java appears via multiple stacks" {
+	source "$SCT_LIBDIR/stacks.bash"
+
+	# resolve_stacks expands "scala" to "java scala"; simulate that flow.
+	add_shared_cache_volumes "$COMPOSE_FILE" "true" "java" "scala"
+
+	# Still exactly the six Java entries — no duplicate top-level volumes.
+	local expected_count=${#SCT_STACK_CACHE_JAVA[@]}
+	run yq -r '.volumes | keys | length' "$COMPOSE_FILE"
+	assert_output "$expected_count"
+}
+
+@test "add_shared_cache_volumes leaves entries commented when active=false" {
+	source "$SCT_LIBDIR/stacks.bash"
+
+	add_shared_cache_volumes "$COMPOSE_FILE" "false" "java"
+
+	# No active mounts appear.
+	local entry name
+	for entry in "${SCT_STACK_CACHE_JAVA[@]}"; do
+		name=${entry%%:*}
+		run yq -r '.services.agent.volumes[] | select(. == "'"$name"':*")' "$COMPOSE_FILE"
+		assert_output ""
+	done
+
+	# No top-level external volumes are declared either.
+	for entry in "${SCT_STACK_CACHE_JAVA[@]}"; do
+		name=${entry%%:*}
+		run bash -c "name='$name' yq -r '.volumes // {} | keys[]' '$COMPOSE_FILE' | grep -q \"^\$name\$\""
+		assert_failure
+	done
+
+	# Comment lines with the mount specs stay in the file so users can
+	# uncomment later.
+	run grep -F "sandcat-cache-maven:/home/vscode/.m2/repository" "$COMPOSE_FILE"
+	assert_success
+}
+
+@test "app-init.sh normalises ownership on every shared-cache mount point" {
+	# Docker creates named volumes as root:root. Without a startup chown,
+	# vscode can't write to /home/vscode/.m2/repository etc. — the whole
+	# shared-cache feature would appear broken with permission-denied.
+	local script="$SCT_TEMPLATEDIR/devcontainer/sandcat/scripts/app-init.sh"
+	run grep -F 'chown vscode:vscode "$cache_dir"' "$script"
+	assert_success
+
+	# Every mount root + its intermediate parent must be in the loop, so
+	# tools that also write next to the mount (Maven settings.xml, Gradle
+	# daemon/, etc.) don't fail on the root-owned parent dir.
+	local dir
+	for dir in \
+		/home/vscode/.m2 \
+		/home/vscode/.m2/repository \
+		/home/vscode/.cache \
+		/home/vscode/.cache/coursier \
+		/home/vscode/.gradle \
+		/home/vscode/.gradle/wrapper \
+		/home/vscode/.gradle/caches \
+		/home/vscode/.gradle/wrapper/dists \
+		/home/vscode/.ivy2 \
+		/home/vscode/.ivy2/cache \
+		/home/vscode/.sbt \
+		/home/vscode/.sbt/boot
+	do
+		run grep -F "$dir" "$script"
+		assert_success
+	done
+}
+
+@test "customize_compose_file honours SANDCAT_MOUNT_SHARED_CACHE=false" {
+	# The env-var toggle is the primary opt-out path. Even for a java
+	# stack that normally gets shared caches, disabling the flag must
+	# keep the compose file free of shared-cache mounts + external
+	# volume declarations.
+	SETTINGS_FILE=".sandcat/settings.json"
+	mkdir -p "$BATS_TEST_TMPDIR/.sandcat"
+	touch "$BATS_TEST_TMPDIR/$SETTINGS_FILE"
+
+	SANDCAT_MOUNT_SHARED_CACHE=false \
+		customize_compose_file "$SETTINGS_FILE" "$COMPOSE_FILE" "claude" "vscode" "test-project" "java"
+
+	run yq -r '.volumes // {} | keys[]' "$COMPOSE_FILE"
+	refute_output --partial "sandcat-cache-"
+}
+
 assert_jetbrains_capabilities() {
 	local compose_file=$1
 
@@ -213,8 +343,9 @@ EOF
 	yq -e '.services.agent.volumes[] | select(. == "${HOME}/.claude/agents:/home/vscode/.claude/agents:ro")' "$COMPOSE_FILE"
 	yq -e '.services.agent.volumes[] | select(. == "${HOME}/.claude/commands:/home/vscode/.claude/commands:ro")' "$COMPOSE_FILE"
 
-	# With JetBrains IDE, the .idea mount is also active by default
-	# 1 initial + 3 workspace + 3 Claude + 1 .idea = 8 active volumes
+	# With JetBrains IDE, the .idea mount is also active by default.
+	# 1 initial + 3 workspace + 3 Claude + 1 .idea = 8 active volumes.
+	# No shared-cache volumes because this call passes no stacks.
 	run yq '.services.agent.volumes | length' "$COMPOSE_FILE"
 	assert_output "8"
 }

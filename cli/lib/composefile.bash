@@ -20,12 +20,17 @@ source "$SCT_LIBDIR/agents.bash"
 #     driven by cursor.cli in Sandcat settings (not host-mounted).
 #   - SANDCAT_MOUNT_GIT_READONLY: "true" to mount .git directory as read-only
 #   - SANDCAT_MOUNT_IDEA_READONLY: "true" to mount .idea directory as read-only
+#   - SANDCAT_MOUNT_SHARED_CACHE: "true" (default) to mount shared JVM
+#     dependency-cache volumes (Maven, Coursier, Gradle, Ivy, sbt).
+#     Set to "false" to keep caches per-project inside agent-home.
 # Args:
 #   $1 - Path to the settings file to mount, relative to the Docker Compose file directory
 #   $2 - Path to the Docker Compose file to modify
 #   $3 - The agent name (e.g., "claude")
 #   $4 - The IDE name (e.g., "vscode", "jetbrains", "none") (optional)
 #   $5 - The project name (used to construct workspace paths) (required)
+#   $6 - Space-separated resolved stack names (used to pick shared caches;
+#        empty is fine — no caches added)
 #
 customize_compose_file() {
 	local settings_file=$1
@@ -33,6 +38,7 @@ customize_compose_file() {
 	local agent=$3
 	local ide=${4:-none}
 	local project_name=$5
+	local stacks=${6:-}
 
 	require yq
 
@@ -61,6 +67,12 @@ customize_compose_file() {
 
 	add_git_readonly_volume "$compose_file" "${SANDCAT_MOUNT_GIT_READONLY:=false}"
 	add_idea_readonly_volume "$compose_file" "${SANDCAT_MOUNT_IDEA_READONLY:-false}"
+
+	local -a stacks_arr=()
+	if [[ -n "$stacks" ]]; then
+		read -ra stacks_arr <<< "$stacks"
+	fi
+	add_shared_cache_volumes "$compose_file" "${SANDCAT_MOUNT_SHARED_CACHE:=true}" "${stacks_arr[@]+"${stacks_arr[@]}"}"
 
 	if [[ $ide == "jetbrains" ]]
 	then
@@ -302,6 +314,76 @@ add_idea_readonly_volume() {
 	local active=${2:-true}
 
 	add_volume_entry "$compose_file" '../.idea:/workspace/.idea:ro' "$active" 'Read-only IntelliJ IDEA project directory'
+}
+
+# Adds shared-cache mount entries + top-level external volume declarations
+# for the caches contributed by the selected stacks. Each stack decides
+# which caches it wants via stack_shared_cache_volumes() (see stacks.bash);
+# a project with no matching stack gets no shared-cache mounts at all.
+#
+# Volumes carry dependency caches that persist across all sandcat sandboxes
+# on the host, so multiple projects don't re-download the same JARs. They
+# are declared `external: true` so `sandcat compose down -v` on one project
+# doesn't wipe caches other projects rely on. The `sandcat run` wrapper
+# creates them lazily (idempotent) so users don't have to pre-create them.
+#
+# When active=false, matching mount lines are added as comments (matches
+# the existing pattern for optional mounts) so the user can uncomment or
+# re-enable later, and no external volumes are declared.
+#
+# Args:
+#   $1 - Path to the Docker Compose file
+#   $2 - true to add active mounts, false to add commented entries
+#   $3..$N - Resolved stack names (dependencies already expanded)
+add_shared_cache_volumes() {
+	require yq
+	# shellcheck source=stacks.bash
+	source "$SCT_LIBDIR/stacks.bash"
+
+	local compose_file=$1
+	local active=${2:-true}
+	shift 2
+
+	# Collect unique cache entries contributed by any selected stack.
+	# Stacks like scala pull java in via stack_deps, so their caches
+	# arrive here through the resolved list — no need to walk deps again.
+	local -a entries=()
+	local stack line seen
+	for stack in "$@"; do
+		while IFS= read -r line; do
+			[[ -n "$line" ]] || continue
+			seen=false
+			for existing in "${entries[@]+"${entries[@]}"}"; do
+				[[ "$existing" == "$line" ]] && seen=true && break
+			done
+			[[ "$seen" == "false" ]] && entries+=("$line")
+		done < <(stack_shared_cache_volumes "$stack")
+	done
+
+	[[ ${#entries[@]} -eq 0 ]] && return 0
+
+	local entry name path first=true
+	for entry in "${entries[@]}"; do
+		name=${entry%%:*}
+		path=${entry#*:}
+		if [[ $first == true ]]; then
+			first=false
+			add_volume_entry "$compose_file" "$name:$path" "$active" 'Shared dependency caches for the selected stacks (SANDCAT_MOUNT_SHARED_CACHE=false to disable)'
+		else
+			add_volume_entry "$compose_file" "$name:$path" "$active"
+		fi
+	done
+
+	# Declare each cache as an external volume with a stable host-scoped
+	# name so multiple compose projects reference the same physical volume.
+	if [[ $active == "true" ]]; then
+		for entry in "${entries[@]}"; do
+			name=${entry%%:*}
+			name="$name" yq -i \
+				'.volumes[env(name)] = {"external": true, "name": env(name)}' \
+				"$compose_file"
+		done
+	fi
 }
 
 # Sets the working directory and adds workspace volume mounts for the agent service.

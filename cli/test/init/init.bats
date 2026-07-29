@@ -141,7 +141,7 @@ teardown() {
 		"'Select IDE:' vscode jetbrains none : echo vscode" \
 		"'Select secret provider:' 1password none protonpass : echo 1password"
 	stub select_multiple \
-		"'Select optional features (comma-separated numbers, empty for none):' 'tui (mitmproxy console instead of web UI)' : echo ''" \
+		"'Select optional features (comma-separated numbers, empty for none):' 'tui (mitmproxy console instead of web UI)' 'no-shared-cache (per-project dep cache instead of shared)' : echo ''" \
 		"'Select development stacks (comma-separated numbers, empty for none):' node python java rust go scala ruby dotnet zig : echo ''"
 
 	local expected_name
@@ -222,7 +222,7 @@ teardown() {
 		"'Select IDE:' vscode jetbrains none : echo vscode" \
 		"'Select secret provider:' none 1password protonpass : echo none"
 	stub select_multiple \
-		"'Select optional features (comma-separated numbers, empty for none):' 'tui (mitmproxy console instead of web UI)' : echo ''" \
+		"'Select optional features (comma-separated numbers, empty for none):' 'tui (mitmproxy console instead of web UI)' 'no-shared-cache (per-project dep cache instead of shared)' : echo ''" \
 		"'Select development stacks (comma-separated numbers, empty for none):' node python java rust go scala ruby dotnet zig : echo ''"
 
 	local expected_name
@@ -258,10 +258,34 @@ teardown() {
 	assert_success
 }
 
-@test "init rejects unknown feature listing tui" {
+@test "init --features no-shared-cache exports SANDCAT_MOUNT_SHARED_CACHE=false" {
+	# The devcontainer stub echoes the env var so we can assert it
+	# propagated across the sub-command boundary via `export`.
+	stub settings "$PROJECT_DIR/.sandcat/settings.json claude vscode : :"
+	stub devcontainer \
+		"--settings-file .sandcat/settings.json --project-path * --agent claude --ide vscode --name test --stacks * --proxy web --secret-provider none : echo \"SHARED=\$SANDCAT_MOUNT_SHARED_CACHE\""
+
+	run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" --stacks "" --features "no-shared-cache" --secret-provider none
+	assert_success
+	assert_output --partial "SHARED=false"
+}
+
+@test "init --features tui,no-shared-cache accepts both" {
+	stub settings "$PROJECT_DIR/.sandcat/settings.json claude vscode : :"
+	stub devcontainer \
+		"--settings-file .sandcat/settings.json --project-path * --agent claude --ide vscode --name test --stacks * --proxy tui --secret-provider none : echo \"SHARED=\$SANDCAT_MOUNT_SHARED_CACHE\""
+
+	run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" --stacks "" --features "tui,no-shared-cache" --secret-provider none
+	assert_success
+	assert_output --partial "SHARED=false"
+}
+
+@test "init rejects unknown feature and lists all supported ones" {
 	run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" --stacks "" --features "bogus" --secret-provider none
 	assert_failure
-	assert_output --partial "Unknown feature: bogus (expected: tui)"
+	assert_output --partial "Unknown feature: bogus"
+	assert_output --partial "tui"
+	assert_output --partial "no-shared-cache"
 }
 
 @test "init interactive feature selection applies tui from full labels" {
@@ -275,7 +299,7 @@ teardown() {
 		"'Select IDE:' vscode jetbrains none : echo vscode" \
 		"'Select secret provider:' none 1password protonpass : echo none"
 	stub select_multiple \
-		"'Select optional features (comma-separated numbers, empty for none):' 'tui (mitmproxy console instead of web UI)' : echo 'tui (mitmproxy console instead of web UI)'" \
+		"'Select optional features (comma-separated numbers, empty for none):' 'tui (mitmproxy console instead of web UI)' 'no-shared-cache (per-project dep cache instead of shared)' : echo 'tui (mitmproxy console instead of web UI)'" \
 		"'Select development stacks (comma-separated numbers, empty for none):' node python java rust go scala ruby dotnet zig : echo ''"
 
 	local expected_name
