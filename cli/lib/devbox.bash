@@ -10,8 +10,12 @@
 #     user's additions survive template regeneration.
 #
 # The two files are merged into a single devbox global config at Docker build
-# time via jq. Version conflicts on the same package name across the two files
-# fail the build.
+# time via jq. Same-name entries (matching pkgname before '@') in
+# devbox.tools.json override the stack default. Cross-family collisions where
+# both files ship packages that provide the same file (e.g. `openjdk17` vs
+# `temurin-bin-25` both providing bin/java) are resolved by re-adding the
+# tools entries to the Nix profile with a higher priority — Nix then picks
+# the tools package when materializing bin/java, JAVA_HOME, etc.
 #
 # shellcheck source=devcontainer.bash
 # (apply_template_placeholders lives there — devcontainer.bash sources this
@@ -79,19 +83,28 @@ write_devbox_tools_json() {
 	fi
 	cat > "$out" <<'EOF'
 {
-  "//": "User-managed devbox packages. Add extras here — sandcat init does not overwrite this file. Merged with devbox.stack.json at image build time; version conflicts on the same package name fail the build.",
+  "//": "User-managed devbox packages. Add extras here — sandcat init does not overwrite this file. Merged with devbox.stack.json at image build time; entries here override same-named packages from the stack, and win cross-family collisions via a Nix priority bump (e.g. put openjdk17@latest here to replace the stack's temurin-bin-25 as the active Java).",
   "packages": []
 }
 EOF
 }
 
-# jq program that merges two devbox configs into one, failing on version
-# conflicts for the same package name. Used by the Dockerfile build step.
+# jq program that merges two devbox configs into one. When both files
+# list a package with the same name (part before '@'), the entry from
+# devbox.tools.json wins — that's the primary way to override a stack
+# default (e.g. `nodejs@22.5.1` in tools replaces stack's `nodejs@lts`).
+#
+# For cross-family collisions (e.g. tools ships `openjdk17@latest` while
+# stack ships `temurin-bin-25@latest`, both providing bin/java), the merge
+# keeps both packages — the Dockerfile then bumps the Nix priority of
+# tools entries so they win the file collision at profile-materialization
+# time. See devbox_dockerfile_block() for the priority bump step.
+#
 # Emitted as a SINGLE LINE so it can be embedded directly inside a `RUN`
 # command — Docker parses each backslash-continued line as an instruction,
 # so a multi-line jq program would confuse the parser.
 _devbox_merge_jq() {
-	printf '%s' 'def pkgname: split("@")[0]; def combined: (.[0].packages // []) + (.[1].packages // []); def conflicts: combined | group_by(pkgname) | map(select((. | unique | length) > 1)); if (conflicts | length) > 0 then "devbox: version conflict between devbox.stack.json and devbox.tools.json for: " + (conflicts | map(.[0] | pkgname) | join(", ")) + " (found: " + (conflicts | tostring) + ")\n" | halt_error(1) else {packages: (combined | unique)} end'
+	printf '%s' 'def pkgname: split("@")[0]; (.[1].packages // []) as $tools | ($tools | map(pkgname)) as $tnames | {packages: (((.[0].packages // []) | map(select(pkgname as $n | $tnames | index($n) | not))) + $tools | unique)}'
 }
 
 # Prints the Dockerfile block that installs devbox, merges the two devbox
@@ -142,20 +155,43 @@ RUN --mount=type=cache,target=/home/vscode/.cache/nix,uid=1000,gid=1000 \\
     . /home/vscode/.nix-profile/etc/profile.d/nix.sh \\
  && devbox global install
 
-# Layer B — merge stack + user tools, install the delta. /nix/store from
-# Layer A carries over via the image filesystem, so devbox here only
-# downloads what's new in the merged config (usually just user additions).
-# The jq program halts the build on version conflicts across the two files.
+# Layer B — merge stack + user tools, install the delta, and bump the
+# Nix priority of tools entries so they win file collisions against stack
+# entries (e.g. tools' openjdk17 wins over stack's temurin-bin-25 for
+# bin/java). /nix/store from Layer A carries over via the image filesystem,
+# so devbox here only downloads what's new in the merged config.
+#
+# Tools override behavior:
+#   * Same package name (jq): the merge drops stack's entry; tools' entry
+#     is the only one devbox installs. No priority bump needed.
+#   * Cross-family collision (openjdk17 vs temurin-bin-25): merge keeps
+#     both; devbox installs both; then we snapshot which manifest entries
+#     appeared in this layer (tools additions) and re-add each of their
+#     store paths with --priority 3. Nix priority-based collision then
+#     picks the priority-3 entry, and the sandcat Java block resolves
+#     JAVA_HOME through bin/java to the tools JDK.
+#
 # devbox.loc[k] is the optional-file COPY idiom: picks up a committed
 # devbox.lock without failing when absent.
 COPY --chown=vscode:vscode devbox.stack.json devbox.tools.json /tmp/
 COPY --chown=vscode:vscode devbox.loc[k] /home/vscode/.local/share/devbox/global/default/
 RUN --mount=type=cache,target=/home/vscode/.cache/nix,uid=1000,gid=1000 \\
-    jq -s '${merge_jq}' /tmp/devbox.stack.json /tmp/devbox.tools.json \\
+    NIX_PROFILE=\$HOME/.local/share/devbox/global/default/.devbox/nix/profile/default \\
+ && jq -r '[.. | .storePaths? // empty] | flatten | .[]' \$NIX_PROFILE/manifest.json \\
+    | sort -u > /tmp/paths.before.txt \\
+ && jq -s '${merge_jq}' /tmp/devbox.stack.json /tmp/devbox.tools.json \\
     > /home/vscode/.local/share/devbox/global/default/devbox.json \\
  && . /home/vscode/.nix-profile/etc/profile.d/nix.sh \\
  && devbox global install \\
- && rm /tmp/devbox.stack.json /tmp/devbox.tools.json
+ && jq -r '[.. | .storePaths? // empty] | flatten | .[]' \$NIX_PROFILE/manifest.json \\
+    | sort -u > /tmp/paths.after.txt \\
+ && comm -23 /tmp/paths.after.txt /tmp/paths.before.txt > /tmp/tools-paths.txt \\
+ && while IFS= read -r storepath; do \\
+      [ -n "\$storepath" ] || continue; \\
+      nix --extra-experimental-features "nix-command flakes" \\
+          profile add --priority 3 --profile \$NIX_PROFILE "\$storepath"; \\
+    done < /tmp/tools-paths.txt \\
+ && rm /tmp/devbox.stack.json /tmp/devbox.tools.json /tmp/paths.before.txt /tmp/paths.after.txt /tmp/tools-paths.txt
 
 # BuildKit --mount=type=cache above persists ~/.cache/nix (Nix's HTTP
 # cache for .nar downloads) between builds on the same host. First cold

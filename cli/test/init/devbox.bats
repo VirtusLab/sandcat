@@ -243,17 +243,62 @@ merge_jq() {
 	assert_equal "$out" "2"
 }
 
-@test "merge fails on version conflict for the same package name" {
-	run merge_jq \
+@test "merge lets tools override stack on same package name" {
+	# When both files list a package with the same name (part before '@')
+	# but different versions, the tools entry wins. This is the primary
+	# way for users to pin a version different from the stack default.
+	local out
+	out=$(merge_jq \
 		'{"packages":["python@3.12"]}' \
-		'{"packages":["python@3.10"]}'
-	assert_failure
-	assert_output --partial "version conflict"
-	assert_output --partial "python"
+		'{"packages":["python@3.10"]}')
+	run bash -c "echo '$out' | jq -r '.packages[]'"
+	assert_output "python@3.10"
+}
+
+@test "merge keeps both packages for cross-family collision" {
+	# tools' openjdk17 and stack's temurin-bin-25 both provide bin/java
+	# but have different package names — merge keeps both. The Dockerfile
+	# then uses `nix profile add --priority 3` on tools entries so they
+	# win the Nix profile collision at materialization time.
+	local out
+	out=$(merge_jq \
+		'{"packages":["temurin-bin-25@latest"]}' \
+		'{"packages":["openjdk17@latest"]}')
+	run bash -c "echo '$out' | jq -r '.packages | length'"
+	assert_output "2"
+}
+
+@test "merge override does not touch unrelated stack packages" {
+	local out
+	out=$(merge_jq \
+		'{"packages":["python@3.12","jq@latest","fd@latest"]}' \
+		'{"packages":["python@3.10","hyperfine@latest"]}')
+	# python overridden, jq/fd untouched, hyperfine added
+	run bash -c "echo '$out' | jq -r '.packages | length'"
+	assert_output "4"
+	run bash -c "echo '$out' | jq -r '.packages | map(select(startswith(\"python\"))) | .[]'"
+	assert_output "python@3.10"
 }
 
 @test "merge handles empty tools.json" {
 	local out
 	out=$(merge_jq '{"packages":["jq@latest"]}' '{"packages":[]}' | jq -r '.packages | length')
 	assert_equal "$out" "1"
+}
+
+@test "Dockerfile.app template bumps priority of tools entries via nix profile add" {
+	# Cross-family collisions between stack and tools packages (e.g. two
+	# JDKs both providing bin/java) are resolved by re-adding each tools
+	# entry to the Nix profile with --priority 3. The Dockerfile has to
+	# diff manifest.json before/after devbox install to identify which
+	# entries came from tools, then bump each.
+	customize_devbox "$DEVCONTAINER_DIR"
+	# Before/after storepath snapshots let the priority bump find tools
+	# entries by set difference — schema-agnostic across manifest versions.
+	run grep -F "/tmp/paths.before.txt" "$DEVCONTAINER_DIR/Dockerfile.app"
+	assert_success
+	run grep -F "/tmp/paths.after.txt" "$DEVCONTAINER_DIR/Dockerfile.app"
+	assert_success
+	run grep -F 'profile add --priority 3' "$DEVCONTAINER_DIR/Dockerfile.app"
+	assert_success
 }

@@ -105,11 +105,9 @@ sandcat init --secret-provider 1password --agent claude --ide vscode
 
 Available stacks: `node`, `python`, `java`, `rust`, `go`, `scala`, `ruby`,
 `dotnet`, `zig`. Versions default to LTS where available (e.g. Node.js LTS,
-Java LTS 21). To change a version for a single project, edit
-`.devcontainer/devbox.stack.json` and rebuild; commit the edit and treat
-any future `sandcat init` as destructive (it regenerates this file). To
-change a default across every project, edit `stack_devbox_packages` in
-`cli/lib/stacks.bash`.
+Java LTS 25). To change a version for a single project, add the desired
+package to `.devcontainer/devbox.tools.json` — the merge lets tools override
+the stack default.
 
 Selecting `scala` automatically includes `java` as a dependency. Stacks also
 install the corresponding VS Code extension (e.g. `rust-analyzer` for Rust,
@@ -132,10 +130,18 @@ Do not edit by hand — your changes will be overwritten on the next init.
 Add project-specific tools here.
 
 At image build time the two files are merged into a single devbox global
-config. Two entries that share a package name but differ in version fail
-the build (e.g. `jq@latest` from the stack file and `jq@1.7.1` added to
-the tools file — both are `jq`, so the merge refuses). Search available
-packages on [nixhub.io](https://www.nixhub.io/).
+config. `devbox.tools.json` wins over `devbox.stack.json` on:
+
+* **Same package name** — the `@` prefix. Put `nodejs@22.5.1` in tools
+  to replace the stack's `nodejs@lts`.
+* **Cross-family collisions** — tools packages providing the same file
+  as a stack package win too. Put `openjdk17@latest` in tools to make
+  it the active Java over the stack's `temurin-bin-25@latest`; the
+  agent's `java`, `JAVA_HOME` and the injected mitmproxy CA all
+  resolve to the tools JDK.
+
+Non-overriding tools entries just add to the merged config. Search
+available packages on [nixhub.io](https://www.nixhub.io/).
 
 Example — give the agent [yq](https://github.com/mikefarah/yq),
 [shellcheck](https://www.shellcheck.net/), and
@@ -159,10 +165,7 @@ docker compose -f .devcontainer/compose-all.yml build agent
 Every shell inside the sandbox — including the agent's — picks up the
 packages on `PATH`. Iterating on `devbox.tools.json` is the fast path:
 the stack install layer stays cached and only the delta downloads
-(typically seconds). Tool additions and removals take effect on the next
-container start without `docker compose down -v` — the entrypoint
-refreshes the devbox profile inside the persistent home volume from a
-snapshot baked into the image whenever the merged config changes.
+(typically seconds).
 
 Installs are build-time only: `devbox add` inside the sandbox is not
 supported, and no Nix download hosts are added to the network allowlist.

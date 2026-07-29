@@ -1,12 +1,19 @@
 FROM mcr.microsoft.com/devcontainers/base:debian
 
 # ca-certificates, curl, git are already in the devcontainers base image.
-# gosu:  drops privileges in the entrypoint.
-# jq:    used at build time to merge devbox.stack.json + devbox.tools.json
-#        into the single global devbox config (see cli/lib/devbox.bash).
-# rsync: used by app-init.sh to refresh the image-side /home/vscode snapshot
-#        into the agent-home volume after a rebuild (see snapshot block below
-#        and the sandcat: refresh… section in app-init.sh).
+# The three tools below all run before devbox is usable, so they have to
+# come from apt — devbox packages live under /home/vscode (masked by the
+# agent-home volume) and require the vscode-user shellenv to be on PATH.
+#
+# gosu:  drops privileges in the entrypoint. Invoked by root before any
+#        user profile is set up, so it can't come from devbox.
+# jq:    merges devbox.stack.json + devbox.tools.json at build time
+#        (see cli/lib/devbox.bash). Bootstrap: we need jq to install
+#        devbox's config, so it can't itself come from devbox.
+# rsync: refreshes the image-side /home/vscode snapshot into the
+#        agent-home volume in app-init.sh. Root-invoked and it's the
+#        very tool syncing devbox into the volume — can't live in
+#        the volume it syncs.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends gosu jq rsync \
     && rm -rf /var/lib/apt/lists/*
