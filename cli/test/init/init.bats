@@ -141,7 +141,7 @@ teardown() {
 		"'Select IDE:' vscode jetbrains none : echo vscode" \
 		"'Select secret provider:' 1password none protonpass : echo 1password"
 	stub select_multiple \
-		"'Select optional features (comma-separated numbers, empty for none):' 'tui (mitmproxy console instead of web UI)' 'no-shared-cache (per-project dep cache instead of shared)' : echo ''" \
+		"'Select optional features (comma-separated numbers, empty for none):' 'tui (mitmproxy console instead of web UI)' 'no-shared-cache (per-project dep cache instead of shared)' 'no-gitignore (do not append Sandcat block to .gitignore)' : echo ''" \
 		"'Select development stacks (comma-separated numbers, empty for none):' node python java rust go scala ruby dotnet zig : echo ''"
 
 	local expected_name
@@ -222,7 +222,7 @@ teardown() {
 		"'Select IDE:' vscode jetbrains none : echo vscode" \
 		"'Select secret provider:' none 1password protonpass : echo none"
 	stub select_multiple \
-		"'Select optional features (comma-separated numbers, empty for none):' 'tui (mitmproxy console instead of web UI)' 'no-shared-cache (per-project dep cache instead of shared)' : echo ''" \
+		"'Select optional features (comma-separated numbers, empty for none):' 'tui (mitmproxy console instead of web UI)' 'no-shared-cache (per-project dep cache instead of shared)' 'no-gitignore (do not append Sandcat block to .gitignore)' : echo ''" \
 		"'Select development stacks (comma-separated numbers, empty for none):' node python java rust go scala ruby dotnet zig : echo ''"
 
 	local expected_name
@@ -286,6 +286,7 @@ teardown() {
 	assert_output --partial "Unknown feature: bogus"
 	assert_output --partial "tui"
 	assert_output --partial "no-shared-cache"
+	assert_output --partial "no-gitignore"
 }
 
 @test "init interactive feature selection applies tui from full labels" {
@@ -299,7 +300,7 @@ teardown() {
 		"'Select IDE:' vscode jetbrains none : echo vscode" \
 		"'Select secret provider:' none 1password protonpass : echo none"
 	stub select_multiple \
-		"'Select optional features (comma-separated numbers, empty for none):' 'tui (mitmproxy console instead of web UI)' 'no-shared-cache (per-project dep cache instead of shared)' : echo 'tui (mitmproxy console instead of web UI)'" \
+		"'Select optional features (comma-separated numbers, empty for none):' 'tui (mitmproxy console instead of web UI)' 'no-shared-cache (per-project dep cache instead of shared)' 'no-gitignore (do not append Sandcat block to .gitignore)' : echo 'tui (mitmproxy console instead of web UI)'" \
 		"'Select development stacks (comma-separated numbers, empty for none):' node python java rust go scala ruby dotnet zig : echo ''"
 
 	local expected_name
@@ -312,4 +313,173 @@ teardown() {
 
 	run init --path "$PROJECT_DIR"
 	assert_success
+}
+
+@test "init appends Sandcat gitignore block when the project is a git repo" {
+	mkdir -p "$PROJECT_DIR/.git"
+	printf 'node_modules/\n*.log\n' > "$PROJECT_DIR/.gitignore"
+
+	stub settings "$PROJECT_DIR/.sandcat/settings.json claude vscode : :"
+	stub devcontainer \
+		"--settings-file .sandcat/settings.json --project-path * --agent claude --ide vscode --name test --stacks * --proxy web --secret-provider none : :"
+
+	run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" --stacks "" --features "" --secret-provider none
+	assert_success
+	assert_output --partial "Gitignore:        added Sandcat block"
+
+	# Existing content preserved, sandcat block appended.
+	grep -qxF "node_modules/" "$PROJECT_DIR/.gitignore"
+	grep -qxF "# Sandcat" "$PROJECT_DIR/.gitignore"
+	grep -qxF ".devcontainer/*" "$PROJECT_DIR/.gitignore"
+	grep -qxF "!.devcontainer/devbox.tools.json" "$PROJECT_DIR/.gitignore"
+	grep -qxF ".sandcat/settings.local.json" "$PROJECT_DIR/.gitignore"
+}
+
+@test "init gitignore append is idempotent across re-init" {
+	mkdir -p "$PROJECT_DIR/.git"
+
+	stub settings \
+		"$PROJECT_DIR/.sandcat/settings.json claude vscode : :" \
+		"$PROJECT_DIR/.sandcat/settings.json claude vscode : :"
+	stub devcontainer \
+		"--settings-file .sandcat/settings.json --project-path * --agent claude --ide vscode --name test --stacks * --proxy web --secret-provider none : :" \
+		"--settings-file .sandcat/settings.json --project-path * --agent claude --ide vscode --name test --stacks * --proxy web --secret-provider none : :"
+
+	init --agent claude --ide vscode --name test --path "$PROJECT_DIR" --stacks "" --features "" --secret-provider none >/dev/null
+	run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" --stacks "" --features "" --secret-provider none
+	assert_success
+	assert_output --partial "Gitignore:        Sandcat block already present"
+
+	# Exactly one Sandcat block — no duplication.
+	local count
+	count=$(grep -c '^# Sandcat$' "$PROJECT_DIR/.gitignore")
+	[ "$count" = "1" ]
+}
+
+@test "init skips gitignore when project is not a git repo" {
+	# No .git directory intentionally.
+	stub settings "$PROJECT_DIR/.sandcat/settings.json claude vscode : :"
+	stub devcontainer \
+		"--settings-file .sandcat/settings.json --project-path * --agent claude --ide vscode --name test --stacks * --proxy web --secret-provider none : :"
+
+	run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" --stacks "" --features "" --secret-provider none
+	assert_success
+	assert_output --partial "Gitignore:        skipped (no .git in project)"
+	[ ! -f "$PROJECT_DIR/.gitignore" ]
+}
+
+@test "init --features no-gitignore skips gitignore even in a git repo" {
+	mkdir -p "$PROJECT_DIR/.git"
+
+	stub settings "$PROJECT_DIR/.sandcat/settings.json claude vscode : :"
+	stub devcontainer \
+		"--settings-file .sandcat/settings.json --project-path * --agent claude --ide vscode --name test --stacks * --proxy web --secret-provider none : :"
+
+	run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" --stacks "" --features "no-gitignore" --secret-provider none
+	assert_success
+	assert_output --partial "Gitignore:        skipped (disabled)"
+	[ ! -f "$PROJECT_DIR/.gitignore" ]
+}
+
+@test "init respects SANDCAT_GITIGNORE=false env var" {
+	mkdir -p "$PROJECT_DIR/.git"
+
+	stub settings "$PROJECT_DIR/.sandcat/settings.json claude vscode : :"
+	stub devcontainer \
+		"--settings-file .sandcat/settings.json --project-path * --agent claude --ide vscode --name test --stacks * --proxy web --secret-provider none : :"
+
+	SANDCAT_GITIGNORE=false run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" --stacks "" --features "" --secret-provider none
+	assert_success
+	assert_output --partial "Gitignore:        skipped (disabled)"
+	[ ! -f "$PROJECT_DIR/.gitignore" ]
+}
+
+@test "init lists no-gitignore in unknown-feature error message" {
+	run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" --stacks "" --features "bogus" --secret-provider none
+	assert_failure
+	assert_output --partial "Unknown feature: bogus"
+	assert_output --partial "tui"
+	assert_output --partial "no-gitignore"
+}
+
+@test "init --features no-gitignore removes previously-added Sandcat block (symmetric)" {
+	mkdir -p "$PROJECT_DIR/.git"
+	printf 'node_modules/\n*.log\n' > "$PROJECT_DIR/.gitignore"
+
+	stub settings \
+		"$PROJECT_DIR/.sandcat/settings.json claude vscode : :" \
+		"$PROJECT_DIR/.sandcat/settings.json claude vscode : :"
+	stub devcontainer \
+		"--settings-file .sandcat/settings.json --project-path * --agent claude --ide vscode --name test --stacks * --proxy web --secret-provider none : :" \
+		"--settings-file .sandcat/settings.json --project-path * --agent claude --ide vscode --name test --stacks * --proxy web --secret-provider none : :"
+
+	# First init adds block.
+	init --agent claude --ide vscode --name test --path "$PROJECT_DIR" --stacks "" --features "" --secret-provider none >/dev/null
+	grep -qxF "# Sandcat" "$PROJECT_DIR/.gitignore"
+	grep -qxF "# /Sandcat" "$PROJECT_DIR/.gitignore"
+
+	# Second init with no-gitignore removes the block.
+	run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" --stacks "" --features "no-gitignore" --secret-provider none
+	assert_success
+	assert_output --partial "Gitignore:        removed Sandcat block (disabled)"
+
+	# User rules preserved, sandcat block gone.
+	grep -qxF "node_modules/" "$PROJECT_DIR/.gitignore"
+	grep -qxF "*.log" "$PROJECT_DIR/.gitignore"
+	run grep -c "^# Sandcat" "$PROJECT_DIR/.gitignore"
+	assert_output "0"
+}
+
+@test "init --features no-gitignore removes block via SANDCAT_GITIGNORE=false env" {
+	mkdir -p "$PROJECT_DIR/.git"
+
+	stub settings \
+		"$PROJECT_DIR/.sandcat/settings.json claude vscode : :" \
+		"$PROJECT_DIR/.sandcat/settings.json claude vscode : :"
+	stub devcontainer \
+		"--settings-file .sandcat/settings.json --project-path * --agent claude --ide vscode --name test --stacks * --proxy web --secret-provider none : :" \
+		"--settings-file .sandcat/settings.json --project-path * --agent claude --ide vscode --name test --stacks * --proxy web --secret-provider none : :"
+
+	init --agent claude --ide vscode --name test --path "$PROJECT_DIR" --stacks "" --features "" --secret-provider none >/dev/null
+
+	# Env-var opt-out also removes.
+	SANDCAT_GITIGNORE=false run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" --stacks "" --features "" --secret-provider none
+	assert_success
+	assert_output --partial "Gitignore:        removed Sandcat block (disabled)"
+	[ ! -f "$PROJECT_DIR/.gitignore" ] || ! grep -q "^# Sandcat" "$PROJECT_DIR/.gitignore"
+}
+
+@test "init --features no-gitignore is a no-op when there was no block" {
+	mkdir -p "$PROJECT_DIR/.git"
+	printf 'node_modules/\n' > "$PROJECT_DIR/.gitignore"
+
+	stub settings "$PROJECT_DIR/.sandcat/settings.json claude vscode : :"
+	stub devcontainer \
+		"--settings-file .sandcat/settings.json --project-path * --agent claude --ide vscode --name test --stacks * --proxy web --secret-provider none : :"
+
+	run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" --stacks "" --features "no-gitignore" --secret-provider none
+	assert_success
+	assert_output --partial "Gitignore:        skipped (disabled)"
+	# User's .gitignore stays as-is.
+	run cat "$PROJECT_DIR/.gitignore"
+	assert_output "node_modules/"
+}
+
+@test "init append is byte-exact — no stranded blank line before Sandcat block" {
+	mkdir -p "$PROJECT_DIR/.git"
+	# File ending with \n — bash command substitution strips trailing
+	# newlines, so a naive check would falsely think the file doesn't
+	# end with one and add an extra newline.
+	printf 'a\nb\n' > "$PROJECT_DIR/.gitignore"
+
+	stub settings "$PROJECT_DIR/.sandcat/settings.json claude vscode : :"
+	stub devcontainer \
+		"--settings-file .sandcat/settings.json --project-path * --agent claude --ide vscode --name test --stacks * --proxy web --secret-provider none : :"
+
+	init --agent claude --ide vscode --name test --path "$PROJECT_DIR" --stacks "" --features "" --secret-provider none >/dev/null
+
+	# Expect exactly one blank line between "b" and "# Sandcat".
+	local expected_lines
+	expected_lines=$(awk 'NR==1 { r1=$0 } NR==2 { r2=$0 } NR==3 { r3=$0 } NR==4 { r4=$0 } END { print r1"|"r2"|"r3"|"r4 }' "$PROJECT_DIR/.gitignore")
+	[ "$expected_lines" = "a|b||# Sandcat" ]
 }

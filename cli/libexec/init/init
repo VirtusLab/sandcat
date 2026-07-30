@@ -15,6 +15,8 @@ source "$SCT_LIBDIR/path.bash"
 source "$SCT_LIBDIR/stacks.bash"
 # shellcheck source=../../lib/agents.bash
 source "$SCT_LIBDIR/agents.bash"
+# shellcheck source=../../lib/gitignore.bash
+source "$SCT_LIBDIR/gitignore.bash"
 
 # Returns the user settings template path for a selected agent.
 # Args:
@@ -273,10 +275,13 @@ init() {
 	# Optional non-provider features
 	#   tui             → mitmproxy console instead of web UI
 	#   no-shared-cache → disable shared JVM dependency cache volumes
+	#   no-gitignore    → skip appending the Sandcat block to .gitignore
+	local gitignore_enabled=${SANDCAT_GITIGNORE:-true}
 	if [[ "$features_provided" != "true" ]]; then
 		local available_features=(
 			"tui (mitmproxy console instead of web UI)"
 			"no-shared-cache (per-project dep cache instead of shared)"
+			"no-gitignore (do not append Sandcat block to .gitignore)"
 		)
 		local selected_features
 		selected_features=$(select_multiple "Select optional features (comma-separated numbers, empty for none):" "${available_features[@]}")
@@ -287,6 +292,7 @@ init() {
 				case "$f" in
 					tui) proxy_mode="tui" ;;
 					no-shared-cache) export SANDCAT_MOUNT_SHARED_CACHE="false" ;;
+					no-gitignore) gitignore_enabled=false ;;
 				esac
 			done
 		fi
@@ -297,11 +303,12 @@ init() {
 				case "$f" in
 					tui) proxy_mode="tui" ;;
 					no-shared-cache) export SANDCAT_MOUNT_SHARED_CACHE="false" ;;
+					no-gitignore) gitignore_enabled=false ;;
 					1password)
 						echo "Use --secret-provider 1password instead of --features 1password" | error
 						return 1
 						;;
-					*) echo "Unknown feature: $f (expected: tui, no-shared-cache)" | error; return 1 ;;
+					*) echo "Unknown feature: $f (expected: tui, no-shared-cache, no-gitignore)" | error; return 1 ;;
 				esac
 			done
 		fi
@@ -364,6 +371,35 @@ init() {
 	)
 	devcontainer "${devcontainer_args[@]}"
 
+	local gitignore_status="skipped"
+	if [[ -e "$project_path/.git" ]]; then
+		local had_marker=false
+		if [[ -f "$project_path/.gitignore" ]] && \
+		   grep -qxF "$SCT_GITIGNORE_MARKER" "$project_path/.gitignore"; then
+			had_marker=true
+		fi
+
+		if [[ "$gitignore_enabled" == "true" ]]; then
+			update_gitignore "$project_path"
+			if [[ "$had_marker" == "true" ]]; then
+				gitignore_status="Sandcat block already present"
+			else
+				gitignore_status="added Sandcat block"
+			fi
+		else
+			# Symmetric: disabling removes any previously-added block
+			# so the feature toggle actually converges to declared state.
+			remove_gitignore_block "$project_path"
+			if [[ "$had_marker" == "true" ]]; then
+				gitignore_status="removed Sandcat block (disabled)"
+			else
+				gitignore_status="skipped (disabled)"
+			fi
+		fi
+	else
+		gitignore_status="skipped (no .git in project)"
+	fi
+
 	# Summary
 	echo "" >&2
 	echo "Initialization complete." | info
@@ -375,6 +411,7 @@ init() {
 	echo "  Project settings: $SCT_PROJECT_DIR/settings.json (network rules)" | info
 	echo "  User settings:    ~/.config/sandcat/settings.json (git identity, API keys)" | info
 	echo "  Devcontainer:     .devcontainer/" | info
+	echo "  Gitignore:        $gitignore_status" | info
 	case "$secret_provider" in
 	1password)
 		echo "  Secret provider:  1Password" | info
