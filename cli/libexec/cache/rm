@@ -1,0 +1,95 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# shellcheck source=../../lib/require.bash
+source "$SCT_LIBDIR/require.bash"
+# shellcheck source=../../lib/cache.bash
+source "$SCT_LIBDIR/cache.bash"
+# shellcheck source=../../lib/logging.bash
+source "$SCT_LIBDIR/logging.bash"
+
+# Removes one or all shared-cache volumes. Refuses (unless --force) when
+# a running container still holds a volume open, because docker rm would
+# fail with an unclear error and the user's build would keep behaving as
+# if the cache were live.
+usage() {
+	cat >&2 <<EOF
+Usage: sandcat cache rm <volume>|--all [--force] [--yes]
+
+  <volume>   Full volume name, e.g. sandcat-cache-maven.
+  --all      Remove every sandcat-shared-cache-labelled volume.
+  --force    Skip the "container still using this volume" check.
+  --yes      Skip the confirmation prompt.
+EOF
+	exit 1
+}
+
+rm_cmd() {
+	require docker
+
+	local target=""
+	local all=false force=false yes=false
+	while [[ $# -gt 0 ]]; do
+		case $1 in
+			--all)   all=true ;;
+			--force) force=true ;;
+			--yes|-y) yes=true ;;
+			-h|--help) usage ;;
+			-*)      echo "Unknown flag: $1" >&2; usage ;;
+			*)       [[ -n "$target" ]] && { echo "Only one volume name accepted" >&2; usage; }
+			         target=$1 ;;
+		esac
+		shift
+	done
+
+	local -a targets=()
+	if [[ $all == "true" ]]; then
+		[[ -n "$target" ]] && { echo "Use --all OR a volume name, not both" >&2; usage; }
+		mapfile -t targets < <(sct_cache_volume_names)
+	else
+		[[ -z "$target" ]] && usage
+		targets=("$target")
+	fi
+
+	if [[ ${#targets[@]} -eq 0 ]]; then
+		echo "No matching shared-cache volumes found."
+		return 0
+	fi
+
+	# Container-in-use check first — abort BEFORE the confirmation prompt
+	# so the user isn't asked to confirm a removal that will fail.
+	if [[ $force != "true" ]]; then
+		local name in_use
+		for name in "${targets[@]}"; do
+			in_use=$(sct_cache_volume_containers "$name" | paste -sd, -)
+			if [[ -n "$in_use" ]]; then
+				echo "Cannot remove $name — in use by: $in_use" | error
+				echo "Stop those containers first, or pass --force." | error
+				exit 1
+			fi
+		done
+	fi
+
+	# Show what will happen + ask, unless --yes given.
+	if [[ $yes != "true" ]]; then
+		echo "The following shared-cache volumes will be removed from the host:"
+		local name
+		for name in "${targets[@]}"; do
+			echo "  - $name"
+		done
+		echo "This affects every sandcat sandbox that mounts them."
+		read -rp "Continue? [y/N] " reply
+		[[ "$reply" =~ ^[yY]$ ]] || { echo "Cancelled."; return 0; }
+	fi
+
+	# --force implies docker rm --force too, so an in-use volume yields
+	# a docker-native error (rare — we already checked, but belt+braces).
+	local rm_flags=()
+	[[ $force == "true" ]] && rm_flags+=(--force)
+
+	docker volume rm "${rm_flags[@]+"${rm_flags[@]}"}" "${targets[@]}"
+}
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+	rm_cmd "$@"
+fi

@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Default entry — with no subcommand, print `list`. `sandcat cache help`
+# is handled by the top-level dispatch.
+exec "$SCT_LIBEXECDIR/cache/list" "$@"

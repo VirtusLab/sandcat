@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# shellcheck source=../../lib/require.bash
+source "$SCT_LIBDIR/require.bash"
+# shellcheck source=../../lib/cache.bash
+source "$SCT_LIBDIR/cache.bash"
+
+# Prints the total size of all shared-cache volumes on this host — quick
+# one-liner useful for deciding whether it's worth cleaning up.
+size() {
+	require docker
+
+	local -a names
+	mapfile -t names < <(sct_cache_volume_names)
+
+	if [[ ${#names[@]} -eq 0 ]]; then
+		echo "0 B (no shared-cache volumes on this host)"
+		return 0
+	fi
+
+	local name size_bytes total_bytes=0
+	for name in "${names[@]}"; do
+		size_bytes=$(sct_cache_volume_size_bytes "$name")
+		total_bytes=$((total_bytes + ${size_bytes:-0}))
+	done
+	echo "$(sct_cache_format_bytes "$total_bytes") across ${#names[@]} volume(s)"
+}
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+	size "$@"
+fi

@@ -131,6 +131,24 @@ Displays the current version of sandcat.
 Runs docker compose commands with the correct compose file automatically detected. Pass any docker compose arguments
 (e.g., `sandcat compose up -d` or `sandcat compose logs`).
 
+### `sandcat cache`
+
+Manages the host-scoped shared dependency-cache volumes (`sandcat-cache-*`)
+that back the shared-cache feature (see main README §*Shared dependency
+caches*). Bare `sandcat cache` is a shorthand for `sandcat cache list`.
+
+Subcommands:
+
+- `list` — print a table with volume name, size, file count, and any
+  running containers currently mounting it, plus a total-size row.
+- `size` — one-liner total size across every shared-cache volume on the
+  host.
+- `rm <volume>|--all [--force] [--yes]` — remove one or all shared-cache
+  volumes. Refuses by default when a running container still holds a
+  volume open; `--force` bypasses the check (Docker itself will still
+  refuse a truly locked volume). `--yes` skips the interactive
+  confirmation, for scripting.
+
 ### `sandcat edit compose`
 
 Opens the Docker Compose file in your editor. If you save changes and containers are running, it will restart containers by default to apply the changes.

@@ -315,21 +315,26 @@ comments — you can flip individual ones back on by uncommenting.
   locking (Maven `.locks/`, Coursier per-artifact `.lock`, Gradle `.lock`).
   This works reliably in practice but is not sandcat-mediated.
 
-**Managing shared caches manually:**
+**Managing shared caches:**
 
 ```bash
-# List
-docker volume ls | grep sandcat-cache-
+# Detailed table — volume name, size, file count, running container users
+sandcat cache list
+sandcat cache          # same as `list`
 
-# Inspect size
-docker system df -v | grep sandcat-cache-
+# Quick total across all shared-cache volumes
+sandcat cache size
 
-# Wipe one (rebuild will re-download)
-docker volume rm sandcat-cache-maven
+# Wipe one (next build re-downloads what the project needs)
+sandcat cache rm sandcat-cache-maven
 
-# Wipe them all (aggressive — resets every JVM cache on the host)
-docker volume ls -q | grep '^sandcat-cache-' | xargs -r docker volume rm
+# Wipe them all — resets every shared cache on the host
+sandcat cache rm --all
 ```
+
+`sandcat cache rm` refuses to remove a volume that a running sandbox
+still mounts; stop the sandbox first, or pass `--force` to bypass the
+check (Docker will then error out if the volume is truly locked).
 
 ### 3. Start the sandbox
 
