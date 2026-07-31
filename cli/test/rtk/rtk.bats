@@ -30,3 +30,18 @@ setup() {
 	SANDCAT_RTK=false run sct_rtk_enabled
 	assert_failure
 }
+
+@test "sct_rtk_docker_install_block emits install.sh RUN when enabled" {
+	unset SANDCAT_RTK
+	run sct_rtk_docker_install_block
+	assert_success
+	assert_output --partial "raw.githubusercontent.com/rtk-ai/rtk"
+	assert_output --partial "install.sh"
+	assert_output --partial "RUN curl"
+}
+
+@test "sct_rtk_docker_install_block emits nothing when disabled" {
+	SANDCAT_RTK=false run sct_rtk_docker_install_block
+	assert_success
+	assert_output ""
+}

@@ -10,3 +10,20 @@
 sct_rtk_enabled() {
 	[[ "${SANDCAT_RTK:-true}" != "false" ]]
 }
+
+# Emits the Dockerfile.app RUN block that installs the rtk binary
+# globally via its official install script. Agent-agnostic — the same
+# binary serves every supported agent; per-agent hook wiring happens
+# at container start via sct_rtk_user_init_block.
+#
+# Emits an empty output when the feature is disabled so the caller can
+# unconditionally append it to Dockerfile fragments.
+sct_rtk_docker_install_block() {
+	sct_rtk_enabled || return 0
+	cat <<'EOF'
+# Install rtk (Rust Token Killer) — compresses shell command output so AI
+# agents consume fewer tokens per command. Disable at init time with
+# `sandcat init --features no-rtk` or `SANDCAT_RTK=false`.
+RUN curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/master/install.sh | sh
+EOF
+}
