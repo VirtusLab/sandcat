@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 
+# shellcheck source=./rtk.bash
+source "${BASH_SOURCE[0]%/*}/rtk.bash"
+
 # Returns supported agents as a space-separated list.
 sct_available_agents() {
 	echo "claude cursor"
@@ -304,9 +307,10 @@ RUN curl https://cursor.com/install -fsS | bash
 EOF
 			;;
 		*)
-			echo ""
+			return 0
 			;;
 	esac
+	sct_rtk_docker_install_block
 }
 
 # Returns Dockerfile config-home preparation block for selected agent.

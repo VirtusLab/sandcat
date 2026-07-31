@@ -273,6 +273,29 @@ setup() {
 	assert_output ""
 }
 
+@test "sct_agent_docker_install_block: claude append rtk install when enabled" {
+	# shellcheck source=../../lib/rtk.bash
+	source "$SCT_LIBDIR/rtk.bash"
+	unset SANDCAT_RTK
+	run sct_agent_docker_install_block claude
+	assert_output --partial "claude.ai/install.sh"
+	assert_output --partial "raw.githubusercontent.com/rtk-ai/rtk"
+}
+
+@test "sct_agent_docker_install_block: claude skips rtk when SANDCAT_RTK=false" {
+	source "$SCT_LIBDIR/rtk.bash"
+	SANDCAT_RTK=false run sct_agent_docker_install_block claude
+	assert_output --partial "claude.ai/install.sh"
+	refute_output --partial "raw.githubusercontent.com/rtk-ai/rtk"
+}
+
+@test "sct_agent_docker_install_block: unknown returns empty even with rtk enabled" {
+	source "$SCT_LIBDIR/rtk.bash"
+	unset SANDCAT_RTK
+	run sct_agent_docker_install_block unknown
+	assert_output ""
+}
+
 # --------------------------------------------------- Dockerfile home prep
 
 @test "sct_agent_docker_home_prep_block: claude pre-creates ~/.claude" {
