@@ -332,36 +332,24 @@ Expected: FAIL — the first new test fails (rtk not in claude output); the seco
 
 - [ ] **Step 3: Modify `cli/lib/agents.bash`**
 
-Find `sct_agent_docker_install_block` (grep: `grep -n "^sct_agent_docker_install_block" cli/lib/agents.bash`). Update it as follows:
+Two edits.
 
-1. At top of the function, source rtk helpers:
+**Edit A — Source rtk.bash once at the top of the file** (immediately after the `#!/usr/bin/env bash` shebang, before the first function):
+
+```bash
+#!/usr/bin/env bash
+
+# shellcheck source=./rtk.bash
+source "${BASH_SOURCE[0]%/*}/rtk.bash"
+```
+
+This makes `sct_rtk_*` functions available to every function in agents.bash. Sourcing at top (once) is preferred over per-function sourcing to avoid re-parsing on every call.
+
+**Edit B — Change `sct_agent_docker_install_block`'s `*)` case to `return 0` and append rtk call after `esac`.** Full expected shape of the function:
 
 ```bash
 sct_agent_docker_install_block() {
 	local agent=$1
-	# shellcheck source=./rtk.bash
-	source "${BASH_SOURCE[0]%/*}/rtk.bash"
-	case "$agent" in
-```
-
-2. Change the `*)` fallthrough to `return 0`:
-
-```bash
-		*)
-			return 0
-			;;
-	esac
-	sct_rtk_docker_install_block
-}
-```
-
-Full expected shape of the function:
-
-```bash
-sct_agent_docker_install_block() {
-	local agent=$1
-	# shellcheck source=./rtk.bash
-	source "${BASH_SOURCE[0]%/*}/rtk.bash"
 	case "$agent" in
 		claude)
 			cat <<'EOF'
@@ -448,15 +436,13 @@ Expected: FAIL — the first new test fails ("rtk init" not found in claude outp
 
 - [ ] **Step 3: Modify `cli/lib/agents.bash`**
 
-Update `sct_agent_user_init_block` the same way as Task 4: source rtk.bash at top, change `*)` to `return 0`, append `sct_rtk_user_init_block "$agent"` after `esac`.
+Task 4 already sourced `rtk.bash` at the top of the file, so this task only needs to change the `*)` case to `return 0` and append `sct_rtk_user_init_block "$agent"` after `esac`.
 
 Full expected shape:
 
 ```bash
 sct_agent_user_init_block() {
 	local agent=$1
-	# shellcheck source=./rtk.bash
-	source "${BASH_SOURCE[0]%/*}/rtk.bash"
 	case "$agent" in
 		claude)
 			cat <<'EOF'
