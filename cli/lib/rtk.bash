@@ -22,9 +22,12 @@ sct_rtk_docker_install_block() {
 	sct_rtk_enabled || return 0
 	cat <<'EOF'
 # Install rtk (Rust Token Killer) — compresses shell command output so AI
-# agents consume fewer tokens per command. Disable at init time with
-# `sandcat init --features no-rtk` or `SANDCAT_RTK=false`.
-RUN curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/master/install.sh | sh
+# agents consume fewer tokens per command. Installed system-wide so the
+# agent-home volume can't mask the binary on upgrade. Disable at init
+# time with `sandcat init --features no-rtk` or `SANDCAT_RTK=false`.
+USER root
+RUN curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/master/install.sh | RTK_INSTALL_DIR=/usr/local/bin sh
+USER vscode
 EOF
 }
 

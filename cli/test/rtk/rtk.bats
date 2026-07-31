@@ -38,6 +38,9 @@ setup() {
 	assert_output --partial "raw.githubusercontent.com/rtk-ai/rtk"
 	assert_output --partial "install.sh"
 	assert_output --partial "RUN curl"
+	assert_output --partial "RTK_INSTALL_DIR=/usr/local/bin"
+	assert_output --partial "USER root"
+	assert_output --partial "USER vscode"
 }
 
 @test "sct_rtk_docker_install_block emits nothing when disabled" {

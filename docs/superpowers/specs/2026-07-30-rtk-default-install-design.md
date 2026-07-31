@@ -109,7 +109,7 @@ Alternative states: `disabled` (opt-out).
 
 ### Runtime behavior in the container
 
-- **Build-time (Dockerfile.app):** `RUN curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/master/install.sh | sh` — only when enabled. Binary baked into the image.
+- **Build-time (Dockerfile.app):** `RUN curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/master/install.sh | RTK_INSTALL_DIR=/usr/local/bin sh` — only when enabled. Installed to `/usr/local/bin/` (not `~/.local/bin/`) so an existing agent-home volume from a pre-rtk build cannot mask the binary on upgrade. Binary baked into the image.
 - **Container start (app-user-init.sh):** Idempotency-guarded `rtk init -g --hook-only --auto-patch` for `claude`. Skipped once the rtk hook string is present in `~/.claude/settings.json`. Uses `--hook-only` to avoid writing to `~/.claude/CLAUDE.md`, which sandcat bind-mounts read-only (EROFS).
 - **Error handling:** rtk init failure logs a non-fatal warning to stderr; container startup proceeds. rtk is a convenience layer — its failure must not block dev workflow.
 - **User-owned `~/.claude/settings.json`:** rtk init merges its hook with existing content — that behavior is rtk's, not sandcat's.
@@ -120,9 +120,12 @@ Alternative states: `disabled` (opt-out).
 
 ```dockerfile
 # Install rtk (Rust Token Killer) — compresses shell command output so AI
-# agents consume fewer tokens per command. Disable at init time with
-# `sandcat init --features no-rtk` or `SANDCAT_RTK=false`.
-RUN curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/master/install.sh | sh
+# agents consume fewer tokens per command. Installed system-wide so the
+# agent-home volume can't mask the binary on upgrade. Disable at init
+# time with `sandcat init --features no-rtk` or `SANDCAT_RTK=false`.
+USER root
+RUN curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/master/install.sh | RTK_INSTALL_DIR=/usr/local/bin sh
+USER vscode
 ```
 
 **app-user-init.sh** for `claude` (when `sct_rtk_enabled` and agent has profile):
