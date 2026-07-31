@@ -62,11 +62,19 @@ setup() {
 	assert_output --partial "non-fatal"
 }
 
-@test "sct_rtk_user_init_block: cursor emits nothing (no rtk profile yet)" {
+@test "sct_rtk_user_init_block: cursor emits guarded rtk init --agent cursor" {
 	unset SANDCAT_RTK
 	run sct_rtk_user_init_block cursor
 	assert_success
-	assert_output ""
+	assert_output --partial "rtk init -g"
+	assert_output --partial "--hook-only"
+	assert_output --partial "--auto-patch"
+	assert_output --partial "--agent cursor"
+	assert_output --partial "command -v rtk"
+	assert_output --partial "rtk hook cursor"
+	assert_output --partial "hooks.json"
+	assert_output --partial "non-fatal"
+	assert_output --partial "SANDCAT_MOUNT_CURSOR_CONFIG"
 }
 
 @test "sct_rtk_user_init_block: unknown emits nothing" {
@@ -78,6 +86,12 @@ setup() {
 
 @test "sct_rtk_user_init_block: claude emits nothing when disabled" {
 	SANDCAT_RTK=false run sct_rtk_user_init_block claude
+	assert_success
+	assert_output ""
+}
+
+@test "sct_rtk_user_init_block: cursor emits nothing when disabled" {
+	SANDCAT_RTK=false run sct_rtk_user_init_block cursor
 	assert_success
 	assert_output ""
 }

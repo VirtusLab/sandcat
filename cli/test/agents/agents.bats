@@ -346,10 +346,17 @@ setup() {
 	refute_output --partial "rtk init"
 }
 
-@test "sct_agent_user_init_block: cursor does NOT get rtk init (no profile yet)" {
+@test "sct_agent_user_init_block: cursor appends rtk init when enabled" {
 	source "$SCT_LIBDIR/rtk.bash"
 	unset SANDCAT_RTK
 	run sct_agent_user_init_block cursor
+	assert_output --partial "cursor-cli-config.json"
+	assert_output --partial "rtk init -g --hook-only --auto-patch --agent cursor"
+}
+
+@test "sct_agent_user_init_block: cursor skips rtk when SANDCAT_RTK=false" {
+	source "$SCT_LIBDIR/rtk.bash"
+	SANDCAT_RTK=false run sct_agent_user_init_block cursor
 	assert_output --partial "cursor-cli-config.json"
 	refute_output --partial "rtk init"
 }
