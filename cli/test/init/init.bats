@@ -523,8 +523,7 @@ teardown() {
 	# default → installed
 	run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" --stacks "" --features "" --secret-provider none
 	assert_success
-	assert_output --partial "RTK:"
-	assert_output --partial "installed"
+	assert_output --partial "RTK:              installed"
 }
 
 @test "init --features no-rtk reports rtk disabled" {
@@ -534,8 +533,7 @@ teardown() {
 
 	run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" --stacks "" --features "no-rtk" --secret-provider none
 	assert_success
-	assert_output --partial "RTK:"
-	assert_output --partial "disabled"
+	assert_output --partial "RTK:              disabled"
 }
 
 @test "init rejects bogus feature and lists no-rtk in expected values" {
