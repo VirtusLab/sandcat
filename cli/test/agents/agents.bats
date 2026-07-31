@@ -331,6 +331,29 @@ setup() {
 	assert_output ""
 }
 
+@test "sct_agent_user_init_block: claude appends rtk init when enabled" {
+	source "$SCT_LIBDIR/rtk.bash"
+	unset SANDCAT_RTK
+	run sct_agent_user_init_block claude
+	assert_output --partial "hasCompletedOnboarding"
+	assert_output --partial "rtk init -g"
+}
+
+@test "sct_agent_user_init_block: claude skips rtk when SANDCAT_RTK=false" {
+	source "$SCT_LIBDIR/rtk.bash"
+	SANDCAT_RTK=false run sct_agent_user_init_block claude
+	assert_output --partial "hasCompletedOnboarding"
+	refute_output --partial "rtk init"
+}
+
+@test "sct_agent_user_init_block: cursor does NOT get rtk init (no profile yet)" {
+	source "$SCT_LIBDIR/rtk.bash"
+	unset SANDCAT_RTK
+	run sct_agent_user_init_block cursor
+	assert_output --partial "cursor-cli-config.json"
+	refute_output --partial "rtk init"
+}
+
 # --------------------------------------------------- mitm streaming flags
 
 @test "sct_agent_mitm_streaming_flags: cursor returns streaming flags" {

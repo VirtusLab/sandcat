@@ -422,7 +422,8 @@ fi
 EOF
 			;;
 		*)
-			echo ""
+			return 0
 			;;
 	esac
+	sct_rtk_user_init_block "$agent"
 }
