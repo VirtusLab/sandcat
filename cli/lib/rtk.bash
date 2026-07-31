@@ -46,10 +46,13 @@ sct_rtk_user_init_block() {
 		claude)
 			cat <<'EOF'
 # rtk (Rust Token Killer) — one-time hook config for Claude Code.
-# `rtk init -g` writes a hook entry into ~/.claude/settings.json;
-# idempotent once ~/.config/rtk/config.toml exists.
-if command -v rtk >/dev/null 2>&1 && [ ! -f "$HOME/.config/rtk/config.toml" ]; then
-    rtk init -g >/dev/null 2>&1 \
+# `rtk init -g --hook-only --auto-patch` patches ~/.claude/settings.json
+# with the PreToolUse hook non-interactively; --hook-only skips writing
+# RTK.md (sandcat mounts ~/.claude/CLAUDE.md read-only, so rtk's default
+# CLAUDE.md injection would EROFS).
+# Idempotency: skipped once the hook string is already present.
+if command -v rtk >/dev/null 2>&1 && ! grep -q '"command": "rtk hook' "$HOME/.claude/settings.json" 2>/dev/null; then
+    rtk init -g --hook-only --auto-patch >/dev/null 2>&1 \
         || echo "sandcat: rtk init failed (non-fatal)" >&2
 fi
 EOF

@@ -51,8 +51,11 @@ setup() {
 	run sct_rtk_user_init_block claude
 	assert_success
 	assert_output --partial "rtk init -g"
+	assert_output --partial "--hook-only"
+	assert_output --partial "--auto-patch"
 	assert_output --partial "command -v rtk"
-	assert_output --partial ".config/rtk/config.toml"
+	assert_output --partial "rtk hook"
+	assert_output --partial "settings.json"
 	assert_output --partial "non-fatal"
 }
 

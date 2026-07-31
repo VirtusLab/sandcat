@@ -110,7 +110,7 @@ Alternative states: `disabled` (opt-out).
 ### Runtime behavior in the container
 
 - **Build-time (Dockerfile.app):** `RUN curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/master/install.sh | sh` — only when enabled. Binary baked into the image.
-- **Container start (app-user-init.sh):** Idempotency-guarded `rtk init -g` for `claude`. Skipped once `~/.config/rtk/config.toml` exists.
+- **Container start (app-user-init.sh):** Idempotency-guarded `rtk init -g --hook-only --auto-patch` for `claude`. Skipped once the rtk hook string is present in `~/.claude/settings.json`. Uses `--hook-only` to avoid writing to `~/.claude/CLAUDE.md`, which sandcat bind-mounts read-only (EROFS).
 - **Error handling:** rtk init failure logs a non-fatal warning to stderr; container startup proceeds. rtk is a convenience layer — its failure must not block dev workflow.
 - **User-owned `~/.claude/settings.json`:** rtk init merges its hook with existing content — that behavior is rtk's, not sandcat's.
 
@@ -129,15 +129,18 @@ RUN curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/master/install.sh | 
 
 ```bash
 # rtk (Rust Token Killer) — one-time hook config for Claude Code.
-# `rtk init -g` writes a hook entry into ~/.claude/settings.json; idempotent
-# once ~/.config/rtk/config.toml exists.
-if command -v rtk >/dev/null 2>&1 && [ ! -f "$HOME/.config/rtk/config.toml" ]; then
-    rtk init -g >/dev/null 2>&1 \
+# `rtk init -g --hook-only --auto-patch` patches ~/.claude/settings.json
+# with the PreToolUse hook non-interactively; --hook-only skips writing
+# RTK.md (sandcat mounts ~/.claude/CLAUDE.md read-only, so rtk's default
+# CLAUDE.md injection would EROFS).
+# Idempotency: skipped once the hook string is already present.
+if command -v rtk >/dev/null 2>&1 && ! grep -q '"command": "rtk hook' "$HOME/.claude/settings.json" 2>/dev/null; then
+    rtk init -g --hook-only --auto-patch >/dev/null 2>&1 \
         || echo "sandcat: rtk init failed (non-fatal)" >&2
 fi
 ```
 
-`command -v rtk` guard is defensive: if a user rebuilt from an old image without rtk (feature was OFF at build), we skip cleanly instead of erroring on missing binary.
+`command -v rtk` guard is defensive: if a user rebuilt from an old image without rtk (feature was OFF at build), we skip cleanly instead of erroring on missing binary. The `grep` idempotency guard checks `settings.json` directly (not `config.toml`) because `--hook-only` does not create `~/.config/rtk/config.toml`.
 
 ## Extensibility (future agents)
 
@@ -150,8 +153,8 @@ sct_rtk_user_init_block() {
     case "$agent" in
         claude)
             cat <<'EOF'
-if command -v rtk >/dev/null 2>&1 && [ ! -f "$HOME/.config/rtk/config.toml" ]; then
-    rtk init -g >/dev/null 2>&1 \
+if command -v rtk >/dev/null 2>&1 && ! grep -q '"command": "rtk hook' "$HOME/.claude/settings.json" 2>/dev/null; then
+    rtk init -g --hook-only --auto-patch >/dev/null 2>&1 \
         || echo "sandcat: rtk init failed (non-fatal)" >&2
 fi
 EOF
