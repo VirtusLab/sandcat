@@ -197,6 +197,7 @@ flags today.
 | JetBrains | `SANDCAT_MOUNT_IDEA_READONLY` | `false` (active when `--ide jetbrains`) |
 | Any       | `SANDCAT_MOUNT_SHARED_CACHE`  | `true` — see [Shared dependency caches](#shared-dependency-caches) |
 | Any       | `SANDCAT_GITIGNORE`           | `true` (see [Gitignore defaults](#gitignore-defaults)) |
+| Any       | `SANDCAT_RTK`                 | `true` (see [RTK — LLM token compression for Claude Code](#rtk--llm-token-compression-for-claude-code)) |
 
 When an agent mount flag is `false`, Sandcat lists every path as a foot comment
 on the first volume entry — copy the lines you want into the active `volumes:`
@@ -380,6 +381,32 @@ outside the sandcat markers are always preserved.
 
 If the project is not a git working tree (no `.git/` directory), init
 silently skips the gitignore step — no `.gitignore` gets created.
+
+#### RTK — LLM token compression for Claude Code
+
+[rtk-ai/rtk](https://github.com/rtk-ai/rtk) ("Rust Token Killer") wraps
+shell commands invoked by AI agents and compresses their output before
+the agent reads it, cutting token consumption 60-90% on typical dev
+commands (test runs, grep output, build logs). `sandcat init` installs
+it into the sandbox and auto-configures the hook for Claude Code so it
+works out of the box — no manual `rtk init` required.
+
+**Opt out** if you'd rather run without it (e.g. debugging a shell
+command's raw output):
+
+```bash
+sandcat init --features no-rtk ...
+SANDCAT_RTK=false sandcat init ...
+```
+
+Both are equivalent — the env var is the scripted counterpart of the
+interactive/CSV feature flag. When disabled, the rtk binary is not
+installed into the image and no init hook is emitted for any agent.
+
+Only `claude` gets automatic rtk init in this iteration. When `--agent
+cursor` (or a future agent) is selected, the rtk binary is still
+installed but its hook is not auto-configured; you can run `rtk init -g
+--agent cursor` inside the container manually.
 
 ### 3. Start the sandbox
 
