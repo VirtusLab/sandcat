@@ -73,8 +73,10 @@ setup() {
 	assert_output --partial "command -v rtk"
 	assert_output --partial "rtk hook cursor"
 	assert_output --partial "hooks.json"
-	assert_output --partial "non-fatal"
-	assert_output --partial "SANDCAT_MOUNT_CURSOR_CONFIG"
+	# The warning message nudges users to initialise rtk on the host, which
+	# is the workflow sandcat officially supports for cursor.
+	assert_output --partial "on your host"
+	assert_output --partial "README"
 }
 
 @test "sct_rtk_user_init_block: unknown emits nothing" {

@@ -62,19 +62,16 @@ EOF
 		cursor)
 			cat <<'EOF'
 # rtk (Rust Token Killer) — one-time hook config for Cursor CLI.
-# `rtk init -g --hook-only --auto-patch --agent cursor` patches
-# ~/.cursor/hooks.json with the preToolUse hook (rtk also touches
-# ~/.claude/settings.json as a side effect, harmless in a cursor sandbox).
-# Idempotency: skipped once the hook string is already present.
-#
-# Note: with sandcat's default SANDCAT_MOUNT_CURSOR_CONFIG=true, the host's
-# ~/.cursor/hooks.json is bind-mounted read-only into the container and
-# this init will EROFS non-fatally. Set SANDCAT_MOUNT_CURSOR_CONFIG=false
-# at init time (or `sandcat init --features no-rtk` to skip rtk entirely)
-# if you want the hook to persist across restarts.
+# The hook lives in ~/.cursor/hooks.json, which sandcat bind-mounts
+# read-only from the host (SANDCAT_MOUNT_CURSOR_CONFIG=true default).
+# Expected workflow: user runs `rtk init -g --hook-only --auto-patch \
+# --agent cursor` on the HOST once — then this guard's grep passes and
+# the init below stays a no-op. If the guard doesn't pass here, we
+# still try inside the container so the warning nudges the user to
+# initialize rtk on the host.
 if command -v rtk >/dev/null 2>&1 && ! grep -q '"rtk hook cursor' "$HOME/.cursor/hooks.json" 2>/dev/null; then
     rtk init -g --hook-only --auto-patch --agent cursor >/dev/null 2>&1 \
-        || echo "sandcat: rtk init failed (non-fatal — ~/.cursor/hooks.json may be a read-only mount; set SANDCAT_MOUNT_CURSOR_CONFIG=false)" >&2
+        || echo "sandcat: rtk hook not found for cursor. Install rtk on your host and run once: rtk init -g --hook-only --auto-patch --agent cursor  (see README RTK section)" >&2
 fi
 EOF
 			;;

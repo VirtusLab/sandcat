@@ -388,9 +388,9 @@ silently skips the gitignore step — no `.gitignore` gets created.
 shell commands invoked by AI agents and compresses their output before
 the agent reads it, cutting token consumption 60-90% on typical dev
 commands (test runs, grep output, build logs). `sandcat init` installs
-it into the sandbox and auto-configures the hook for both Claude Code
-(`--agent claude`) and Cursor CLI (`--agent cursor`) so it works out of
-the box — no manual `rtk init` required.
+the `rtk` binary into every sandbox by default and wires the agent
+hook so the agent picks it up automatically. Setup differs slightly
+per agent — see below.
 
 **Opt out** if you'd rather run without it (e.g. debugging a shell
 command's raw output):
@@ -404,14 +404,48 @@ Both are equivalent — the env var is the scripted counterpart of the
 interactive/CSV feature flag. When disabled, the rtk binary is not
 installed into the image and no init hook is emitted for any agent.
 
-**Cursor caveat.** For `--agent cursor`, rtk writes its hook to
-`~/.cursor/hooks.json`, which sandcat bind-mounts read-only from the
-host when `SANDCAT_MOUNT_CURSOR_CONFIG=true` (default). In that
-configuration `rtk init` fails with EROFS at container start (logged
-non-fatally in stderr) and the hook is not persisted. To make the
-cursor hook stick, set `SANDCAT_MOUNT_CURSOR_CONFIG=false` at init
-time — or pair `sandcat init --features no-rtk` with your own manual
-`rtk init` invocation inside the container.
+##### Claude Code (`--agent claude`)
+
+Works out of the box, zero configuration. `sandcat init` generates an
+`app-user-init.sh` block that runs `rtk init -g --hook-only --auto-patch`
+on the first container start; the hook lands in the sandbox's
+`~/.claude/settings.json` (inside the `agent-home` volume, not
+bind-mounted). Subsequent starts are idempotent no-ops.
+
+##### Cursor CLI (`--agent cursor`)
+
+Cursor's rtk hook lives in `~/.cursor/hooks.json`. Sandcat bind-mounts
+that file **read-only** from your host (`SANDCAT_MOUNT_CURSOR_CONFIG=true`
+default) so cursor customizations are shared across all your sandboxes.
+Because the mount is read-only, sandcat cannot install the rtk hook
+into the container's copy of `hooks.json`.
+
+**Setup — run once on your host:**
+
+```bash
+# Install rtk locally (needed once on the host)
+brew install rtk       # or: curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/master/install.sh | sh
+
+# Register the cursor hook in your host ~/.cursor/hooks.json
+rtk init -g --hook-only --auto-patch --agent cursor
+```
+
+That writes the rtk hook to your host `~/.cursor/hooks.json`. Every
+sandcat cursor sandbox from now on bind-mounts that file into the
+container, so Cursor CLI sees the hook and calls `rtk hook cursor` on
+each `Bash` tool invocation. The container's own `rtk` binary
+(installed by sandcat) executes the hook — you never need rtk on the
+host for anything except this one-time init step, and you can
+uninstall it afterwards if you like.
+
+Bonus: the same host hook is picked up by every cursor sandbox you
+start on that machine (and by host Cursor CLI, if you use it directly).
+
+**If you skip the host init:** the container prints a one-time warning
+on start (`sandcat: rtk hook not found for cursor. Install rtk on your
+host …`) and Cursor CLI runs without the hook. The rtk binary is still
+on `PATH` inside the container, so you can invoke `rtk grep`, `rtk ls`,
+etc. by hand.
 
 ### 3. Start the sandbox
 
