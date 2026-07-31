@@ -45,3 +45,33 @@ setup() {
 	assert_success
 	assert_output ""
 }
+
+@test "sct_rtk_user_init_block: claude emits guarded rtk init -g" {
+	unset SANDCAT_RTK
+	run sct_rtk_user_init_block claude
+	assert_success
+	assert_output --partial "rtk init -g"
+	assert_output --partial "command -v rtk"
+	assert_output --partial ".config/rtk/config.toml"
+	assert_output --partial "non-fatal"
+}
+
+@test "sct_rtk_user_init_block: cursor emits nothing (no rtk profile yet)" {
+	unset SANDCAT_RTK
+	run sct_rtk_user_init_block cursor
+	assert_success
+	assert_output ""
+}
+
+@test "sct_rtk_user_init_block: unknown emits nothing" {
+	unset SANDCAT_RTK
+	run sct_rtk_user_init_block unknown
+	assert_success
+	assert_output ""
+}
+
+@test "sct_rtk_user_init_block: claude emits nothing when disabled" {
+	SANDCAT_RTK=false run sct_rtk_user_init_block claude
+	assert_success
+	assert_output ""
+}

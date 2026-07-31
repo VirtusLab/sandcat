@@ -27,3 +27,38 @@ sct_rtk_docker_install_block() {
 RUN curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/master/install.sh | sh
 EOF
 }
+
+# Emits the app-user-init.sh fragment that runs `rtk init` for the given
+# agent, guarded to a one-time execution. Only `claude` has a wired case
+# in this iteration; every other agent (cursor / unknown / future) gets
+# a safe no-op so the binary is still available on PATH but rtk stays
+# uninitialized until the case is added.
+#
+# Emits an empty output when the feature is disabled OR when the agent
+# has no rtk profile.
+#
+# Args:
+#   $1 - Agent name
+sct_rtk_user_init_block() {
+	local agent=$1
+	sct_rtk_enabled || return 0
+	case "$agent" in
+		claude)
+			cat <<'EOF'
+# rtk (Rust Token Killer) — one-time hook config for Claude Code.
+# `rtk init -g` writes a hook entry into ~/.claude/settings.json;
+# idempotent once ~/.config/rtk/config.toml exists.
+if command -v rtk >/dev/null 2>&1 && [ ! -f "$HOME/.config/rtk/config.toml" ]; then
+    rtk init -g >/dev/null 2>&1 \
+        || echo "sandcat: rtk init failed (non-fatal)" >&2
+fi
+EOF
+			;;
+		*)
+			# No rtk profile wired for this agent — safe no-op. Binary is
+			# still installed by sct_rtk_docker_install_block; user can
+			# invoke `rtk init` manually.
+			return 0
+			;;
+	esac
+}
