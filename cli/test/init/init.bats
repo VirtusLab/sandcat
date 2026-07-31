@@ -141,7 +141,7 @@ teardown() {
 		"'Select IDE:' vscode jetbrains none : echo vscode" \
 		"'Select secret provider:' 1password none protonpass : echo 1password"
 	stub select_multiple \
-		"'Select optional features (comma-separated numbers, empty for none):' 'tui (mitmproxy console instead of web UI)' 'no-shared-cache (per-project dep cache instead of shared)' 'no-gitignore (do not append Sandcat block to .gitignore)' : echo ''" \
+		"'Select optional features (comma-separated numbers, empty for none):' 'tui (mitmproxy console instead of web UI)' 'no-shared-cache (per-project dep cache instead of shared)' 'no-gitignore (do not append Sandcat block to .gitignore)' 'no-rtk (do not install rtk shell hook)' : echo ''" \
 		"'Select development stacks (comma-separated numbers, empty for none):' node python java rust go scala ruby dotnet zig : echo ''"
 
 	local expected_name
@@ -222,7 +222,7 @@ teardown() {
 		"'Select IDE:' vscode jetbrains none : echo vscode" \
 		"'Select secret provider:' none 1password protonpass : echo none"
 	stub select_multiple \
-		"'Select optional features (comma-separated numbers, empty for none):' 'tui (mitmproxy console instead of web UI)' 'no-shared-cache (per-project dep cache instead of shared)' 'no-gitignore (do not append Sandcat block to .gitignore)' : echo ''" \
+		"'Select optional features (comma-separated numbers, empty for none):' 'tui (mitmproxy console instead of web UI)' 'no-shared-cache (per-project dep cache instead of shared)' 'no-gitignore (do not append Sandcat block to .gitignore)' 'no-rtk (do not install rtk shell hook)' : echo ''" \
 		"'Select development stacks (comma-separated numbers, empty for none):' node python java rust go scala ruby dotnet zig : echo ''"
 
 	local expected_name
@@ -287,6 +287,7 @@ teardown() {
 	assert_output --partial "tui"
 	assert_output --partial "no-shared-cache"
 	assert_output --partial "no-gitignore"
+	assert_output --partial "no-rtk"
 }
 
 @test "init interactive feature selection applies tui from full labels" {
@@ -300,7 +301,7 @@ teardown() {
 		"'Select IDE:' vscode jetbrains none : echo vscode" \
 		"'Select secret provider:' none 1password protonpass : echo none"
 	stub select_multiple \
-		"'Select optional features (comma-separated numbers, empty for none):' 'tui (mitmproxy console instead of web UI)' 'no-shared-cache (per-project dep cache instead of shared)' 'no-gitignore (do not append Sandcat block to .gitignore)' : echo 'tui (mitmproxy console instead of web UI)'" \
+		"'Select optional features (comma-separated numbers, empty for none):' 'tui (mitmproxy console instead of web UI)' 'no-shared-cache (per-project dep cache instead of shared)' 'no-gitignore (do not append Sandcat block to .gitignore)' 'no-rtk (do not install rtk shell hook)' : echo 'tui (mitmproxy console instead of web UI)'" \
 		"'Select development stacks (comma-separated numbers, empty for none):' node python java rust go scala ruby dotnet zig : echo ''"
 
 	local expected_name
@@ -482,4 +483,63 @@ teardown() {
 	local expected_lines
 	expected_lines=$(awk 'NR==1 { r1=$0 } NR==2 { r2=$0 } NR==3 { r3=$0 } NR==4 { r4=$0 } END { print r1"|"r2"|"r3"|"r4 }' "$PROJECT_DIR/.gitignore")
 	[ "$expected_lines" = "a|b||# Sandcat" ]
+}
+
+@test "init --features no-rtk exports SANDCAT_RTK=false" {
+	stub settings "$PROJECT_DIR/.sandcat/settings.json claude vscode : :"
+	stub devcontainer \
+		"--settings-file .sandcat/settings.json --project-path * --agent claude --ide vscode --name test --stacks * --proxy web --secret-provider none : echo \"RTK=\$SANDCAT_RTK\""
+
+	run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" --stacks "" --features "no-rtk" --secret-provider none
+	assert_success
+	assert_output --partial "RTK=false"
+}
+
+@test "init respects SANDCAT_RTK=false env var" {
+	stub settings "$PROJECT_DIR/.sandcat/settings.json claude vscode : :"
+	stub devcontainer \
+		"--settings-file .sandcat/settings.json --project-path * --agent claude --ide vscode --name test --stacks * --proxy web --secret-provider none : echo \"RTK=\$SANDCAT_RTK\""
+
+	SANDCAT_RTK=false run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" --stacks "" --features "" --secret-provider none
+	assert_success
+	assert_output --partial "RTK=false"
+}
+
+@test "init default exports SANDCAT_RTK=true" {
+	stub settings "$PROJECT_DIR/.sandcat/settings.json claude vscode : :"
+	stub devcontainer \
+		"--settings-file .sandcat/settings.json --project-path * --agent claude --ide vscode --name test --stacks * --proxy web --secret-provider none : echo \"RTK=\$SANDCAT_RTK\""
+
+	run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" --stacks "" --features "" --secret-provider none
+	assert_success
+	assert_output --partial "RTK=true"
+}
+
+@test "init summary reports rtk status" {
+	stub settings "$PROJECT_DIR/.sandcat/settings.json claude vscode : :"
+	stub devcontainer \
+		"--settings-file .sandcat/settings.json --project-path * --agent claude --ide vscode --name test --stacks * --proxy web --secret-provider none : :"
+
+	# default → installed
+	run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" --stacks "" --features "" --secret-provider none
+	assert_success
+	assert_output --partial "RTK:"
+	assert_output --partial "installed"
+}
+
+@test "init --features no-rtk reports rtk disabled" {
+	stub settings "$PROJECT_DIR/.sandcat/settings.json claude vscode : :"
+	stub devcontainer \
+		"--settings-file .sandcat/settings.json --project-path * --agent claude --ide vscode --name test --stacks * --proxy web --secret-provider none : :"
+
+	run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" --stacks "" --features "no-rtk" --secret-provider none
+	assert_success
+	assert_output --partial "RTK:"
+	assert_output --partial "disabled"
+}
+
+@test "init rejects bogus feature and lists no-rtk in expected values" {
+	run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" --stacks "" --features "bogus" --secret-provider none
+	assert_failure
+	assert_output --partial "no-rtk"
 }

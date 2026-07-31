@@ -276,12 +276,15 @@ init() {
 	#   tui             → mitmproxy console instead of web UI
 	#   no-shared-cache → disable shared JVM dependency cache volumes
 	#   no-gitignore    → skip appending the Sandcat block to .gitignore
+	#   no-rtk          → skip installing the rtk shell hook
 	local gitignore_enabled=${SANDCAT_GITIGNORE:-true}
+	local rtk_enabled=${SANDCAT_RTK:-true}
 	if [[ "$features_provided" != "true" ]]; then
 		local available_features=(
 			"tui (mitmproxy console instead of web UI)"
 			"no-shared-cache (per-project dep cache instead of shared)"
 			"no-gitignore (do not append Sandcat block to .gitignore)"
+			"no-rtk (do not install rtk shell hook)"
 		)
 		local selected_features
 		selected_features=$(select_multiple "Select optional features (comma-separated numbers, empty for none):" "${available_features[@]}")
@@ -293,6 +296,7 @@ init() {
 					tui) proxy_mode="tui" ;;
 					no-shared-cache) export SANDCAT_MOUNT_SHARED_CACHE="false" ;;
 					no-gitignore) gitignore_enabled=false ;;
+					no-rtk) rtk_enabled=false ;;
 				esac
 			done
 		fi
@@ -304,11 +308,12 @@ init() {
 					tui) proxy_mode="tui" ;;
 					no-shared-cache) export SANDCAT_MOUNT_SHARED_CACHE="false" ;;
 					no-gitignore) gitignore_enabled=false ;;
+					no-rtk) rtk_enabled=false ;;
 					1password)
 						echo "Use --secret-provider 1password instead of --features 1password" | error
 						return 1
 						;;
-					*) echo "Unknown feature: $f (expected: tui, no-shared-cache, no-gitignore)" | error; return 1 ;;
+					*) echo "Unknown feature: $f (expected: tui, no-shared-cache, no-gitignore, no-rtk)" | error; return 1 ;;
 				esac
 			done
 		fi
@@ -369,6 +374,7 @@ init() {
 		--proxy "$proxy_mode"
 		--secret-provider "$secret_provider"
 	)
+	export SANDCAT_RTK="$rtk_enabled"
 	devcontainer "${devcontainer_args[@]}"
 
 	local gitignore_status="skipped"
@@ -412,6 +418,11 @@ init() {
 	echo "  User settings:    ~/.config/sandcat/settings.json (git identity, API keys)" | info
 	echo "  Devcontainer:     .devcontainer/" | info
 	echo "  Gitignore:        $gitignore_status" | info
+	if [[ "$rtk_enabled" == "true" ]]; then
+		echo "  RTK:              installed (disable with --features no-rtk)" | info
+	else
+		echo "  RTK:              disabled" | info
+	fi
 	case "$secret_provider" in
 	1password)
 		echo "  Secret provider:  1Password" | info
