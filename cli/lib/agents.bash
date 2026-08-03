@@ -5,7 +5,7 @@ source "${BASH_SOURCE[0]%/*}/rtk.bash"
 
 # Returns supported agents as a space-separated list.
 sct_available_agents() {
-	echo "claude cursor"
+	echo "claude cursor codex"
 }
 
 # Returns 0 if agent is valid.
@@ -42,6 +42,7 @@ sct_agent_mount_env_var() {
 	case "$agent" in
 		claude) echo "SANDCAT_MOUNT_CLAUDE_CONFIG" ;;
 		cursor) echo "SANDCAT_MOUNT_CURSOR_CONFIG" ;;
+		codex)  echo "SANDCAT_MOUNT_CODEX_CONFIG"  ;;
 		*)      echo "" ;;
 	esac
 }
@@ -181,6 +182,7 @@ sct_agent_api_key_help() {
 	case "$agent" in
 		claude) echo "ANTHROPIC_API_KEY  your Anthropic API key (for Claude Code)" ;;
 		cursor) echo "CURSOR_API_KEY     your Cursor API key (for Cursor CLI)" ;;
+		codex)  echo "OPENAI_API_KEY     your OpenAI API key (for Codex CLI)" ;;
 		*)      echo "ANTHROPIC_API_KEY  API key for your selected agent" ;;
 	esac
 }
@@ -195,6 +197,9 @@ sct_agent_op_api_key_help() {
 	case "$agent" in
 		cursor)
 			echo "CURSOR_API_KEY     \"op\": \"op://vault/Cursor API Key/credential\""
+			;;
+		codex)
+			echo "OPENAI_API_KEY     \"op\": \"op://vault/OpenAI API Key/credential\""
 			;;
 		claude|*)
 			echo "ANTHROPIC_API_KEY  \"op\": \"op://vault/Anthropic API Key/credential\""
@@ -220,6 +225,9 @@ sct_agent_post_user_settings_hook() {
 				ensure_cursor_user_settings_defaults
 			fi
 			;;
+		codex)
+			return 0
+			;;
 		*)
 			return 0
 			;;
@@ -234,6 +242,7 @@ sct_agent_vscode_extension() {
 	case "$agent" in
 		claude) echo "anthropic.claude-code" ;;
 		cursor) echo "anysphere.cursor" ;;
+		codex)  echo "openai.chatgpt"       ;;
 		*)      echo "" ;;
 	esac
 }
@@ -263,6 +272,10 @@ EOF
 				// auth/network config. Add Cursor-specific settings here if needed.
 EOF
 			;;
+		codex)
+			# No forced VS Code settings for codex in this iteration.
+			echo ""
+			;;
 		*)
 			echo ""
 			;;
@@ -282,7 +295,7 @@ sct_agent_compose_environment_entries() {
 		claude)
 			echo "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1"
 			;;
-		cursor|*)
+		cursor|codex|*)
 			echo ""
 			;;
 	esac
@@ -360,7 +373,7 @@ sct_agent_mitm_streaming_flags() {
 		cursor)
 			echo "--set stream_large_bodies=1m --set connection_strategy=lazy --set anticomp=true --set timeout_read=300"
 			;;
-		claude|*)
+		claude|codex|*)
 			echo ""
 			;;
 	esac

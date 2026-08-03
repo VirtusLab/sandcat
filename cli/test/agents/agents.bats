@@ -19,16 +19,21 @@ setup() {
 
 # ---------------------------------------------------------------- discovery
 
-@test "sct_available_agents lists claude and cursor" {
+@test "sct_available_agents lists claude, cursor and codex" {
 	run sct_available_agents
 	assert_success
-	assert_output "claude cursor"
+	assert_output "claude cursor codex"
 }
 
 @test "sct_is_valid_agent accepts known agents" {
 	run sct_is_valid_agent claude
 	assert_success
 	run sct_is_valid_agent cursor
+	assert_success
+}
+
+@test "sct_is_valid_agent accepts codex" {
+	run sct_is_valid_agent codex
 	assert_success
 }
 
@@ -47,6 +52,11 @@ setup() {
 @test "sct_agent_mount_env_var: cursor" {
 	run sct_agent_mount_env_var cursor
 	assert_output "SANDCAT_MOUNT_CURSOR_CONFIG"
+}
+
+@test "sct_agent_mount_env_var: codex" {
+	run sct_agent_mount_env_var codex
+	assert_output "SANDCAT_MOUNT_CODEX_CONFIG"
 }
 
 @test "sct_agent_mount_env_var: unknown returns empty" {
@@ -179,6 +189,12 @@ setup() {
 	assert_output --partial "CURSOR_API_KEY"
 }
 
+@test "sct_agent_api_key_help: codex" {
+	run sct_agent_api_key_help codex
+	assert_output --partial "OPENAI_API_KEY"
+	assert_output --partial "Codex CLI"
+}
+
 @test "sct_agent_api_key_help: unknown falls back to anthropic line" {
 	run sct_agent_api_key_help unknown
 	assert_output --partial "ANTHROPIC_API_KEY"
@@ -194,6 +210,12 @@ setup() {
 	run sct_agent_op_api_key_help cursor
 	assert_output --partial "CURSOR_API_KEY"
 	assert_output --partial 'op://vault/Cursor API Key/credential'
+}
+
+@test "sct_agent_op_api_key_help: codex" {
+	run sct_agent_op_api_key_help codex
+	assert_output --partial "OPENAI_API_KEY"
+	assert_output --partial "op://vault/OpenAI API Key/credential"
 }
 
 @test "sct_agent_op_api_key_help: unknown falls back to anthropic line" {
@@ -212,6 +234,11 @@ setup() {
 @test "sct_agent_vscode_extension: cursor" {
 	run sct_agent_vscode_extension cursor
 	assert_output "anysphere.cursor"
+}
+
+@test "sct_agent_vscode_extension: codex" {
+	run sct_agent_vscode_extension codex
+	assert_output "openai.chatgpt"
 }
 
 @test "sct_agent_vscode_extension: unknown returns empty" {
@@ -234,6 +261,11 @@ setup() {
 	assert_output --partial "Cursor"
 }
 
+@test "sct_agent_devcontainer_settings_block: codex returns empty" {
+	run sct_agent_devcontainer_settings_block codex
+	assert_output ""
+}
+
 @test "sct_agent_devcontainer_settings_block: unknown returns empty" {
 	run sct_agent_devcontainer_settings_block unknown
 	assert_output ""
@@ -248,6 +280,11 @@ setup() {
 
 @test "sct_agent_compose_environment_entries: cursor returns empty" {
 	run sct_agent_compose_environment_entries cursor
+	assert_output ""
+}
+
+@test "sct_agent_compose_environment_entries: codex returns empty" {
+	run sct_agent_compose_environment_entries codex
 	assert_output ""
 }
 
@@ -379,6 +416,11 @@ setup() {
 	assert_output ""
 }
 
+@test "sct_agent_mitm_streaming_flags: codex returns empty" {
+	run sct_agent_mitm_streaming_flags codex
+	assert_output ""
+}
+
 @test "sct_agent_mitm_streaming_flags: unknown returns empty" {
 	run sct_agent_mitm_streaming_flags unknown
 	assert_output ""
@@ -408,6 +450,13 @@ setup() {
 	run sct_agent_post_user_settings_hook claude
 	assert_success
 	[[ ! -f "$marker" ]]
+}
+
+@test "sct_agent_post_user_settings_hook: codex is a no-op" {
+	# Should not fail even without any codex-specific helper defined.
+	run sct_agent_post_user_settings_hook codex
+	assert_success
+	assert_output ""
 }
 
 @test "sct_agent_post_user_settings_hook: unknown is a no-op" {
