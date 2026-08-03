@@ -97,3 +97,23 @@ setup() {
 	assert_success
 	assert_output ""
 }
+
+@test "sct_rtk_user_init_block: codex emits guarded rtk init --agent codex" {
+	unset SANDCAT_RTK
+	run sct_rtk_user_init_block codex
+	assert_success
+	assert_output --partial "rtk init -g"
+	assert_output --partial "--hook-only"
+	assert_output --partial "--auto-patch"
+	assert_output --partial "--agent codex"
+	assert_output --partial "command -v rtk"
+	assert_output --partial "rtk hook codex"
+	assert_output --partial ".codex/config.toml"
+	assert_output --partial "non-fatal"
+}
+
+@test "sct_rtk_user_init_block: codex emits nothing when disabled" {
+	SANDCAT_RTK=false run sct_rtk_user_init_block codex
+	assert_success
+	assert_output ""
+}

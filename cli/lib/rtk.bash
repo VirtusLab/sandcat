@@ -78,13 +78,14 @@ EOF
 		codex)
 			cat <<'EOF'
 # rtk (Rust Token Killer) — one-time hook config for Codex CLI.
-# The hook lives in ~/.codex/hooks.json (when enabled). Expected workflow:
-# user runs `rtk init -g --hook-only --auto-patch --agent codex` on the
-# HOST once — then this guard's grep passes and the init below stays a
-# no-op. If the guard doesn't pass here, we still try inside the container.
-if command -v rtk >/dev/null 2>&1 && ! grep -q '"rtk hook codex' "$HOME/.codex/hooks.json" 2>/dev/null; then
+# `rtk init -g --hook-only --auto-patch --agent codex` patches
+# ~/.codex/config.toml with the rtk hook. ~/.codex/ lives in the
+# agent-home volume (not bind-mounted), so init runs and persists
+# out of the box — unlike cursor's read-only hooks.json.
+# Idempotency: skipped once the hook string is already present.
+if command -v rtk >/dev/null 2>&1 && ! grep -q 'rtk hook codex' "$HOME/.codex/config.toml" 2>/dev/null; then
     rtk init -g --hook-only --auto-patch --agent codex >/dev/null 2>&1 \
-        || echo "sandcat: rtk hook not found for codex (non-fatal)" >&2
+        || echo "sandcat: rtk init failed (non-fatal)" >&2
 fi
 EOF
 			;;
