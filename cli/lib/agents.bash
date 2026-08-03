@@ -233,7 +233,9 @@ sct_agent_post_user_settings_hook() {
 			fi
 			;;
 		codex)
-			return 0
+			if declare -F ensure_codex_user_settings_defaults >/dev/null; then
+				ensure_codex_user_settings_defaults
+			fi
 			;;
 		*)
 			return 0

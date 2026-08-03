@@ -106,6 +106,45 @@ teardown() {
 	assert_output --partial "Codex CLI"
 }
 
+@test "init seeds OPENAI_API_KEY into existing user settings when agent=codex" {
+	# Seed a pre-existing settings.json with only a GITHUB_TOKEN (simulating
+	# a user who ran init with --agent claude/cursor previously).
+	mkdir -p "$SCT_HOME_DIR"
+	cat > "$SCT_HOME_DIR/settings.json" <<'EOF'
+{
+    "env": {},
+    "secrets": {
+        "GITHUB_TOKEN": {"value": "", "hosts": ["github.com"]}
+    },
+    "network": [
+        {"action": "allow", "host": "github.com"}
+    ]
+}
+EOF
+
+	stub settings "$PROJECT_DIR/.sandcat/settings.json codex vscode : :"
+	stub devcontainer \
+		"--settings-file .sandcat/settings.json --project-path * --agent codex --ide vscode --name test --stacks * --proxy web --secret-provider none : :"
+
+	run init --agent codex --ide vscode --name test --path "$PROJECT_DIR" --stacks "" --proxy web --features "" --secret-provider none
+	assert_success
+
+	# Verify OPENAI_API_KEY seeded
+	run yq -r '.secrets.OPENAI_API_KEY.value' "$SCT_HOME_DIR/settings.json"
+	assert_output ""    # empty string is the seeded placeholder
+
+	run yq -r '.secrets.OPENAI_API_KEY.hosts | .[0]' "$SCT_HOME_DIR/settings.json"
+	assert_output "api.openai.com"
+
+	# Existing GITHUB_TOKEN preserved
+	run yq -r '.secrets.GITHUB_TOKEN.hosts | .[0]' "$SCT_HOME_DIR/settings.json"
+	assert_output "github.com"
+
+	# api.openai.com added to network allowlist
+	run yq -r '.network | map(.host) | index("api.openai.com")' "$SCT_HOME_DIR/settings.json"
+	refute_output "null"
+}
+
 @test "init rejects invalid --secret-provider value" {
 	run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" --stacks "" --proxy web --features "" --secret-provider invalid
 	assert_failure

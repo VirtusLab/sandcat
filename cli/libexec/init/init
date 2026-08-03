@@ -91,6 +91,30 @@ ensure_cursor_user_settings_defaults() {
 	fi
 }
 
+# Ensures codex-specific defaults exist in an already-created user settings file
+# without overriding user-provided values.
+ensure_codex_user_settings_defaults() {
+	local user_settings
+	user_settings="$(sct_home)/settings.json"
+
+	if [[ ! -f "$user_settings" ]]; then
+		return
+	fi
+
+	yq -i -o json '
+		.env = (.env // {}) |
+		.secrets = (.secrets // {}) |
+		.secrets.OPENAI_API_KEY = (.secrets.OPENAI_API_KEY // {"value": "", "hosts": []}) |
+		.secrets.OPENAI_API_KEY.hosts = (
+			(.secrets.OPENAI_API_KEY.hosts // []) +
+			["api.openai.com"]
+			| unique
+		) |
+		.network = (.network // []) |
+		.network = (.network + [{"action": "allow", "host": "api.openai.com"}] | unique_by(.host + (.method // "") + .action))
+	' "$user_settings"
+}
+
 # Seeds secret-backend token fields in user settings when missing (idempotent).
 add_secret_provider_tokens_to_user_settings() {
 	local provider=$1

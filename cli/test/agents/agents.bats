@@ -535,8 +535,20 @@ setup() {
 	[[ ! -f "$marker" ]]
 }
 
-@test "sct_agent_post_user_settings_hook: codex is a no-op" {
-	# Should not fail even without any codex-specific helper defined.
+@test "sct_agent_post_user_settings_hook: codex calls ensure_codex_user_settings_defaults when defined" {
+	called=""
+	ensure_codex_user_settings_defaults() {
+		called="yes"
+	}
+	export -f ensure_codex_user_settings_defaults
+
+	sct_agent_post_user_settings_hook codex
+
+	[ "$called" = "yes" ]
+}
+
+@test "sct_agent_post_user_settings_hook: codex with helper missing is a no-op" {
+	unset -f ensure_codex_user_settings_defaults
 	run sct_agent_post_user_settings_hook codex
 	assert_success
 	assert_output ""
