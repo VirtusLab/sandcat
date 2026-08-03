@@ -88,6 +88,13 @@ EOF
 \$HOME/.cursor/mcp.json
 EOF
 			;;
+		codex)
+			cat <<'EOF'
+$HOME/.codex/AGENTS.md
+$HOME/.codex/skills/
+$HOME/.codex/commands/
+EOF
+			;;
 		*)
 			echo ""
 			;;

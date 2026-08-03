@@ -97,6 +97,15 @@ setup() {
 	refute_output --partial '$HOME/.cursor/subagents/'
 }
 
+@test "sct_agent_host_config_paths: codex lists ~/.codex entries" {
+	run sct_agent_host_config_paths codex
+	assert_output --partial '$HOME/.codex/AGENTS.md'
+	assert_output --partial '$HOME/.codex/skills/'
+	assert_output --partial '$HOME/.codex/commands/'
+	refute_output --partial '$HOME/.codex/config.toml'
+	refute_output --partial '$HOME/.codex/.credentials.json'
+}
+
 @test "sct_agent_host_config_paths: unknown returns empty" {
 	run sct_agent_host_config_paths unknown
 	assert_output ""
@@ -167,6 +176,29 @@ setup() {
 	assert_success
 
 	[[ ! -d "$HOME/.cursor" ]]
+}
+
+@test "ensure_host_agent_config_paths: creates codex paths under HOME" {
+	export HOME="$BATS_TEST_TMPDIR/home"
+	mkdir -p "$HOME"
+
+	export SANDCAT_MOUNT_CODEX_CONFIG=true
+	ensure_host_agent_config_paths codex
+
+	[[ -d "$HOME/.codex/skills" ]]
+	[[ -d "$HOME/.codex/commands" ]]
+	[[ -f "$HOME/.codex/AGENTS.md" ]]
+}
+
+@test "ensure_host_agent_config_paths: codex opt-out via SANDCAT_MOUNT_CODEX_CONFIG=false" {
+	export HOME="$BATS_TEST_TMPDIR/home"
+	mkdir -p "$HOME"
+
+	export SANDCAT_MOUNT_CODEX_CONFIG=false
+	ensure_host_agent_config_paths codex
+
+	# Nothing should have been created on the host.
+	[[ ! -d "$HOME/.codex" ]]
 }
 
 @test "ensure_host_agent_config_paths: no-op for unknown agent" {
