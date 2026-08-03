@@ -1,23 +1,38 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# shellcheck source=../../lib/betteropts/betteropts.sh
+source "$SCT_LIBDIR/betteropts/betteropts.sh"
 # shellcheck source=../../lib/require.bash
 source "$SCT_LIBDIR/require.bash"
 # shellcheck source=../../lib/path.bash
 source "$SCT_LIBDIR/path.bash"
 
+# shellcheck disable=SC2154 # populated by betteropts_parse
 attach() {
+	summary "Attaches to a running agent container."
+
+	description "
+Opens an interactive shell in the container by default (bash --login), or
+runs the given command instead.
+"
+
+	argument command passthrough \
+		help="Command to run inside the agent container (default: bash --login)"
+
+	betteropts_parse "$@"
+
 	require docker
 
 	local compose_file
 	compose_file="$(find_compose_file)"
 
-	if (($# == 0))
+	if ((${#command[@]} == 0))
 	then
 		exec docker compose -f "$compose_file" exec -u vscode agent bash --login
 	fi
 
-	exec docker compose -f "$compose_file" exec -u vscode agent "$@"
+	exec docker compose -f "$compose_file" exec -u vscode agent "${command[@]}"
 }
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]

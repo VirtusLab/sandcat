@@ -1,5 +1,19 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-echo "Usage: sandcat edit <compose|project-settings|user-settings|dockerfile>" >&2
-exit 1
+# shellcheck source=../../lib/betteropts/betteropts.sh
+source "$SCT_LIBDIR/betteropts/betteropts.sh"
+
+edit() {
+	summary "Edit sandcat configuration (compose, project-settings, user-settings, or dockerfile)."
+
+	betteropts_parse "$@"
+
+	echo "Usage: sandcat edit <compose|project-settings|user-settings|dockerfile>" >&2
+	exit 1
+}
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]
+then
+	edit "$@"
+fi

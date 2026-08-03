@@ -2,7 +2,27 @@
 
 Command-line tool for managing sandcat configurations and Docker Compose setups.
 
-Requires `docker` (and `docker compose`) and [`yq`](https://github.com/mikefarah/yq).
+Requires Bash >= 4.2, `docker` (and `docker compose`), and [`yq`](https://github.com/mikefarah/yq).
+macOS ships Bash 3.2 by default; install a newer one (e.g. `brew install bash`) and make sure it's
+first on `PATH`.
+
+Argument parsing is handled by [betteropts](https://github.com/VirtusLab/betteropts), included as a
+git submodule at `lib/betteropts`. Every command supports `--help` for usage details.
+
+## Shell Completion
+
+Bash completion (module and command names, plus each command's own flags/arguments) is available
+via `--completion`:
+
+```bash
+# Try it for the current shell session
+source <(sandcat --completion)
+
+# Or add it to your ~/.bashrc for persistence
+echo 'source <(sandcat --completion)' >> ~/.bashrc
+```
+
+Only bash is supported.
 
 ## Modules and Commands
 

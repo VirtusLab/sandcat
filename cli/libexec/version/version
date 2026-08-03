@@ -1,17 +1,31 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# shellcheck source=../../lib/betteropts/betteropts.sh
+source "$SCT_LIBDIR/betteropts/betteropts.sh"
 # shellcheck source=../../lib/logging.bash
 source "$SCT_LIBDIR/logging.bash"
 
 # Displays version information for the sandcat project.
 # Uses git to determine the version from commit date and SHA, or falls back to .version file.
-# Args:
-#   $1 - Optional name to display (default: "Agent Sandbox")
-#   $2 - Optional path to repository (default: $SCT_ROOT)
+# shellcheck disable=SC2154 # populated by betteropts_parse
 version() {
-	local -r name=${1-"Sandcat"}
-	local -r path=${2-$SCT_ROOT}
+	summary "Displays version information for the sandcat project."
+
+	description "
+Uses git to determine the version from commit date and SHA, or falls back
+to a .version file.
+"
+
+	argument name optional \
+		default="Sandcat" \
+		help="Name to display"
+
+	argument path optional \
+		default="$SCT_ROOT" \
+		help="Path to repository"
+
+	betteropts_parse "$@"
 
 	if [[ -s "$path/.version" ]]
 	then
@@ -34,4 +48,3 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]
 then
 	version "$@"
 fi
-

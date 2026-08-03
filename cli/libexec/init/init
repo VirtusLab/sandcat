@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# shellcheck source=../../lib/betteropts/betteropts.sh
+source "$SCT_LIBDIR/betteropts/betteropts.sh"
 # shellcheck source=../../lib/logging.bash
 source "$SCT_LIBDIR/logging.bash"
 # shellcheck source=../../lib/require.bash
@@ -111,86 +113,71 @@ add_secret_provider_tokens_to_user_settings() {
 
 # Initializes sandcat for a project.
 # Prompts for any options not provided via flags.
-# Args:
-#   --agent - Agent type (claude, cursor)
-#   --ide - IDE for devcontainer mode (vscode, jetbrains, none)
-#   --name - Project name for Docker Compose
-#   --path - Project directory path
-#   --stacks - Comma-separated list of development stacks (node,python,java,...)
-#   --proxy - Proxy UI mode: web (default) or tui
-#   --secret-provider / --sp - Secret backend: none, 1password, protonpass
-#   --1password - Deprecated; same as --secret-provider 1password
-#   --features - Comma-separated optional non-provider features (tui)
+# shellcheck disable=SC2154 # populated by betteropts_parse
 init() {
+	summary "Initializes sandcat for a project."
+
+	description "
+Prompts for any options not provided via flags, then sets up the necessary
+configuration files and network policy.
+"
+
+	option name --name VALUE \
+		help="Project name for Docker Compose"
+
+	option path --path VALUE \
+		var=project_path \
+		help="Project directory path"
+
+	option agent --agent VALUE \
+		type=choice choices="$(sct_available_agents | tr ' ' ',')" \
+		help="Agent type (claude, cursor)"
+
+	option ide --ide VALUE \
+		type=choice choices=vscode,jetbrains,none \
+		help="IDE for devcontainer mode (vscode, jetbrains, none)"
+
+	option stacks_csv --stacks VALUE \
+		help="Comma-separated list of development stacks (node,python,java,...)"
+
+	option proxy_mode --proxy VALUE \
+		help="Proxy UI mode: web (default) or tui"
+
+	option features_csv --features VALUE \
+		help="Comma-separated optional non-provider features (tui, no-shared-cache, no-gitignore, no-rtk)"
+
+	option secret_provider --secret-provider VALUE \
+		type=choice choices=none,1password,protonpass \
+		help="Secret backend: none, 1password, protonpass"
+
+	# betteropts allows only one long form per option, so --sp (a second
+	# double-dash alias, not a single-char short flag) needs its own
+	# declaration, merged into secret_provider below.
+	option secret_provider_sp --sp VALUE \
+		type=choice choices=none,1password,protonpass \
+		help="Alias for --secret-provider"
+
+	flag onepassword_alias --1password \
+		help="Deprecated; same as --secret-provider 1password"
+
+	betteropts_parse "$@"
+
 	require yq
 
-	local name=""
-	local project_path=""
-	local agent=""
-	local ide=""
-	local stacks_csv=""
-	local stacks_provided=false
-	local proxy_mode=""
-	local secret_provider=""
-	local secret_provider_provided=false
-	local onepassword_alias=false
-	local features_csv=""
-	local features_provided=false
+	[[ -n "$secret_provider_sp" ]] && secret_provider="$secret_provider_sp"
 
-	while [[ $# -gt 0 ]]
-	do
-		case $1 in
-		--name|--path|--agent|--ide|--stacks|--proxy|--features|--secret-provider|--sp)
-			if [[ $# -lt 2 ]]; then
-				echo "Option $1 requires a value" | error
-				return 1
-			fi
-			;;
-		esac
-		case $1 in
-		--name)
-			name="$2"
-			shift 2
-			;;
-		--path)
-			project_path="$2"
-			shift 2
-			;;
-		--agent)
-			agent="$2"
-			shift 2
-			;;
-		--ide)
-			ide="$2"
-			shift 2
-			;;
-		--stacks)
-			stacks_csv="$2"
-			stacks_provided=true
-			shift 2
-			;;
-		--proxy)
-			proxy_mode="$2"
-			shift 2
-			;;
-		--secret-provider|--sp)
-			secret_provider="$2"
-			secret_provider_provided=true
-			shift 2
-			;;
-		--1password)
-			onepassword_alias=true
-			shift 1
-			;;
-		--features)
-			features_csv="$2"
-			features_provided=true
-			shift 2
-			;;
-		*)
-			echo "Unknown option: $1" | error
-			return 1
-			;;
+	# betteropts populates each option's value but not whether it was
+	# explicitly passed vs. defaulted - and here that distinction matters:
+	# an explicit `--stacks ""` (etc.) must skip the interactive prompt,
+	# not just an empty value. A plain presence scan over the raw args
+	# recovers it without re-implementing the parser.
+	local stacks_provided=false secret_provider_provided=false features_provided=false
+	local arg
+	for arg in "$@"; do
+		case "$arg" in
+		--stacks | --stacks=*) stacks_provided=true ;;
+		--secret-provider | --secret-provider=* | --sp | --sp=*) secret_provider_provided=true ;;
+		--features | --features=*) features_provided=true ;;
 		esac
 	done
 
@@ -224,15 +211,11 @@ init() {
 		name=$(read_line "Project name [$default_name]:")
 	fi
 
-	local available_agents=()
-	read -ra available_agents <<< "$(sct_available_agents)"
 	if [[ -z "$agent" ]]
 	then
+		local available_agents=()
+		read -ra available_agents <<< "$(sct_available_agents)"
 		agent=$(select_option "Select agent:" "${available_agents[@]}")
-	elif ! sct_is_valid_agent "$agent"
-	then
-		echo "Invalid agent: $agent (expected: ${available_agents[*]})" | error
-		return 1
 	fi
 
 	if [[ -z "$name" ]]
@@ -242,14 +225,10 @@ init() {
 
 	local settings_file="$SCT_PROJECT_DIR/settings.json"
 
-	local available_ides=(vscode jetbrains none)
 	if [[ -z "$ide" ]]
 	then
+		local available_ides=(vscode jetbrains none)
 		ide=$(select_option "Select IDE:" "${available_ides[@]}")
-	elif [[ ! " ${available_ides[*]} " =~ [[:space:]]${ide}[[:space:]] ]]
-	then
-		echo "Invalid IDE: $ide (expected: ${available_ides[*]})" | error
-		return 1
 	fi
 
 	# Secret provider (none | 1password | protonpass)
@@ -265,11 +244,6 @@ init() {
 		else
 			secret_provider=$(select_option "Select secret provider:" none 1password protonpass)
 		fi
-	fi
-
-	if [[ ! " none 1password protonpass " =~ [[:space:]]${secret_provider}[[:space:]] ]]; then
-		echo "Invalid secret provider: $secret_provider (expected: none 1password protonpass)" | error
-		return 1
 	fi
 
 	# Optional non-provider features

@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# shellcheck source=../../lib/betteropts/betteropts.sh
+source "$SCT_LIBDIR/betteropts/betteropts.sh"
 # shellcheck source=../../lib/require.bash
 source "$SCT_LIBDIR/require.bash"
 # shellcheck source=../../lib/cache.bash
@@ -9,6 +11,10 @@ source "$SCT_LIBDIR/cache.bash"
 # Prints the total size of all shared-cache volumes on this host — quick
 # one-liner useful for deciding whether it's worth cleaning up.
 size() {
+	summary "Prints the total size of all shared-cache volumes on this host."
+
+	betteropts_parse "$@"
+
 	require docker
 
 	local -a names

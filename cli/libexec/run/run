@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# shellcheck source=../../lib/betteropts/betteropts.sh
+source "$SCT_LIBDIR/betteropts/betteropts.sh"
 # shellcheck source=../../lib/require.bash
 source "$SCT_LIBDIR/require.bash"
 # shellcheck source=../../lib/path.bash
@@ -10,36 +12,39 @@ source "$SCT_LIBDIR/volume.bash"
 
 # Run a command in the agent container.
 # Starts dependencies, runs the command, then tears everything down.
-# Options before '--' are passed to docker compose run (e.g. --build).
-# Arguments after '--' (or all args if no '--') are the command to run.
+# shellcheck disable=SC2154 # populated by betteropts_parse
 run() {
+	summary "Run a command in the agent container."
+
+	description "
+Starts dependencies, runs the command, then tears everything down.
+"
+
+	flag build --build \
+		help="Rebuild images before running (passed to docker compose run)"
+
+	argument command optional \
+		default=bash \
+		help="Command to run inside the agent container"
+
+	argument command_args passthrough \
+		help="Arguments forwarded to the command"
+
+	betteropts_parse "$@"
+
 	require docker
 
 	local compose_file
 	compose_file="$(find_compose_file)"
 
 	local -a run_opts=()
-	while [[ $# -gt 0 ]]; do
-		case $1 in
-		--)
-			shift
-			break
-			;;
-		--build)
-			run_opts+=("$1")
-			shift
-			;;
-		*)
-			break
-			;;
-		esac
-	done
+	"$build" && run_opts+=(--build)
 
 	warn_stale_home_volume "$compose_file"
 	ensure_shared_cache_volumes "$compose_file"
 
 	local rc=0
-	docker compose -f "$compose_file" run --rm "${run_opts[@]+"${run_opts[@]}"}" agent "${1-bash}" "${@:2}" || rc=$?
+	docker compose -f "$compose_file" run --rm "${run_opts[@]+"${run_opts[@]}"}" agent "$command" "${command_args[@]}" || rc=$?
 	docker compose -f "$compose_file" down
 	return "$rc"
 }

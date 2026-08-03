@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# shellcheck source=../../lib/betteropts/betteropts.sh
+source "$SCT_LIBDIR/betteropts/betteropts.sh"
 # shellcheck source=../../lib/logging.bash
 source "$SCT_LIBDIR/logging.bash"
 # shellcheck source=../../lib/require.bash
@@ -9,9 +11,16 @@ source "$SCT_LIBDIR/require.bash"
 source "$SCT_LIBDIR/path.bash"
 
 # Opens the mitmproxy interface for traffic inspection.
-# In console mode (mitmdump): tails the proxy logs.
-# In web mode (mitmweb): prints the URL of the web UI.
 proxy() {
+	summary "Opens the mitmproxy interface for traffic inspection."
+
+	description "
+In console mode (mitmdump): tails the proxy logs.
+In web mode (mitmweb): prints the URL of the web UI.
+"
+
+	betteropts_parse "$@"
+
 	require docker
 
 	local compose_file

@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# shellcheck source=../../lib/betteropts/betteropts.sh
+source "$SCT_LIBDIR/betteropts/betteropts.sh"
 # shellcheck source=../../lib/path.bash
 source "$SCT_LIBDIR/path.bash"
 # shellcheck source=../../lib/select.bash
@@ -9,22 +11,23 @@ source "$SCT_LIBDIR/select.bash"
 source "$SCT_LIBDIR/logging.bash"
 
 # Opens the compose file in an editor. Warns if containers need restarting.
+# shellcheck disable=SC2154 # populated by betteropts_parse
 edit() {
-	local no_restart="${SANDCAT_NO_RESTART:-false}"
+	summary "Opens the Docker Compose file in your editor."
 
-	while [[ $# -gt 0 ]]
-	do
-		case $1 in
-		--no-restart)
-			no_restart=true
-			shift
-			;;
-		*)
-			echo "Unknown option: $1" | error
-			return 1
-			;;
-		esac
-	done
+	description "
+Warns if containers need restarting after changes are saved.
+"
+
+	flag no_restart --no-restart \
+		help="Do not automatically restart containers after changes"
+
+	betteropts_parse "$@"
+
+	if [[ "${SANDCAT_NO_RESTART:-false}" == "true" ]]
+	then
+		no_restart=true
+	fi
 
 	local compose_file
 	compose_file="$(find_compose_file)"

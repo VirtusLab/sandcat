@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# shellcheck source=../../lib/betteropts/betteropts.sh
+source "$SCT_LIBDIR/betteropts/betteropts.sh"
 # shellcheck source=../../lib/logging.bash
 source "$SCT_LIBDIR/logging.bash"
 # shellcheck source=../../lib/constants.bash
@@ -10,14 +12,25 @@ source "$SCT_LIBDIR/path.bash"
 # shellcheck source=../../lib/select.bash
 source "$SCT_LIBDIR/select.bash"
 
+# shellcheck disable=SC2154 # populated by betteropts_parse
 destroy() {
+	summary "Removes all sandcat configuration and containers from a project."
+
+	description "
+Stops running containers, removes volumes, and deletes configuration
+directories.
+"
+
+	flag force -f --force \
+		help="Skip the confirmation prompt"
+
+	betteropts_parse "$@"
+
 	local repo_root
 	repo_root="$(find_repo_root)"
 
-	case "${1:-}" in
-	-f | --force)
-		;;
-	"")
+	if ! "$force"
+	then
 		echo "This will stop containers, remove volumes, and delete .devcontainer and $SCT_PROJECT_DIR directories." |
 			warning
 		if [[ "$(select_yes_no "Continue?")" == "false" ]]
@@ -25,12 +38,7 @@ destroy() {
 			echo "Aborting" | warning
 			return 0
 		fi
-		;;
-	*)
-		echo "$0: unknown parameter: $1" >&2
-		return 1
-		;;
-	esac
+	fi
 
 	echo "Stopping containers" | info
 	"$SCT_LIBEXECDIR/compose/compose" down --volumes
