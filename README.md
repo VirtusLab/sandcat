@@ -103,6 +103,11 @@ sandcat init --agent claude --ide vscode --stacks "python,node"
 sandcat init --secret-provider 1password --agent claude --ide vscode
 ```
 
+Available agents:
+- `claude` (Claude Code CLI)
+- `cursor` (Cursor IDE)
+- `codex` (OpenAI Codex CLI — https://github.com/openai/codex)
+
 Available stacks: `node`, `python`, `java`, `rust`, `go`, `scala`, `ruby`,
 `dotnet`, `zig`. Versions default to LTS where available (e.g. Node.js LTS,
 Java LTS 25). To change a version for a single project, add the desired
@@ -193,6 +198,7 @@ flags today.
 |-----------|-------------------------------|-----------------------------------------|
 | Claude    | `SANDCAT_MOUNT_CLAUDE_CONFIG` | `true`                                  |
 | Cursor    | `SANDCAT_MOUNT_CURSOR_CONFIG` | `true`                                  |
+| Codex     | `SANDCAT_MOUNT_CODEX_CONFIG`  | `true`                                  |
 | Any       | `SANDCAT_MOUNT_GIT_READONLY`  | `false` (commented in compose)          |
 | JetBrains | `SANDCAT_MOUNT_IDEA_READONLY` | `false` (active when `--ide jetbrains`) |
 | Any       | `SANDCAT_MOUNT_SHARED_CACHE`  | `true` — see [Shared dependency caches](#shared-dependency-caches) |
@@ -446,6 +452,44 @@ on start (`sandcat: rtk hook not found for cursor. Install rtk on your
 host …`) and Cursor CLI runs without the hook. The rtk binary is still
 on `PATH` inside the container, so you can invoke `rtk grep`, `rtk ls`,
 etc. by hand.
+
+##### Codex CLI (`--agent codex`)
+
+Sandcat installs [OpenAI's Codex CLI](https://github.com/openai/codex)
+into every codex-agent sandbox and wires `OPENAI_API_KEY` through the
+mitmproxy secret substitution layer. Codex reads its config from
+`~/.codex/config.toml` (per-sandbox, agent-home volume) and picks up
+the API key directly from the environment — no `codex login` required.
+
+**Setup:**
+
+```bash
+sandcat init --agent codex --ide vscode
+# Edit ~/.config/sandcat/settings.json — set secrets.OPENAI_API_KEY.value
+sandcat run
+codex "explain this codebase"
+```
+
+**Bash alias:** `codex-yolo` (= `codex --yolo`) is available in every
+codex sandbox for parity with `claude-yolo`.
+
+**Host config sharing** (optional, default on): `~/.codex/AGENTS.md`,
+`~/.codex/skills/`, and `~/.codex/commands/` are bind-mounted read-only
+from the host into the container, matching how `~/.claude/` is handled.
+The rest of `~/.codex/` (config.toml, credentials, history) lives in
+the container's agent-home volume — per-sandbox persistent, per-sandbox
+isolated. Opt out with `SANDCAT_MOUNT_CODEX_CONFIG=false`.
+
+**RTK integration:** the rtk hook auto-installs for codex on first
+container start; unlike cursor's host-side workflow, codex's
+`~/.codex/config.toml` is writable inside the sandbox so
+`rtk init --agent codex` succeeds immediately.
+
+**Auth model:** first iteration supports `OPENAI_API_KEY` only.
+ChatGPT sign-in (`chatgpt.com` / `auth.openai.com`) is not in the
+default allowlist — users who want that flow can add the hosts to
+`.sandcat/settings.local.json` and run `codex login` manually inside
+the container.
 
 ### 3. Start the sandbox
 
