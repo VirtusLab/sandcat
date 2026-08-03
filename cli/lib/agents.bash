@@ -369,6 +369,14 @@ EOF
 RUN mkdir -p /home/vscode/.cursor /home/vscode/.config/cursor
 EOF
 			;;
+		codex)
+			cat <<'EOF'
+# Pre-create ~/.codex so Docker bind-mounts (AGENTS.md, skills/, commands/)
+# don't cause it to be created as root-owned.
+RUN mkdir -p /home/vscode/.codex
+RUN echo 'alias codex-yolo="codex --yolo"' >> /home/vscode/.bashrc
+EOF
+			;;
 		*)
 			echo ""
 			;;
@@ -453,6 +461,18 @@ else
     if [ -f "$SANDCAT_CURSOR_CLI" ]; then
         echo "Warning: jq not found; cannot apply Sandcat cursor.cli settings" >&2
     fi
+fi
+EOF
+			;;
+		codex)
+			cat <<'EOF'
+# Codex CLI is installed at build time (Dockerfile.app). Codex reads
+# $OPENAI_API_KEY directly from the environment — sandcat.env has already
+# been sourced with the placeholder or 1Password-resolved value.
+# Basic health check on first start; failure is non-fatal.
+if command -v codex >/dev/null 2>&1; then
+    codex --version >/dev/null 2>&1 \
+        || echo "sandcat: codex --version failed (non-fatal)" >&2
 fi
 EOF
 			;;

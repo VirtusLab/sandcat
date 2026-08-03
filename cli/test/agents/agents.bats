@@ -406,6 +406,12 @@ setup() {
 	assert_output --partial "/home/vscode/.cursor"
 }
 
+@test "sct_agent_docker_home_prep_block: codex pre-creates ~/.codex and codex-yolo alias" {
+	run sct_agent_docker_home_prep_block codex
+	assert_output --partial "/home/vscode/.codex"
+	assert_output --partial 'alias codex-yolo="codex --yolo"'
+}
+
 @test "sct_agent_docker_home_prep_block: unknown returns empty" {
 	run sct_agent_docker_home_prep_block unknown
 	assert_output ""
@@ -456,6 +462,29 @@ setup() {
 	source "$SCT_LIBDIR/rtk.bash"
 	SANDCAT_RTK=false run sct_agent_user_init_block cursor
 	assert_output --partial "cursor-cli-config.json"
+	refute_output --partial "rtk init"
+}
+
+@test "sct_agent_user_init_block: codex runs version health check" {
+	source "$SCT_LIBDIR/rtk.bash"
+	unset SANDCAT_RTK
+	run sct_agent_user_init_block codex
+	assert_output --partial "codex --version"
+	assert_output --partial "non-fatal"
+}
+
+@test "sct_agent_user_init_block: codex appends rtk init when enabled" {
+	source "$SCT_LIBDIR/rtk.bash"
+	unset SANDCAT_RTK
+	run sct_agent_user_init_block codex
+	assert_output --partial "codex --version"
+	assert_output --partial "rtk init -g --hook-only --auto-patch --agent codex"
+}
+
+@test "sct_agent_user_init_block: codex skips rtk when SANDCAT_RTK=false" {
+	source "$SCT_LIBDIR/rtk.bash"
+	SANDCAT_RTK=false run sct_agent_user_init_block codex
+	assert_output --partial "codex --version"
 	refute_output --partial "rtk init"
 }
 
