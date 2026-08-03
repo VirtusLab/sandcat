@@ -373,9 +373,11 @@ EOF
 			;;
 		codex)
 			cat <<'EOF'
-# Pre-create ~/.codex so Docker bind-mounts (AGENTS.md, skills/, commands/)
-# don't cause it to be created as root-owned.
-RUN mkdir -p /home/vscode/.codex
+# Pre-create ~/.codex and ~/.codex-host so Docker bind-mounts don't
+# create them as root-owned. The host AGENTS.md is bind-mounted into
+# ~/.codex-host/ (not directly into ~/.codex/) so the user-init copy
+# step can seed a writable ~/.codex/AGENTS.md that rtk can patch.
+RUN mkdir -p /home/vscode/.codex /home/vscode/.codex-host
 RUN echo 'alias codex-yolo="codex --yolo"' >> /home/vscode/.bashrc
 EOF
 			;;
@@ -475,6 +477,33 @@ EOF
 if command -v codex >/dev/null 2>&1; then
     codex --version >/dev/null 2>&1 \
         || echo "sandcat: codex --version failed (non-fatal)" >&2
+fi
+
+# Seed the writable ~/.codex/AGENTS.md from the host bind-mount so
+# `rtk init --codex` can patch it. Sandcat mounts the host's
+# ~/.codex/AGENTS.md read-only at ~/.codex-host/AGENTS.md (a separate
+# path) precisely so this copy can happen without hitting EROFS.
+# Copy is one-shot: only when ~/.codex/AGENTS.md does not exist yet
+# (agent-home volume was fresh). Later host edits to AGENTS.md take
+# effect after a `docker compose down -v` (or manual rm inside).
+if [ -f "$HOME/.codex-host/AGENTS.md" ] && [ ! -e "$HOME/.codex/AGENTS.md" ]; then
+    mkdir -p "$HOME/.codex"
+    cp "$HOME/.codex-host/AGENTS.md" "$HOME/.codex/AGENTS.md"
+elif [ ! -e "$HOME/.codex/AGENTS.md" ]; then
+    # No host AGENTS.md either — create empty one so rtk init has
+    # something to patch.
+    mkdir -p "$HOME/.codex"
+    : > "$HOME/.codex/AGENTS.md"
+fi
+
+# Auto-init rtk for codex: writes ~/.codex/RTK.md and appends an
+# @RTK.md reference to ~/.codex/AGENTS.md. Idempotent — skipped once
+# the reference is already present.
+if command -v rtk >/dev/null 2>&1 \
+   && [ "${SANDCAT_RTK:-true}" != "false" ] \
+   && ! grep -q '@RTK.md\|RTK\.md' "$HOME/.codex/AGENTS.md" 2>/dev/null; then
+    rtk init -g --codex >/dev/null 2>&1 \
+        || echo "sandcat: rtk init failed (non-fatal)" >&2
 fi
 EOF
 			;;

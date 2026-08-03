@@ -91,7 +91,7 @@ teardown() {
 	assert_output "4"
 
 	# shellcheck disable=SC2016
-	yq -e '.services.agent.volumes[] | select(. == "${HOME}/.codex/AGENTS.md:/home/vscode/.codex/AGENTS.md:ro")' "$COMPOSE_FILE"
+	yq -e '.services.agent.volumes[] | select(. == "${HOME}/.codex/AGENTS.md:/home/vscode/.codex-host/AGENTS.md:ro")' "$COMPOSE_FILE"
 
 	# shellcheck disable=SC2016
 	yq -e '.services.agent.volumes[] | select(. == "${HOME}/.codex/skills:/home/vscode/.codex/skills:ro")' "$COMPOSE_FILE"
@@ -110,7 +110,7 @@ teardown() {
 	# All three paths appear as foot-comment lines.
 	run yq -P '.services.agent.volumes' "$COMPOSE_FILE"
 	# shellcheck disable=SC2016
-	assert_line '# - ${HOME}/.codex/AGENTS.md:/home/vscode/.codex/AGENTS.md:ro'
+	assert_line '# - ${HOME}/.codex/AGENTS.md:/home/vscode/.codex-host/AGENTS.md:ro'
 	# shellcheck disable=SC2016
 	assert_line '# - ${HOME}/.codex/skills:/home/vscode/.codex/skills:ro'
 	# shellcheck disable=SC2016
@@ -471,7 +471,7 @@ EOF
 	customize_compose_file "$SETTINGS_FILE" "$COMPOSE_FILE" "codex" "vscode" "test-project"
 
 	# shellcheck disable=SC2016
-	yq -e '.services.agent.volumes[] | select(. == "${HOME}/.codex/AGENTS.md:/home/vscode/.codex/AGENTS.md:ro")' "$COMPOSE_FILE"
+	yq -e '.services.agent.volumes[] | select(. == "${HOME}/.codex/AGENTS.md:/home/vscode/.codex-host/AGENTS.md:ro")' "$COMPOSE_FILE"
 	# shellcheck disable=SC2016
 	yq -e '.services.agent.volumes[] | select(. == "${HOME}/.codex/skills:/home/vscode/.codex/skills:ro")' "$COMPOSE_FILE"
 	# shellcheck disable=SC2016

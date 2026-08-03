@@ -138,11 +138,11 @@ esac
 
 ### rtk integration
 
-**Integration-test finding (T10):** rtk 0.44 does not support `--agent codex`; the separate `--codex` flag cannot be combined with `--hook-only` or `--auto-patch`. Auto-init is not wired.
+**Source-code analysis finding:** `rtk init -g --codex` (without `--hook-only`/`--auto-patch`) is fully non-interactive. The earlier revert was based on incorrect assumptions — the actual blocker was that `~/.codex/AGENTS.md` was bind-mounted read-only from the host, causing `rename(2)` to fail with EROFS when rtk tried to patch it.
 
-The `codex)` case was reverted from `sct_rtk_user_init_block` (`cli/lib/rtk.bash`). Codex falls through to the `*)` no-op, the same as any unknown agent. The rtk binary is still installed agent-agnostically via `sct_rtk_docker_install_block`, so users can invoke `rtk` commands manually inside the container.
+**Fix (alt-path mount):** `~/.codex/AGENTS.md` is now bind-mounted read-only at `~/.codex-host/AGENTS.md`. On first container start, the user-init step copies it to the writable `~/.codex/AGENTS.md`, then runs `rtk init -g --codex`. This writes `~/.codex/RTK.md` and appends an `@RTK.md` reference to `AGENTS.md`. The check is idempotent — skipped once the reference is present.
 
-Host-side workaround: run `rtk init --codex` interactively on the host once — the resulting `~/AGENTS.md` and `~/.codex/AGENTS.md` are picked up by codex through the host bind-mount.
+The rtk init logic lives in the `codex)` arm of `sct_agent_user_init_block` in `agents.bash` (not in `sct_rtk_user_init_block`, which remains a no-op for codex). The `SANDCAT_RTK` guard is inlined in the emitted block.
 
 ## User-facing behavior
 
@@ -201,7 +201,7 @@ Optional customization files on the host, bind-mounted read-only into the contai
 
 ### rtk integration behavior
 
-The `rtk` binary is installed in every codex sandbox (agent-agnostic). Auto-init is not wired: rtk 0.44 does not support `--agent codex`, and `--codex` cannot combine with `--hook-only` or `--auto-patch`. Codex users who want rtk instructions should run `rtk init --codex` interactively on the host once; the resulting `~/AGENTS.md` and `~/.codex/AGENTS.md` are picked up via the host bind-mount.
+RTK works out of the box for codex. On first container start, sandcat seeds `~/.codex/AGENTS.md` (from the host bind-mount at `~/.codex-host/AGENTS.md` if present, otherwise creates an empty file) and runs `rtk init -g --codex` to write `~/.codex/RTK.md` and add an `@RTK.md` reference. Idempotent via grep check. Disable with `SANDCAT_RTK=false` or `--features no-rtk`.
 
 ### Init summary
 

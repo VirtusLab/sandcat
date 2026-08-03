@@ -480,14 +480,20 @@ The rest of `~/.codex/` (config.toml, credentials, history) lives in
 the container's agent-home volume — per-sandbox persistent, per-sandbox
 isolated. Opt out with `SANDCAT_MOUNT_CODEX_CONFIG=false`.
 
-**RTK integration:** the `rtk` binary is installed into every codex
-sandbox (agent-agnostic install path), but auto-init is not wired for
-codex — rtk 0.44 does not support the flag combination sandcat needs
-for non-interactive setup (`--codex` cannot be combined with
-`--hook-only` or `--auto-patch`). If you want rtk instructions for
-codex, run `rtk init --codex` interactively on the host once; the
-resulting `~/AGENTS.md` and `~/.codex/AGENTS.md` will be picked up by
-codex through the host bind-mount.
+**RTK integration:** works out of the box. On first container start,
+sandcat seeds `~/.codex/AGENTS.md` (from the host bind-mount if
+present) and runs `rtk init -g --codex` to write `~/.codex/RTK.md`
+and add an `@RTK.md` reference to `AGENTS.md`. Idempotent: skipped
+once the reference is already there. Disable with `--features
+no-rtk` or `SANDCAT_RTK=false`.
+
+Note: because rtk needs to patch a writable `AGENTS.md`, sandcat
+mounts the host's `~/.codex/AGENTS.md` at `~/.codex-host/AGENTS.md`
+(a helper path) — the user-init step copies it into the writable
+`~/.codex/AGENTS.md`. Host edits to `AGENTS.md` take effect after a
+`docker compose down -v` (or manual rm inside). Skills and commands
+directories are bind-mounted normally at `~/.codex/skills` and
+`~/.codex/commands`, so those live-reload as usual.
 
 **Auth model:** first iteration supports `OPENAI_API_KEY` only.
 ChatGPT sign-in (`chatgpt.com` / `auth.openai.com`) is not in the

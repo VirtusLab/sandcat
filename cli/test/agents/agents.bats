@@ -406,9 +406,10 @@ setup() {
 	assert_output --partial "/home/vscode/.cursor"
 }
 
-@test "sct_agent_docker_home_prep_block: codex pre-creates ~/.codex and codex-yolo alias" {
+@test "sct_agent_docker_home_prep_block: codex pre-creates ~/.codex, ~/.codex-host and codex-yolo alias" {
 	run sct_agent_docker_home_prep_block codex
 	assert_output --partial "/home/vscode/.codex"
+	assert_output --partial "/home/vscode/.codex-host"
 	assert_output --partial 'alias codex-yolo="codex --yolo"'
 }
 
@@ -465,20 +466,23 @@ setup() {
 	refute_output --partial "rtk init"
 }
 
-@test "sct_agent_user_init_block: codex runs version health check" {
+@test "sct_agent_user_init_block: codex emits rtk init --codex + host AGENTS.md seed" {
 	source "$SCT_LIBDIR/rtk.bash"
 	unset SANDCAT_RTK
 	run sct_agent_user_init_block codex
 	assert_output --partial "codex --version"
+	assert_output --partial "rtk init -g --codex"
+	assert_output --partial ".codex-host/AGENTS.md"
+	assert_output --partial "@RTK.md"
 	assert_output --partial "non-fatal"
 }
 
-@test "sct_agent_user_init_block: codex does not append rtk init (rtk lacks --agent codex support)" {
+@test "sct_agent_user_init_block: codex has SANDCAT_RTK runtime guard" {
 	source "$SCT_LIBDIR/rtk.bash"
 	unset SANDCAT_RTK
 	run sct_agent_user_init_block codex
-	assert_output --partial "codex --version"
-	refute_output --partial "rtk init"
+	assert_output --partial 'SANDCAT_RTK:-true'
+	assert_output --partial '!= "false"'
 }
 
 # --------------------------------------------------- mitm streaming flags

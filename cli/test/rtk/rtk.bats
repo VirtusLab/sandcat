@@ -98,7 +98,7 @@ setup() {
 	assert_output ""
 }
 
-@test "sct_rtk_user_init_block: codex emits nothing (rtk lacks --agent codex support)" {
+@test "sct_rtk_user_init_block: codex emits nothing (rtk init is inlined in agents.bash for codex)" {
 	unset SANDCAT_RTK
 	run sct_rtk_user_init_block codex
 	assert_success
