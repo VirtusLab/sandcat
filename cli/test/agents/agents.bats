@@ -337,6 +337,35 @@ setup() {
 	assert_output --partial "cursor.com/install"
 }
 
+@test "sct_agent_docker_install_block: codex installs codex to /usr/local/bin" {
+	unset SANDCAT_RTK
+	run sct_agent_docker_install_block codex
+	assert_output --partial "chatgpt.com/codex/install.sh"
+	assert_output --partial "CODEX_INSTALL_DIR=/usr/local/bin"
+	assert_output --partial "CODEX_HOME=/opt/codex-home"
+	assert_output --partial "USER root"
+	assert_output --partial "USER vscode"
+	# Env vars must be inline on `sh` (not `ENV`) — otherwise CODEX_HOME
+	# would leak to runtime.
+	refute_output --partial "ENV CODEX_HOME"
+	refute_output --partial "ENV CODEX_INSTALL_DIR"
+}
+
+@test "sct_agent_docker_install_block: codex append rtk install when enabled" {
+	source "$SCT_LIBDIR/rtk.bash"
+	unset SANDCAT_RTK
+	run sct_agent_docker_install_block codex
+	assert_output --partial "chatgpt.com/codex/install.sh"
+	assert_output --partial "raw.githubusercontent.com/rtk-ai/rtk"
+}
+
+@test "sct_agent_docker_install_block: codex skips rtk when SANDCAT_RTK=false" {
+	source "$SCT_LIBDIR/rtk.bash"
+	SANDCAT_RTK=false run sct_agent_docker_install_block codex
+	assert_output --partial "chatgpt.com/codex/install.sh"
+	refute_output --partial "raw.githubusercontent.com/rtk-ai/rtk"
+}
+
 @test "sct_agent_docker_install_block: unknown returns empty" {
 	run sct_agent_docker_install_block unknown
 	assert_output ""

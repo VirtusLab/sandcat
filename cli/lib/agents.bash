@@ -326,6 +326,21 @@ EOF
 RUN curl https://cursor.com/install -fsS | bash
 EOF
 			;;
+		codex)
+			cat <<'EOF'
+# Install Codex CLI (OpenAI). CODEX_INSTALL_DIR + CODEX_HOME point at
+# system paths only for the install.sh invocation so the resolved
+# symlink target survives the agent-home volume mask on upgrade.
+# Env vars go on the `sh` end of the pipe (not `curl`) so install.sh
+# actually sees them; using inline `VAR=val` (not `ENV`) keeps them
+# out of the image environment — at runtime CODEX_HOME is unset and
+# codex reads user config from ~/.codex/ (agent-home, per-sandbox).
+USER root
+RUN curl -fsSL https://chatgpt.com/codex/install.sh | \
+    CODEX_INSTALL_DIR=/usr/local/bin CODEX_HOME=/opt/codex-home sh
+USER vscode
+EOF
+			;;
 		*)
 			return 0
 			;;
