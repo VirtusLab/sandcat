@@ -33,8 +33,10 @@ EOF
 
 # Emits the app-user-init.sh fragment that runs `rtk init` for the given
 # agent, guarded to a one-time execution. Currently wires `claude` and
-# `cursor`; unknown/future agents get a safe no-op so the binary is still
-# available on PATH but rtk stays uninitialized until the case is added.
+# `cursor`; unknown/future agents (including codex — rtk 0.44 does not
+# support `--agent codex`, and `--codex` cannot combine with `--hook-only`
+# or `--auto-patch`) get a safe no-op so the binary is still available on
+# PATH but rtk stays uninitialized until the case is added.
 #
 # Emits an empty output when the feature is disabled OR when the agent
 # has no rtk profile.
@@ -72,20 +74,6 @@ EOF
 if command -v rtk >/dev/null 2>&1 && ! grep -q '"rtk hook cursor' "$HOME/.cursor/hooks.json" 2>/dev/null; then
     rtk init -g --hook-only --auto-patch --agent cursor >/dev/null 2>&1 \
         || echo "sandcat: rtk hook not found for cursor. Install rtk on your host and run once: rtk init -g --hook-only --auto-patch --agent cursor  (see README RTK section)" >&2
-fi
-EOF
-			;;
-		codex)
-			cat <<'EOF'
-# rtk (Rust Token Killer) — one-time hook config for Codex CLI.
-# `rtk init -g --hook-only --auto-patch --agent codex` patches
-# ~/.codex/config.toml with the rtk hook. ~/.codex/ lives in the
-# agent-home volume (not bind-mounted), so init runs and persists
-# out of the box — unlike cursor's read-only hooks.json.
-# Idempotency: skipped once the hook string is already present.
-if command -v rtk >/dev/null 2>&1 && ! grep -q 'rtk hook codex' "$HOME/.codex/config.toml" 2>/dev/null; then
-    rtk init -g --hook-only --auto-patch --agent codex >/dev/null 2>&1 \
-        || echo "sandcat: rtk init failed (non-fatal)" >&2
 fi
 EOF
 			;;

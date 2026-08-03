@@ -480,10 +480,14 @@ The rest of `~/.codex/` (config.toml, credentials, history) lives in
 the container's agent-home volume — per-sandbox persistent, per-sandbox
 isolated. Opt out with `SANDCAT_MOUNT_CODEX_CONFIG=false`.
 
-**RTK integration:** the rtk hook auto-installs for codex on first
-container start; unlike cursor's host-side workflow, codex's
-`~/.codex/config.toml` is writable inside the sandbox so
-`rtk init --agent codex` succeeds immediately.
+**RTK integration:** the `rtk` binary is installed into every codex
+sandbox (agent-agnostic install path), but auto-init is not wired for
+codex — rtk 0.44 does not support the flag combination sandcat needs
+for non-interactive setup (`--codex` cannot be combined with
+`--hook-only` or `--auto-patch`). If you want rtk instructions for
+codex, run `rtk init --codex` interactively on the host once; the
+resulting `~/AGENTS.md` and `~/.codex/AGENTS.md` will be picked up by
+codex through the host bind-mount.
 
 **Auth model:** first iteration supports `OPENAI_API_KEY` only.
 ChatGPT sign-in (`chatgpt.com` / `auth.openai.com`) is not in the

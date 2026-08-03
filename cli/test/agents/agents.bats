@@ -473,17 +473,10 @@ setup() {
 	assert_output --partial "non-fatal"
 }
 
-@test "sct_agent_user_init_block: codex appends rtk init when enabled" {
+@test "sct_agent_user_init_block: codex does not append rtk init (rtk lacks --agent codex support)" {
 	source "$SCT_LIBDIR/rtk.bash"
 	unset SANDCAT_RTK
 	run sct_agent_user_init_block codex
-	assert_output --partial "codex --version"
-	assert_output --partial "rtk init -g --hook-only --auto-patch --agent codex"
-}
-
-@test "sct_agent_user_init_block: codex skips rtk when SANDCAT_RTK=false" {
-	source "$SCT_LIBDIR/rtk.bash"
-	SANDCAT_RTK=false run sct_agent_user_init_block codex
 	assert_output --partial "codex --version"
 	refute_output --partial "rtk init"
 }

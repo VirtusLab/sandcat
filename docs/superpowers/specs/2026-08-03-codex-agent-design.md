@@ -138,26 +138,11 @@ esac
 
 ### rtk integration
 
-New `codex)` case in `sct_rtk_user_init_block` (`cli/lib/rtk.bash`):
+**Integration-test finding (T10):** rtk 0.44 does not support `--agent codex`; the separate `--codex` flag cannot be combined with `--hook-only` or `--auto-patch`. Auto-init is not wired.
 
-```bash
-codex)
-    cat <<'EOF'
-# rtk (Rust Token Killer) — one-time hook config for Codex CLI.
-# `rtk init -g --hook-only --auto-patch --agent codex` patches
-# ~/.codex/config.toml with the rtk hook. ~/.codex/ lives in the
-# agent-home volume (not bind-mounted), so init runs and persists
-# out of the box — unlike cursor's read-only hooks.json.
-# Idempotency: skipped once the hook string is already present.
-if command -v rtk >/dev/null 2>&1 && ! grep -q 'rtk hook codex' "$HOME/.codex/config.toml" 2>/dev/null; then
-    rtk init -g --hook-only --auto-patch --agent codex >/dev/null 2>&1 \
-        || echo "sandcat: rtk init failed (non-fatal)" >&2
-fi
-EOF
-    ;;
-```
+The `codex)` case was reverted from `sct_rtk_user_init_block` (`cli/lib/rtk.bash`). Codex falls through to the `*)` no-op, the same as any unknown agent. The rtk binary is still installed agent-agnostically via `sct_rtk_docker_install_block`, so users can invoke `rtk` commands manually inside the container.
 
-No caveat — codex's config file is writable inside agent-home, so `rtk init` succeeds on first start and the hook persists. Contrast with cursor's `~/.cursor/hooks.json` (bind-mount read-only, requires host-side workaround).
+Host-side workaround: run `rtk init --codex` interactively on the host once — the resulting `~/AGENTS.md` and `~/.codex/AGENTS.md` are picked up by codex through the host bind-mount.
 
 ## User-facing behavior
 
@@ -216,7 +201,7 @@ Optional customization files on the host, bind-mounted read-only into the contai
 
 ### rtk integration behavior
 
-Works out of the box. `rtk init -g --hook-only --auto-patch --agent codex` runs on first container start, writes the rtk hook to `~/.codex/config.toml` (writable in agent-home). Subsequent starts are idempotent no-ops. Zero host-side setup — contrast with cursor's required host `rtk init`.
+The `rtk` binary is installed in every codex sandbox (agent-agnostic). Auto-init is not wired: rtk 0.44 does not support `--agent codex`, and `--codex` cannot combine with `--hook-only` or `--auto-patch`. Codex users who want rtk instructions should run `rtk init --codex` interactively on the host once; the resulting `~/AGENTS.md` and `~/.codex/AGENTS.md` are picked up via the host bind-mount.
 
 ### Init summary
 
