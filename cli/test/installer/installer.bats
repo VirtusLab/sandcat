@@ -202,3 +202,81 @@ FAKEYQ
 	assert_output --partial "bogusref"
 	assert_output --partial "not found"
 }
+
+@test "install.sh installs cli/ under SANDCAT_HOME with symlink in SANDCAT_BIN_DIR" {
+	_stub_curl_with_fixture master
+
+	local sandcat_home="$BATS_TEST_TMPDIR/home/.local/share/sandcat"
+	local sandcat_bin="$BATS_TEST_TMPDIR/home/.local/bin"
+
+	SANDCAT_HOME="$sandcat_home" \
+	SANDCAT_BIN_DIR="$sandcat_bin" \
+	SANDCAT_REF=master \
+	SANDCAT_NON_INTERACTIVE=true \
+	PATH="$FAKE_BIN:$PATH" run bash "$INSTALL_SH"
+	assert_success
+
+	# Files landed under SANDCAT_HOME/cli/
+	[ -d "$sandcat_home/cli/bin" ]
+	[ -x "$sandcat_home/cli/bin/sandcat" ]
+	[ -d "$sandcat_home/cli/lib" ]
+	[ -d "$sandcat_home/cli/templates" ]
+
+	# .version file written with SANDCAT_REF and a timestamp
+	[ -s "$sandcat_home/cli/.version" ]
+	run cat "$sandcat_home/cli/.version"
+	assert_output --partial "master"
+	assert_output --partial "installed"
+
+	# Symlink present and resolves back to the install path.
+	# Use readlink -f on both sides so macOS /var→/private/var symlinks
+	# do not cause a spurious mismatch.
+	[ -L "$sandcat_bin/sandcat" ]
+	local target expected
+	target=$(readlink -f "$sandcat_bin/sandcat")
+	expected=$(readlink -f "$sandcat_home/cli/bin/sandcat")
+	[ "$target" = "$expected" ]
+}
+
+@test "install.sh warns when SANDCAT_BIN_DIR is not on PATH" {
+	_stub_curl_with_fixture master
+
+	local sandcat_home="$BATS_TEST_TMPDIR/home/.local/share/sandcat"
+	local sandcat_bin="$BATS_TEST_TMPDIR/home/.local/bin"
+
+	# Deliberately exclude sandcat_bin from PATH (only FAKE_BIN + system defaults).
+	SANDCAT_HOME="$sandcat_home" \
+	SANDCAT_BIN_DIR="$sandcat_bin" \
+	SANDCAT_REF=master \
+	SANDCAT_NON_INTERACTIVE=true \
+	PATH="$FAKE_BIN:/usr/bin:/bin" run bash "$INSTALL_SH"
+
+	assert_success
+	assert_output --partial "PATH"
+	assert_output --partial "$sandcat_bin"
+}
+
+@test "install.sh replaces an existing install cleanly (two-phase swap)" {
+	_stub_curl_with_fixture master
+
+	local sandcat_home="$BATS_TEST_TMPDIR/home/.local/share/sandcat"
+	local sandcat_bin="$BATS_TEST_TMPDIR/home/.local/bin"
+
+	# Pre-seed an existing install with a distinctive marker file.
+	mkdir -p "$sandcat_home/cli/bin"
+	echo "old marker" > "$sandcat_home/cli/OLD_MARKER"
+
+	SANDCAT_HOME="$sandcat_home" \
+	SANDCAT_BIN_DIR="$sandcat_bin" \
+	SANDCAT_REF=master \
+	SANDCAT_NON_INTERACTIVE=true \
+	PATH="$FAKE_BIN:$PATH" run bash "$INSTALL_SH"
+	assert_success
+
+	# Old marker is gone (fresh cli/ overwrote), and cli.old/ was cleaned up.
+	[ ! -f "$sandcat_home/cli/OLD_MARKER" ]
+	[ ! -d "$sandcat_home/cli.old" ]
+	[ ! -d "$sandcat_home/cli.new" ]
+	# New install has the expected shape.
+	[ -x "$sandcat_home/cli/bin/sandcat" ]
+}

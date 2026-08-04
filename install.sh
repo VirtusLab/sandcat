@@ -204,7 +204,97 @@ extract_tarball() {
 	SOURCE_CLI_DIR="$found"
 }
 
-# --- Dispatch (later tasks fill in) ------------------------------------------
+# --- Install files (two-phase swap) ------------------------------------------
+
+prompt_yes_no() {
+	local msg=$1
+	if [ "$SANDCAT_NON_INTERACTIVE" = "true" ]; then
+		return 0
+	fi
+	printf '%s [y/N]: ' "$msg" >&2
+	local reply
+	IFS= read -r reply || reply=""
+	case "$reply" in
+		y|Y|yes|YES) return 0 ;;
+		*)           return 1 ;;
+	esac
+}
+
+detect_existing_install() {
+	if [ -d "$SANDCAT_HOME/cli" ]; then
+		if ! prompt_yes_no "Sandcat is already installed at $SANDCAT_HOME/cli. Overwrite?"; then
+			info "Aborted — existing install preserved."
+			exit 0
+		fi
+	fi
+
+	# Guard rare case: SANDCAT_HOME itself exists as a file, not a directory.
+	if [ -e "$SANDCAT_HOME" ] && [ ! -d "$SANDCAT_HOME" ]; then
+		err "$SANDCAT_HOME already exists as a file, not a directory. Move it and retry."
+		exit 1
+	fi
+}
+
+install_files() {
+	mkdir -p "$SANDCAT_HOME"
+
+	# Two-phase swap. Guarantees that the user's existing cli/ is only
+	# replaced by a rename(2), and that on any earlier failure the old
+	# tree remains intact.
+	rm -rf "$SANDCAT_HOME/cli.new"
+	mv "$SOURCE_CLI_DIR" "$SANDCAT_HOME/cli.new"
+
+	rm -rf "$SANDCAT_HOME/cli.old"
+	if [ -d "$SANDCAT_HOME/cli" ]; then
+		mv "$SANDCAT_HOME/cli" "$SANDCAT_HOME/cli.old"
+	fi
+	mv "$SANDCAT_HOME/cli.new" "$SANDCAT_HOME/cli"
+	rm -rf "$SANDCAT_HOME/cli.old"
+
+	printf '%s (installed %s)\n' "$SANDCAT_REF" "$(date +'%F %T')" \
+		> "$SANDCAT_HOME/cli/.version"
+
+	info "Installed sandcat $SANDCAT_REF to $SANDCAT_HOME/cli/"
+}
+
+install_symlink() {
+	mkdir -p "$SANDCAT_BIN_DIR"
+	# Warn (but proceed) if the launcher path is a non-symlink file — user
+	# may have another script there. ln -sf will overwrite regardless.
+	if [ -e "$SANDCAT_BIN_DIR/sandcat" ] && [ ! -L "$SANDCAT_BIN_DIR/sandcat" ]; then
+		warn "Replacing existing non-symlink file at $SANDCAT_BIN_DIR/sandcat"
+	fi
+	ln -sf "$SANDCAT_HOME/cli/bin/sandcat" "$SANDCAT_BIN_DIR/sandcat"
+	info "Symlinked $SANDCAT_BIN_DIR/sandcat -> $SANDCAT_HOME/cli/bin/sandcat"
+}
+
+verify_install() {
+	if ! "$SANDCAT_BIN_DIR/sandcat" version >/dev/null 2>&1; then
+		err "Verification failed: '$SANDCAT_BIN_DIR/sandcat version' did not run cleanly."
+		exit 1
+	fi
+}
+
+path_contains() {
+	# Portable "is $1 present in colon-separated PATH?"
+	case ":$PATH:" in
+		*":$1:"*) return 0 ;;
+		*)        return 1 ;;
+	esac
+}
+
+print_success() {
+	info "sandcat $SANDCAT_REF installed."
+	info ""
+	info "Next steps:"
+	if ! path_contains "$SANDCAT_BIN_DIR"; then
+		info "  Add $SANDCAT_BIN_DIR to your PATH (append to ~/.bashrc or ~/.zshrc):"
+		info "    export PATH=\"$SANDCAT_BIN_DIR:\$PATH\""
+	fi
+	info "  Then in your project directory: sandcat init"
+}
+
+# --- Dispatch ----------------------------------------------------------------
 
 if [ "$UNINSTALL" = "true" ]; then
 	err "Uninstall not implemented yet (task 5)"
@@ -214,8 +304,10 @@ fi
 check_prerequisites
 
 TMP_DIR=$(mktemp -d 2>/dev/null || mktemp -d -t sandcat-install)
+detect_existing_install
 fetch_tarball
 extract_tarball
-
-err "Install not implemented yet (task 4)"
-exit 3
+install_files
+install_symlink
+verify_install
+print_success
