@@ -294,11 +294,38 @@ print_success() {
 	info "  Then in your project directory: sandcat init"
 }
 
+# --- Uninstall ---------------------------------------------------------------
+
+uninstall() {
+	if [ ! -d "$SANDCAT_HOME/cli" ] && [ ! -L "$SANDCAT_BIN_DIR/sandcat" ]; then
+		info "Sandcat is not installed at $SANDCAT_HOME (nothing to remove)."
+		return 0
+	fi
+
+	if ! prompt_yes_no "Remove sandcat install at $SANDCAT_HOME/cli/ and launcher at $SANDCAT_BIN_DIR/sandcat?"; then
+		info "Aborted — install preserved."
+		return 0
+	fi
+
+	rm -f "$SANDCAT_BIN_DIR/sandcat"
+	rm -rf "$SANDCAT_HOME/cli"
+	# Also sweep any stale swap dirs from an aborted install.
+	rm -rf "$SANDCAT_HOME/cli.new" "$SANDCAT_HOME/cli.old"
+
+	if [ -d "$SANDCAT_HOME" ] && [ -z "$(ls -A "$SANDCAT_HOME" 2>/dev/null)" ]; then
+		rmdir "$SANDCAT_HOME"
+	fi
+
+	info "Removed sandcat install ($SANDCAT_HOME/cli/) and launcher ($SANDCAT_BIN_DIR/sandcat)."
+	info "User settings preserved at ~/.config/sandcat/ (delete manually if desired)."
+	info "Docker images and cache volumes untouched. Use 'sandcat cache rm --all' or 'docker rmi' if wanted."
+}
+
 # --- Dispatch ----------------------------------------------------------------
 
 if [ "$UNINSTALL" = "true" ]; then
-	err "Uninstall not implemented yet (task 5)"
-	exit 3
+	uninstall
+	exit 0
 fi
 
 check_prerequisites

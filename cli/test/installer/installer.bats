@@ -280,3 +280,71 @@ FAKEYQ
 	# New install has the expected shape.
 	[ -x "$sandcat_home/cli/bin/sandcat" ]
 }
+
+@test "install.sh --uninstall removes install and symlink but preserves ~/.config/sandcat/" {
+	_stub_curl_with_fixture master
+
+	local sandcat_home="$BATS_TEST_TMPDIR/home/.local/share/sandcat"
+	local sandcat_bin="$BATS_TEST_TMPDIR/home/.local/bin"
+	local user_config="$HOME/.config/sandcat"
+
+	# First: install
+	SANDCAT_HOME="$sandcat_home" \
+	SANDCAT_BIN_DIR="$sandcat_bin" \
+	SANDCAT_NON_INTERACTIVE=true \
+	PATH="$FAKE_BIN:$PATH" run bash "$INSTALL_SH"
+	assert_success
+
+	# Seed a fake user config file to prove we don't touch it.
+	mkdir -p "$user_config"
+	echo '{"env":{}}' > "$user_config/settings.json"
+
+	# Then: uninstall
+	SANDCAT_HOME="$sandcat_home" \
+	SANDCAT_BIN_DIR="$sandcat_bin" \
+	SANDCAT_NON_INTERACTIVE=true \
+	PATH="$FAKE_BIN:$PATH" run bash "$INSTALL_SH" --uninstall
+	assert_success
+
+	# Install artefacts gone
+	[ ! -d "$sandcat_home/cli" ]
+	[ ! -L "$sandcat_bin/sandcat" ]
+	# User config preserved
+	[ -f "$user_config/settings.json" ]
+}
+
+@test "install.sh --uninstall on missing install exits 0 with informational message" {
+	local sandcat_home="$BATS_TEST_TMPDIR/home/.local/share/sandcat"
+	local sandcat_bin="$BATS_TEST_TMPDIR/home/.local/bin"
+
+	# Nothing installed. Provide fake prerequisites to satisfy any checks
+	# uninstall does (only path resolution; no prereq check needed for --uninstall).
+	SANDCAT_HOME="$sandcat_home" \
+	SANDCAT_BIN_DIR="$sandcat_bin" \
+	SANDCAT_NON_INTERACTIVE=true \
+	run bash "$INSTALL_SH" --uninstall
+	assert_success
+	assert_output --partial "not installed"
+}
+
+@test "install.sh --uninstall removes empty SANDCAT_HOME parent dir" {
+	_stub_curl_with_fixture master
+
+	local sandcat_home="$BATS_TEST_TMPDIR/home/.local/share/sandcat"
+	local sandcat_bin="$BATS_TEST_TMPDIR/home/.local/bin"
+
+	SANDCAT_HOME="$sandcat_home" \
+	SANDCAT_BIN_DIR="$sandcat_bin" \
+	SANDCAT_NON_INTERACTIVE=true \
+	PATH="$FAKE_BIN:$PATH" run bash "$INSTALL_SH"
+	assert_success
+
+	SANDCAT_HOME="$sandcat_home" \
+	SANDCAT_BIN_DIR="$sandcat_bin" \
+	SANDCAT_NON_INTERACTIVE=true \
+	PATH="$FAKE_BIN:$PATH" run bash "$INSTALL_SH" --uninstall
+	assert_success
+
+	# SANDCAT_HOME dir removed since it was empty after cli/ deletion
+	[ ! -d "$sandcat_home" ]
+}
