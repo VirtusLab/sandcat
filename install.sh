@@ -90,6 +90,81 @@ SANDCAT_BIN_DIR="${SANDCAT_BIN_DIR:-$HOME/.local/bin}"
 SANDCAT_REF="${SANDCAT_REF:-master}"
 SANDCAT_NON_INTERACTIVE="${SANDCAT_NON_INTERACTIVE:-false}"
 
+# --- OS detection ------------------------------------------------------------
+
+detect_os() {
+	case "$(uname -s)" in
+		Darwin) printf 'macos'; return ;;
+		Linux)
+			if [ -r /etc/os-release ]; then
+				# shellcheck disable=SC1091
+				. /etc/os-release
+				case "${ID:-linux-generic}" in
+					debian|ubuntu) printf 'debian' ;;
+					alpine)        printf 'alpine' ;;
+					*)             printf 'linux-generic' ;;
+				esac
+			else
+				printf 'linux-generic'
+			fi
+			;;
+		*) printf 'unknown' ;;
+	esac
+}
+
+# --- Prerequisite check ------------------------------------------------------
+
+print_yq_instructions() {
+	local os=$1
+	err "sandcat requires yq (Mike Farah's Go variant, https://github.com/mikefarah/yq)."
+	err "Install with:"
+	case "$os" in
+		macos)
+			err "  brew install yq"
+			;;
+		debian)
+			err "  snap install yq"
+			err "  (avoid 'apt install yq' — it installs the incompatible Python variant)"
+			;;
+		alpine)
+			err "  apk add yq-go"
+			;;
+		*)
+			err "  Download the binary from https://github.com/mikefarah/yq/releases"
+			err "  and place it on your PATH."
+			;;
+	esac
+}
+
+HTTP_CMD=""
+
+check_prerequisites() {
+	if command -v curl >/dev/null 2>&1; then
+		HTTP_CMD=curl
+	elif command -v wget >/dev/null 2>&1; then
+		HTTP_CMD=wget
+	else
+		err "Neither curl nor wget is installed. Install one and retry."
+		exit 1
+	fi
+
+	if ! command -v tar >/dev/null 2>&1; then
+		err "tar is required but not installed."
+		exit 1
+	fi
+
+	if ! command -v yq >/dev/null 2>&1; then
+		print_yq_instructions "$(detect_os)"
+		exit 1
+	fi
+
+	if ! yq --version 2>&1 | grep -q mikefarah; then
+		err "Found yq but it is not the Mike Farah (Go) variant."
+		print_yq_instructions "$(detect_os)"
+		exit 1
+	fi
+}
+
 # --- Dispatch (later tasks fill in) ------------------------------------------
 
 if [ "$UNINSTALL" = "true" ]; then
@@ -97,5 +172,7 @@ if [ "$UNINSTALL" = "true" ]; then
 	exit 3
 fi
 
-err "Install not implemented yet (tasks 2-4)"
+check_prerequisites
+
+err "Install not implemented yet (tasks 3-4)"
 exit 3
