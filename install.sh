@@ -165,6 +165,45 @@ check_prerequisites() {
 	fi
 }
 
+# --- Fetch + extract ---------------------------------------------------------
+
+fetch_tarball() {
+	local url="https://codeload.github.com/VirtusLab/sandcat/tar.gz/$SANDCAT_REF"
+	info "Fetching $SANDCAT_REF from codeload.github.com..."
+	local dest="$TMP_DIR/sandcat.tar.gz"
+	if [ "$HTTP_CMD" = curl ]; then
+		if ! curl -fsSL "$url" -o "$dest"; then
+			err "Failed to fetch tarball. Reference '$SANDCAT_REF' not found in VirtusLab/sandcat (URL: $url)."
+			exit 1
+		fi
+	else
+		if ! wget -qO "$dest" "$url"; then
+			err "Failed to fetch tarball. Reference '$SANDCAT_REF' not found in VirtusLab/sandcat (URL: $url)."
+			exit 1
+		fi
+	fi
+}
+
+SOURCE_CLI_DIR=""
+
+extract_tarball() {
+	info "Extracting to $TMP_DIR..."
+	if ! tar xzf "$TMP_DIR/sandcat.tar.gz" -C "$TMP_DIR"; then
+		err "Failed to extract tarball."
+		exit 1
+	fi
+
+	# GitHub codeload wraps the repo tree in a top-level dir named
+	# sandcat-<ref-slug>. Find the extracted cli/ within.
+	local found
+	found=$(find "$TMP_DIR" -maxdepth 3 -type d -name cli -path '*/sandcat-*/cli' | head -n1)
+	if [ -z "$found" ]; then
+		err "Extracted tarball has no sandcat-*/cli/ directory. Structure unexpected."
+		exit 1
+	fi
+	SOURCE_CLI_DIR="$found"
+}
+
 # --- Dispatch (later tasks fill in) ------------------------------------------
 
 if [ "$UNINSTALL" = "true" ]; then
@@ -174,5 +213,9 @@ fi
 
 check_prerequisites
 
-err "Install not implemented yet (tasks 3-4)"
+TMP_DIR=$(mktemp -d 2>/dev/null || mktemp -d -t sandcat-install)
+fetch_tarball
+extract_tarball
+
+err "Install not implemented yet (task 4)"
 exit 3
