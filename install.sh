@@ -97,9 +97,10 @@ detect_os() {
 		Darwin) printf 'macos'; return ;;
 		Linux)
 			if [ -r /etc/os-release ]; then
+				local distro_id
 				# shellcheck disable=SC1091
-				. /etc/os-release
-				case "${ID:-linux-generic}" in
+				distro_id=$(. /etc/os-release && printf '%s' "${ID:-linux-generic}")
+				case "$distro_id" in
 					debian|ubuntu) printf 'debian' ;;
 					alpine)        printf 'alpine' ;;
 					*)             printf 'linux-generic' ;;
@@ -294,6 +295,24 @@ print_success() {
 	info "  Then in your project directory: sandcat init"
 }
 
+# --- Root-user warning -------------------------------------------------------
+
+should_warn_root() {
+	local uid=$1
+	local sandcat_home=$2
+	[ "$uid" = "0" ] || return 1
+	case "$sandcat_home" in
+		/root/*) return 0 ;;
+		*)       return 1 ;;
+	esac
+}
+
+warn_if_root_without_overrides() {
+	if should_warn_root "$(id -u)" "$SANDCAT_HOME"; then
+		warn "Running as root: sandcat will be installed under /root/. Set SANDCAT_HOME and SANDCAT_BIN_DIR for a system-wide install (e.g. SANDCAT_HOME=/opt/sandcat SANDCAT_BIN_DIR=/usr/local/bin)."
+	fi
+}
+
 # --- Uninstall ---------------------------------------------------------------
 
 uninstall() {
@@ -329,6 +348,7 @@ if [ "$UNINSTALL" = "true" ]; then
 fi
 
 check_prerequisites
+warn_if_root_without_overrides
 
 TMP_DIR=$(mktemp -d 2>/dev/null || mktemp -d -t sandcat-install)
 detect_existing_install

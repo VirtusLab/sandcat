@@ -173,6 +173,78 @@ FAKEYQ
 	FAKE_BIN="$fake_bin"
 }
 
+# Helper: like _stub_curl_with_fixture but puts a fake wget on PATH and
+# deliberately omits curl so the installer takes the wget branch.
+_stub_wget_with_fixture() {
+	local ref="${1:-master}"
+	local fixture_root="$BATS_TEST_TMPDIR/fixture-wget"
+	local wrapper_dir="$fixture_root/sandcat-$ref"
+
+	mkdir -p "$wrapper_dir/cli/bin"
+	mkdir -p "$wrapper_dir/cli/lib"
+	mkdir -p "$wrapper_dir/cli/libexec/version"
+	mkdir -p "$wrapper_dir/cli/templates"
+	cat > "$wrapper_dir/cli/bin/sandcat" <<'FAKESAND'
+#!/usr/bin/env bash
+if [ "${1-}" = "version" ]; then
+    echo "fake sandcat version"
+    exit 0
+fi
+exit 0
+FAKESAND
+	chmod +x "$wrapper_dir/cli/bin/sandcat"
+
+	FIXTURE_TARBALL_WGET="$BATS_TEST_TMPDIR/fixture-wget.tar.gz"
+	tar czf "$FIXTURE_TARBALL_WGET" -C "$fixture_root" "sandcat-$ref"
+
+	local fake_bin="$BATS_TEST_TMPDIR/nobin-wget"
+	mkdir -p "$fake_bin"
+	# wget only — curl deliberately absent so installer takes the wget branch.
+	cat > "$fake_bin/wget" <<FAKEWGET
+#!/bin/bash
+# Understand -q -O <path> <url>.
+out=""
+url=""
+while [ \$# -gt 0 ]; do
+    case "\$1" in
+        -qO) out=\$2; shift 2 ;;
+        -O)  out=\$2; shift 2 ;;
+        -q)  shift ;;
+        http*) url=\$1; shift ;;
+        *) shift ;;
+    esac
+done
+if [ -z "\$out" ]; then
+    exit 8
+fi
+if [[ "\$url" == *bogusref* ]]; then
+    echo "wget: server returned error: HTTP/1.1 404 Not Found" >&2
+    exit 8
+fi
+cp "$FIXTURE_TARBALL_WGET" "\$out"
+FAKEWGET
+	chmod +x "$fake_bin/wget"
+	ln -sf "$(command -v tar)" "$fake_bin/tar"
+	ln -sf "$(command -v mktemp)" "$fake_bin/mktemp"
+	ln -sf "$(command -v bash)" "$fake_bin/bash"
+	ln -sf "$(command -v sh)" "$fake_bin/sh"
+	ln -sf "$(command -v cat)" "$fake_bin/cat"
+	ln -sf "$(command -v rm)" "$fake_bin/rm"
+	ln -sf "$(command -v grep)" "$fake_bin/grep"
+	ln -sf "$(command -v uname)" "$fake_bin/uname"
+	ln -sf "$(command -v cp)" "$fake_bin/cp"
+	cat > "$fake_bin/yq" <<'FAKEYQ'
+#!/bin/bash
+if [[ "${1-}" == "--version" ]]; then
+    echo "yq (https://github.com/mikefarah/yq) version v4.44.3"
+    exit 0
+fi
+exit 0
+FAKEYQ
+	chmod +x "$fake_bin/yq"
+	FAKE_BIN_WGET="$fake_bin"
+}
+
 @test "install.sh fetches + extracts tarball into TMP_DIR" {
 	_stub_curl_with_fixture master
 
@@ -325,6 +397,50 @@ FAKEYQ
 	run bash "$INSTALL_SH" --uninstall
 	assert_success
 	assert_output --partial "not installed"
+}
+
+@test "install.sh uses wget fallback when curl is absent" {
+	_stub_wget_with_fixture master
+
+	local sandcat_home="$BATS_TEST_TMPDIR/home/.local/share/sandcat"
+	local sandcat_bin="$BATS_TEST_TMPDIR/home/.local/bin"
+
+	SANDCAT_HOME="$sandcat_home" \
+	SANDCAT_BIN_DIR="$sandcat_bin" \
+	SANDCAT_REF=master \
+	SANDCAT_NON_INTERACTIVE=true \
+	PATH="$FAKE_BIN_WGET:$PATH" run bash "$INSTALL_SH"
+	assert_success
+
+	[ -x "$sandcat_home/cli/bin/sandcat" ]
+	[ -L "$sandcat_bin/sandcat" ]
+}
+
+@test "install.sh warns when running as root with default /root/ paths" {
+	_stub_curl_with_fixture master
+
+	cat > "$FAKE_BIN/id" <<'FAKEID'
+#!/bin/bash
+if [[ "$1" == "-u" ]]; then
+    echo 0; exit 0
+fi
+exec /usr/bin/id "$@"
+FAKEID
+	chmod +x "$FAKE_BIN/id"
+
+	# SANDCAT_HOME under /root/ so the heuristic triggers.
+	# The install will fail on mkdir /root/... (no perms) — that's fine,
+	# we assert the warning appears in the output first.
+	SANDCAT_HOME=/root/.local/share/sandcat \
+	SANDCAT_BIN_DIR=/root/.local/bin \
+	SANDCAT_REF=master \
+	SANDCAT_NON_INTERACTIVE=true \
+	PATH="$FAKE_BIN:$PATH" run bash "$INSTALL_SH"
+
+	# We don't assert success or failure of the install itself — only that
+	# the warn message was emitted.
+	assert_output --partial "Running as root"
+	assert_output --partial "SANDCAT_HOME"
 }
 
 @test "install.sh --uninstall removes empty SANDCAT_HOME parent dir" {
