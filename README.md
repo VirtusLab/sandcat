@@ -87,6 +87,54 @@ export PATH="$PWD/sandcat/cli/bin:$PATH"
 
 On Debian/Ubuntu, `apt install yq` installs the Python variant. Install Mike Farah's `yq` instead — for example `snap install yq`, or download a binary from the [release page](https://github.com/mikefarah/yq/releases). Homebrew, Alpine `apk`, and the project's own Docker image already ship the correct one.
 
+#### Shell installer
+
+Install sandcat CLI to `~/.local/share/sandcat/` with a launcher symlink
+at `~/.local/bin/sandcat`. Requires `yq` (Mike Farah's Go variant) already
+installed on the host.
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/VirtusLab/sandcat/master/install.sh | sh
+```
+
+Version pinning via `SANDCAT_REF` (branch / tag / commit):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/VirtusLab/sandcat/master/install.sh | SANDCAT_REF=v1.0.0 sh
+curl -fsSL https://raw.githubusercontent.com/VirtusLab/sandcat/master/install.sh | SANDCAT_REF=abc123 sh
+```
+
+Custom paths (env overrides):
+
+```bash
+SANDCAT_HOME=/opt/sandcat SANDCAT_BIN_DIR=/usr/local/bin \
+    curl -fsSL https://.../install.sh | sudo -E sh   # system-wide
+```
+
+Non-interactive mode (CI):
+
+```bash
+curl -fsSL https://.../install.sh | SANDCAT_NON_INTERACTIVE=true sh
+```
+
+Upgrade: re-run the installer with the same (or a different) `SANDCAT_REF`. Existing
+install is swapped atomically; `~/.config/sandcat/` is never touched.
+
+Uninstall (preserves user config and Docker state):
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/VirtusLab/sandcat/master/install.sh) --uninstall
+```
+
+Env overrides in one place:
+
+| Var | Default | Purpose |
+|---|---|---|
+| `SANDCAT_HOME` | `$HOME/.local/share/sandcat` | Install root |
+| `SANDCAT_BIN_DIR` | `$HOME/.local/bin` | Launcher symlink dir |
+| `SANDCAT_REF` | `master` | Branch / tag / commit to fetch |
+| `SANDCAT_NON_INTERACTIVE` | `false` | Skip all prompts (CI) |
+
 ### 2. Initialize the sandbox for your project
 
 ```bash

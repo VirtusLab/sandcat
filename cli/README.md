@@ -4,6 +4,10 @@ Command-line tool for managing sandcat configurations and Docker Compose setups.
 
 Requires `docker` (and `docker compose`) and [`yq`](https://github.com/mikefarah/yq).
 
+See the top-level [README](../README.md#1-install-sandcat-cli) for install
+options: Docker image, shell installer (`curl … | sh`), or local git
+clone.
+
 ## Modules and Commands
 
 ### `sandcat init`
