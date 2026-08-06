@@ -20,7 +20,7 @@ from capability_runtime.errors import (
     LeaseExpired,
 )
 from capability_runtime.lease import LeaseManager
-from capability_runtime.network import NetworkBinding
+from capability_runtime.network import NetworkBinding, RevocationClosePolicy
 from capability_runtime.netbird_backend import NetBirdRevocationBackend
 from capability_runtime.netbird_client import NetBirdClient
 from capability_runtime.netbird_sync import grant_network_binding
@@ -57,6 +57,7 @@ class CapabilityRuntime:
         seed: int,
         policy_version: str = "1.0.0",
         netbird_client: NetBirdClient | None = None,
+        l7_revoke_socket: Path | None = None,
     ):
         self.catalog = CapabilityCatalog()
         self.lease_manager = LeaseManager()
@@ -70,9 +71,57 @@ class CapabilityRuntime:
         self._netbird_backend = (
             NetBirdRevocationBackend(netbird_client) if netbird_client is not None else None
         )
+        self._l7_revoke_socket = l7_revoke_socket
 
         # Register create_pr as DECLARED (invisible until leased)
         self.catalog.register("create_pr", CapabilityRef("cap-create-pr"), LifecycleState.DECLARED)
+
+    def _push_l7_for_binding(
+        self,
+        binding: NetworkBinding,
+        *,
+        reason: str,
+        trigger: str,
+        lease_id: str | None = None,
+        cli_override: RevocationClosePolicy | None = None,
+    ) -> None:
+        """Push L7 revocation for a network binding."""
+        from capability_runtime.revocation_close import resolve_close_policy, host_patterns_for_binding
+        from capability_runtime.l7_revoke_push import push_l7_revocation, DEFAULT_REVOKE_SOCKET
+
+        policy, drain_seconds = resolve_close_policy(
+            catalog_policy=binding.revoke_close_policy,
+            catalog_drain_seconds=binding.revoke_drain_seconds,
+            trigger=trigger,
+            cli_override=cli_override,
+        )
+        patterns = host_patterns_for_binding(binding)
+        socket_path = self._l7_revoke_socket or DEFAULT_REVOKE_SOCKET
+        # For IMMEDIATE policy, don't pass drain_seconds
+        final_drain_seconds = drain_seconds if policy != RevocationClosePolicy.IMMEDIATE else None
+        ok = push_l7_revocation(
+            socket_path=socket_path,
+            host_patterns=patterns,
+            close_policy=policy,
+            drain_seconds=final_drain_seconds,
+            capability_ref=binding.capability_ref.value,
+            lease_id=lease_id,
+            reason=reason,
+            trigger=trigger,
+        )
+        event = {
+            "event": "l7_revoke_push" if ok else "l7_revoke_push_failed",
+            "capability_ref": binding.capability_ref.value,
+            "close_policy": str(policy),
+            "host_patterns": patterns,
+            "reason": reason,
+            "trigger": trigger,
+        }
+        if lease_id is not None:
+            event["lease_id"] = lease_id
+        if drain_seconds is not None:
+            event["drain_seconds"] = drain_seconds
+        self.observability.emit_capability_event(event)
 
     def process_expired_network_leases(self, now: datetime | None = None) -> None:
         """Disable NetBird bindings for expired network leases (TTL hook)."""
@@ -95,6 +144,13 @@ class CapabilityRuntime:
                     continue
                 try:
                     revoke_network_binding(self._netbird_backend, binding, "TTL expired")
+                    # Push L7 revocation after physical revoke
+                    self._push_l7_for_binding(
+                        binding,
+                        reason="TTL expired",
+                        trigger="ttl_expired",
+                        lease_id=lease_id.value
+                    )
                 except Exception:
                     self.observability.emit_capability_event(
                         {
@@ -386,6 +442,9 @@ class CapabilityRuntime:
         caller: AgentIdentity,
         target: Union[LeaseId, CapabilityRef],
         reason: str,
+        *,
+        close_policy: RevocationClosePolicy | None = None,
+        trigger: str = "operator",
     ) -> None:
         """Revoke capability by lease ID or ref (spec §3.2.3)."""
         _assert_caller(caller, _OPERATOR)
@@ -404,6 +463,14 @@ class CapabilityRuntime:
                     revoke_network_binding(self._netbird_backend, binding, reason)
                     physical_sync = "disabled"
                     physical_revocation = True
+                    # Push L7 revocation after physical revoke
+                    self._push_l7_for_binding(
+                        binding, 
+                        reason=reason, 
+                        trigger=trigger,
+                        lease_id=target.value,
+                        cli_override=close_policy
+                    )
             self.revocation_manager.revoke_by_lease(target, reason)
             self._bundle_version += 1
             event: dict[str, object] = {
@@ -427,6 +494,13 @@ class CapabilityRuntime:
                 revoke_network_binding(self._netbird_backend, binding, reason)
                 physical_sync = "disabled"
                 physical_revocation = True
+                # Push L7 revocation after physical revoke
+                self._push_l7_for_binding(
+                    binding,
+                    reason=reason,
+                    trigger=trigger,
+                    cli_override=close_policy
+                )
 
             # Perform logical revocation
             self.revocation_manager.revoke_by_ref(target, reason)
@@ -458,6 +532,13 @@ class CapabilityRuntime:
         """
         # Perform logical revocation only (no NetBird API call)
         self.revocation_manager.revoke_by_ref(binding.capability_ref, reason)
+        
+        # Push L7 revocation (physical already gone, but L7 may still be active)
+        self._push_l7_for_binding(
+            binding,
+            reason=reason,
+            trigger="physical_reconcile"
+        )
         
         # Invalidate agent bundle cache
         self._bundle_version += 1
@@ -511,6 +592,13 @@ class CapabilityRuntime:
                     # Disable the binding via NetBird
                     from capability_runtime.netbird_sync import revoke_network_binding
                     revoke_network_binding(self._netbird_backend, binding, "quota exhausted")
+                    # Push L7 revocation after physical revoke
+                    self._push_l7_for_binding(
+                        binding,
+                        reason="quota exhausted",
+                        trigger="quota_exhausted",
+                        lease_id=lease_id.value
+                    )
                 
                 self.catalog.set_state(lease.capability_ref, LifecycleState.EXPIRED)
                 self.revocation_manager.revoke_by_lease(lease_id, "quota exhausted")
