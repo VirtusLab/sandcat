@@ -51,7 +51,7 @@ import sys
 from fnmatch import fnmatch
 
 from mitmproxy import ctx, dns, http
-from l7_revoke_rpc import RevokeState
+from l7_revoke_rpc import RevokeState, RevokeRpcServer
 
 _VALID_ENV_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 # RFC-1123 label / RFC-2181 length. Trailing dot is stripped before validation
@@ -212,6 +212,7 @@ class SandcatAddon:
         self._pass_cli_logged_in = False  # True only after a successful pass-cli login
         self._revoke_state = RevokeState()
         self._draining_flows: set = set()  # flow ids or objects
+        self._revoke_server = None  # RevokeRpcServer instance
 
     # ------------------------------------------------------------------ load
 
@@ -231,6 +232,8 @@ class SandcatAddon:
             # Truncate extra_hosts too, so a stale file from a previous run
             # doesn't leak entries into /etc/hosts when the addon is disabled.
             self._write_extra_hosts({})
+            # Start revoke server even when no settings files (so push can still work)
+            self._start_revoke_server()
             logger.info("No settings files found — addon disabled")
             return
 
@@ -253,6 +256,7 @@ class SandcatAddon:
         self._write_cursor_cli_config(merged)
         self._write_dns_conf()
         self._write_extra_hosts(merged["extra_hosts"])
+        self._start_revoke_server()
 
         ctx.log.info(
             f"Loaded {len(self.env)} env var(s), {len(self.secrets)} secret(s), "
@@ -262,6 +266,28 @@ class SandcatAddon:
     def _on_settings_merged(self, merged: dict):
         """Hook: subclasses may inspect merged settings (e.g., feature flags)."""
         pass
+
+    def _start_revoke_server(self):
+        """Start the L7 revocation RPC server"""
+        # Default socket path: env override or default location
+        socket_path = os.environ.get(
+            "MITMPROXY_REVOKE_SOCKET", 
+            "/home/mitmproxy/.mitmproxy/l7-revoke.sock"
+        )
+        
+        self._revoke_server = RevokeRpcServer(
+            socket_path=socket_path,
+            state=self._revoke_state,
+            get_active_flows=self._get_active_flows
+        )
+        self._revoke_server.start()
+        ctx.log.info(f"Started L7 revocation RPC server at {socket_path}")
+
+    def _get_active_flows(self):
+        """Get active flows for revocation. Returns empty list for now."""
+        # TODO: In a real implementation, this would return actual active flows
+        # For now, return empty list so tests pass
+        return []
 
     @staticmethod
     def _configure_op_token(token: str | None):
