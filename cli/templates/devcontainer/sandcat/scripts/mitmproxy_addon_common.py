@@ -51,6 +51,7 @@ import sys
 from fnmatch import fnmatch
 
 from mitmproxy import ctx, dns, http
+from l7_revoke_rpc import RevokeState
 
 _VALID_ENV_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 # RFC-1123 label / RFC-2181 length. Trailing dot is stripped before validation
@@ -209,6 +210,8 @@ class SandcatAddon:
         self.dns_servers: list[str] = []  # custom upstream DNS for wg-client
         self.debug_enabled = False  # subclasses may flip this in _on_settings_merged
         self._pass_cli_logged_in = False  # True only after a successful pass-cli login
+        self._revoke_state = RevokeState()
+        self._draining_flows: set = set()  # flow ids or objects
 
     # ------------------------------------------------------------------ load
 
@@ -813,6 +816,9 @@ class SandcatAddon:
         rule = self._find_matching_rule(method, host)
         return rule is not None and rule.get("action") == "allow"
 
+    def _is_l7_revoked(self, host: str) -> bool:
+        return self._revoke_state.is_host_revoked(host)
+
     def _host_matches_network_allow_rule(self, host: str) -> bool:
         host = host.lower().rstrip(".")
         for rule in self.network_rules:
@@ -1081,6 +1087,15 @@ class SandcatAddon:
                 {"Content-Type": "text/plain"},
             )
             ctx.log.warn(f"Network deny: {method} {host}")
+            return
+
+        if self._is_l7_revoked(host):
+            flow.response = http.Response.make(
+                403,
+                f"Blocked by capability revocation: {method} {host}\n".encode(),
+                {"Content-Type": "text/plain"},
+            )
+            ctx.log.warn(f"L7 revoke deny: {method} {host}")
             return
 
         if self._is_streaming_request(flow):
