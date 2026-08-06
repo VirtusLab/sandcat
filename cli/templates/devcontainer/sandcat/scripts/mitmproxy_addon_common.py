@@ -795,33 +795,27 @@ class SandcatAddon:
             flow.response.stream = True
 
     def response(self, flow: http.HTTPFlow):
-        # Handle L7 drain lifecycle - kill flows marked for draining after response
+        if os.environ.get("CAPABILITY_L7_RECORD") == "1":
+            if flow.response and flow.response.status_code is not None:
+                status = flow.response.status_code
+                if 200 <= status < 300:
+                    host = flow.request.pretty_host
+                    if self._host_matches_network_allow_rule(host):
+                        from l7_record_client import record_flow
+
+                        agent_id = os.environ.get("SANDCAT_AGENT_ID", "devcontainer-agent")
+                        record_flow(
+                            agent_id=agent_id,
+                            host=host,
+                            method=flow.request.method,
+                            status=status,
+                        )
+
+        # mitmproxy has already delivered the response body by the time
+        # response() runs, so kill-after-hook approximates "finish response then close."
         if flow.metadata.get("sandcat_l7_drain"):
             flow.kill()
             ctx.log.info(f"L7 drain complete: killed flow to {flow.request.pretty_host}")
-            return
-
-        if os.environ.get("CAPABILITY_L7_RECORD") != "1":
-            return
-        if not flow.response or flow.response.status_code is None:
-            return
-        status = flow.response.status_code
-        if not (200 <= status < 300):
-            return
-
-        host = flow.request.pretty_host
-        if not self._host_matches_network_allow_rule(host):
-            return
-
-        from l7_record_client import record_flow
-
-        agent_id = os.environ.get("SANDCAT_AGENT_ID", "devcontainer-agent")
-        record_flow(
-            agent_id=agent_id,
-            host=host,
-            method=flow.request.method,
-            status=status,
-        )
 
     def dns_request(self, flow: dns.DNSFlow):
         question = flow.request.question

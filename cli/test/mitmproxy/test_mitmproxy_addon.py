@@ -835,6 +835,28 @@ class TestIntegration:
         assert flow.response["status"] == 403
         assert b"capability revocation" in flow.response["body"]
 
+    def test_response_drain_kills_after_response_hooks(self, addon_cls):
+        """Drain kill must not short-circuit other response-side work."""
+        addon = addon_cls()
+        addon.network_rules = [{"action": "allow", "host": "*"}]
+        flow = _make_flow(host="api.example.com", method="GET")
+        flow.response = types.SimpleNamespace(status_code=200)
+        flow.metadata = {"sandcat_l7_drain": True}
+
+        call_order = []
+
+        def _record_flow(**kwargs):
+            call_order.append("record")
+
+        flow.kill = MagicMock(side_effect=lambda: call_order.append("kill"))
+
+        with patch.dict(os.environ, {"CAPABILITY_L7_RECORD": "1"}):
+            with patch("l7_record_client.record_flow", side_effect=_record_flow):
+                addon.response(flow)
+
+        assert call_order == ["record", "kill"]
+        flow.kill.assert_called_once()
+
 
 # ---------------------------------------------------------------------------
 # DNS proxy — shared logic, parameterised over both variants.
