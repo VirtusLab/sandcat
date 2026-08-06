@@ -818,6 +818,23 @@ class TestIntegration:
         assert flow.response is None
         assert flow.request.headers["Authorization"] == "Bearer real-secret-value"
 
+    def test_revoked_host_denied_after_static_allow(self, addon_cls):
+        addon = addon_cls()
+        addon.network_rules = [{"action": "allow", "host": "*"}]
+        # Import RevokeState to mock it
+        from l7_revoke_rpc import RevokeState
+        addon._revoke_state = RevokeState()
+        addon._revoke_state.apply_revoke(["evil.example.com"], "deny_new", None)
+        assert addon._is_request_allowed("GET", "evil.example.com") is True
+        assert addon._is_l7_revoked("evil.example.com") is True
+        
+        # Test actual request flow - should get 403
+        flow = _make_flow(host="evil.example.com", method="GET")
+        addon.request(flow)
+        assert flow.response is not None
+        assert flow.response["status"] == 403
+        assert b"capability revocation" in flow.response["body"]
+
 
 # ---------------------------------------------------------------------------
 # DNS proxy — shared logic, parameterised over both variants.
