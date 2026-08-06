@@ -83,12 +83,10 @@ def cmd_lease(args: argparse.Namespace) -> None:
 
 
 def cmd_revoke(args: argparse.Namespace) -> None:
-    _print_json(
-        _call(
-            "capability.revoke",
-            {"target": args.ref, "reason": args.reason},
-        )
-    )
+    params: dict = {"target": args.ref, "reason": args.reason}
+    if getattr(args, "close_policy", None):
+        params["close_policy"] = args.close_policy
+    _print_json(_call("capability.revoke", params))
 
 
 def cmd_watch(args: argparse.Namespace) -> None:
@@ -199,6 +197,11 @@ def _build_parser() -> argparse.ArgumentParser:
     revoke = subparsers.add_parser("revoke", help="Run capability.revoke")
     revoke.add_argument("--ref", required=True, help="Capability ref or lease id")
     revoke.add_argument("--reason", required=True, help="Revocation reason")
+    revoke.add_argument(
+        "--close-policy",
+        choices=["immediate", "drain", "drain_deadline", "deny_new"],
+        default=None,
+    )
     revoke.set_defaults(handler=cmd_revoke)
 
     watch = subparsers.add_parser("watch", help="Poll capability.watch.poll in a loop")
@@ -228,6 +231,11 @@ def _build_parser() -> argparse.ArgumentParser:
         elif method == "capability.revoke":
             alias.add_argument("--ref", required=True)
             alias.add_argument("--reason", required=True)
+            alias.add_argument(
+                "--close-policy",
+                choices=["immediate", "drain", "drain_deadline", "deny_new"],
+                default=None,
+            )
             alias.set_defaults(handler=cmd_revoke)
         elif method == "capability.watch.poll":
             alias.add_argument(

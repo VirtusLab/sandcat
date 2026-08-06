@@ -8,6 +8,7 @@ from typing import Any, Literal
 from capability_runtime.discover import DiscoveryIntent
 from capability_runtime.errors import CapabilityRuntimeError
 from capability_runtime.l7_record import record_l7_flow
+from capability_runtime.network import RevocationClosePolicy
 from capability_runtime.rpc import errors as rpc_errors
 from capability_runtime.runtime import CapabilityRuntime
 from capability_runtime.route_watcher import RouteDisappearanceWatcher
@@ -142,7 +143,11 @@ class RpcDispatcher:
     def _handle_revoke(self, params: dict) -> dict:
         target = _parse_revoke_target(self._runtime, params["target"])
         reason = params["reason"]
-        self._runtime.revoke_capability(_OPERATOR, target, reason)
+        raw = params.get("close_policy")
+        close_policy = RevocationClosePolicy(raw) if raw else None
+        self._runtime.revoke_capability(
+            _OPERATOR, target, reason, close_policy=close_policy, trigger="operator"
+        )
         return {"revoked": True}
 
     def _handle_watch_poll(self, params: dict) -> dict:
