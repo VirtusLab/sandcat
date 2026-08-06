@@ -292,6 +292,34 @@ class TestNetworkRules:
         ]
         assert addon._host_matches_network_allow_rule("api.example.com") is False
 
+    @pytest.mark.parametrize("disabled", [False, "false", "False", "0", 0, "off", "no"])
+    def test_falsey_enabled_values_disable_rule(self, addon_cls, disabled):
+        addon = addon_cls()
+        addon.network_rules = [
+            {"action": "allow", "host": "api.example.com", "enabled": disabled},
+        ]
+        assert addon._is_request_allowed("GET", "api.example.com") is False
+        assert addon._host_matches_network_allow_rule("api.example.com") is False
+
+    @pytest.mark.parametrize("truthy", [True, "true", "True", "1", 1, "on", "yes"])
+    def test_truthy_enabled_values_keep_rule(self, addon_cls, truthy):
+        addon = addon_cls()
+        addon.network_rules = [
+            {"action": "allow", "host": "api.example.com", "enabled": truthy},
+        ]
+        assert addon._is_request_allowed("GET", "api.example.com") is True
+
+    def test_unrecognized_enabled_value_keeps_rule_and_warns(self, addon_cls):
+        addon = addon_cls()
+        rules = [{"action": "allow", "host": "api.example.com", "enabled": "maybe"}]
+
+        with patch.object(common.ctx, "log") as log:
+            addon._load_network_rules(rules)
+
+        assert addon._is_request_allowed("GET", "api.example.com") is True
+        warning = " ".join(str(call) for call in log.warn.call_args_list)
+        assert "maybe" in warning
+
 
 # ---------------------------------------------------------------------------
 # Secret substitution — shared logic, parameterised over both variants.
@@ -856,6 +884,131 @@ class TestIntegration:
 
         assert call_order == ["record", "kill"]
         flow.kill.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# L7 revocation server lifecycle and flow tracking.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("addon_cls", ADDONS)
+class TestRevokeServerLifecycle:
+    def test_server_not_started_without_socket_env(self, addon_cls, monkeypatch):
+        monkeypatch.delenv("MITMPROXY_REVOKE_SOCKET", raising=False)
+        addon = addon_cls()
+
+        addon._start_revoke_server()
+
+        assert addon._revoke_server is None
+
+    def test_server_starts_at_env_socket_path(self, addon_cls, tmp_path, monkeypatch):
+        sock_path = tmp_path / "nested" / "l7-revoke.sock"
+        monkeypatch.setenv("MITMPROXY_REVOKE_SOCKET", str(sock_path))
+        addon = addon_cls()
+
+        addon._start_revoke_server()
+        try:
+            assert addon._revoke_server is not None
+            assert addon._revoke_server.wait_ready(2) is True
+            assert sock_path.exists()
+        finally:
+            addon.done()
+
+        assert addon._revoke_server is None
+        assert sock_path.exists() is False
+
+    def test_bind_failure_does_not_break_load(self, addon_cls, tmp_path, monkeypatch):
+        """A revoke server that cannot bind must not stop mitmproxy proxying."""
+        monkeypatch.setenv("MITMPROXY_REVOKE_SOCKET", str(tmp_path / "l7-revoke.sock"))
+        addon = addon_cls()
+
+        with patch.object(
+            common.RevokeRpcServer, "start", side_effect=OSError("read-only")
+        ):
+            addon._start_revoke_server()
+
+        assert addon._revoke_server is None
+
+    def test_done_is_safe_without_a_server(self, addon_cls):
+        addon = addon_cls()
+        addon.done()
+        assert addon._revoke_server is None
+
+
+@pytest.mark.parametrize("addon_cls", ADDONS)
+class TestFlowTracking:
+    def test_allowed_request_is_tracked(self, addon_cls):
+        addon = addon_cls()
+        addon.network_rules = [{"action": "allow", "host": "*"}]
+        flow = _make_flow(host="api.example.com")
+
+        addon.request(flow)
+
+        assert addon._get_active_flows() == [flow]
+
+    def test_denied_request_is_not_tracked(self, addon_cls):
+        addon = addon_cls()
+        addon.network_rules = [{"action": "deny", "host": "*"}]
+
+        addon.request(_make_flow(host="api.example.com"))
+
+        assert addon._get_active_flows() == []
+
+    def test_revoked_request_is_not_tracked(self, addon_cls):
+        addon = addon_cls()
+        addon.network_rules = [{"action": "allow", "host": "*"}]
+        addon._revoke_state.apply_revoke(["api.example.com"], "deny_new", None)
+
+        addon.request(_make_flow(host="api.example.com"))
+
+        assert addon._get_active_flows() == []
+
+    def test_response_stops_tracking(self, addon_cls):
+        addon = addon_cls()
+        addon.network_rules = [{"action": "allow", "host": "*"}]
+        flow = _make_flow(host="api.example.com")
+        flow.response = types.SimpleNamespace(status_code=200)
+        flow.metadata = {}
+
+        addon.request(flow)
+        addon.response(flow)
+
+        assert addon._get_active_flows() == []
+
+    def test_error_stops_tracking(self, addon_cls):
+        addon = addon_cls()
+        addon.network_rules = [{"action": "allow", "host": "*"}]
+        flow = _make_flow(host="api.example.com")
+
+        addon.request(flow)
+        addon.error(flow)
+
+        assert addon._get_active_flows() == []
+
+    def test_revoke_closes_tracked_flow(self, addon_cls):
+        """The whole point of tracking: a revoke push kills what is in flight."""
+        from l7_revoke_rpc import handle_revoke_flows
+
+        addon = addon_cls()
+        addon.network_rules = [{"action": "allow", "host": "*"}]
+        doomed = _make_flow(host="api.example.com")
+        doomed.metadata = {}
+        spared = _make_flow(host="other.example.com")
+        spared.metadata = {}
+        addon.request(doomed)
+        addon.request(spared)
+
+        handle_revoke_flows(
+            addon._revoke_state,
+            {
+                "host_patterns": ["api.example.com"],
+                "close_policy": "immediate",
+                "capability_ref": "cap-reach-api",
+            },
+            addon._get_active_flows,
+        )
+
+        doomed.kill.assert_called_once()
+        spared.kill.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

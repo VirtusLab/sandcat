@@ -52,7 +52,7 @@ import sys
 from fnmatch import fnmatch
 
 from mitmproxy import ctx, dns, http
-from l7_revoke_rpc import RevokeState, RevokeRpcServer
+from l7_revoke_rpc import FlowTracker, RevokeRpcServer, RevokeState
 
 _VALID_ENV_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
@@ -87,6 +87,34 @@ def _pass_cli_session_is_pat(stdout: str) -> bool:
     return bool(_PAT_SESSION_MARKER.search(stdout or ""))
 
 
+_ENABLED_TRUE = {"true", "1", "yes", "on"}
+_ENABLED_FALSE = {"false", "0", "no", "off"}
+
+
+def _parse_rule_enabled(raw) -> bool | None:
+    """Interpret a network rule's ``enabled`` value; None when unrecognized.
+
+    JSON settings are hand-edited, so ``false``, ``"false"``, ``"0"`` and ``0``
+    all show up in the wild and must all disable the rule.
+    """
+    if isinstance(raw, bool):
+        return raw
+    if isinstance(raw, (int, float)):
+        return raw != 0
+    if isinstance(raw, str):
+        value = raw.strip().lower()
+        if value in _ENABLED_FALSE:
+            return False
+        if value in _ENABLED_TRUE:
+            return True
+    return None
+
+
+def _rule_enabled(rule: dict) -> bool:
+    """Whether a network rule applies. Unrecognized values keep the default (on)."""
+    return _parse_rule_enabled(rule.get("enabled", True)) is not False
+
+
 class SandcatAddon:
     """Base sandcat addon: network policy + secret substitution."""
 
@@ -98,7 +126,7 @@ class SandcatAddon:
         self.debug_enabled = False  # subclasses may flip this in _on_settings_merged
         self._pass_cli_logged_in = False  # True only after a successful pass-cli login
         self._revoke_state = RevokeState()
-        self._draining_flows: set = set()  # flow ids or objects
+        self._flow_tracker = FlowTracker()
         self._revoke_server = None  # RevokeRpcServer instance
 
     # ------------------------------------------------------------------ load
@@ -149,26 +177,56 @@ class SandcatAddon:
         pass
 
     def _start_revoke_server(self):
-        """Start the L7 revocation RPC server"""
-        # Default socket path: env override or default location
-        socket_path = os.environ.get(
-            "MITMPROXY_REVOKE_SOCKET", 
-            "/home/mitmproxy/.mitmproxy/l7-revoke.sock"
-        )
-        
-        self._revoke_server = RevokeRpcServer(
+        """Start the L7 revocation RPC server, if one is configured.
+
+        The socket path comes from ``MITMPROXY_REVOKE_SOCKET``, which the
+        compose stack sets only when the capability runtime is enabled. Without
+        it there is no peer to talk to, so the server is skipped. A bind
+        failure (read-only or missing directory, stale socket owned by another
+        user) must never stop mitmproxy from proxying: L7 revocation is
+        additive on top of the network-policy deny path.
+        """
+        socket_path = os.environ.get("MITMPROXY_REVOKE_SOCKET")
+        if not socket_path:
+            ctx.log.info(
+                "MITMPROXY_REVOKE_SOCKET not set — L7 revocation RPC server disabled"
+            )
+            return
+
+        server = RevokeRpcServer(
             socket_path=socket_path,
             state=self._revoke_state,
-            get_active_flows=self._get_active_flows
+            get_active_flows=self._get_active_flows,
         )
-        self._revoke_server.start()
+        try:
+            server.start()
+        except Exception as e:
+            ctx.log.warn(
+                f"Could not start L7 revocation RPC server at {socket_path}: {e!r}; "
+                "capability revocation will not reach in-flight flows"
+            )
+            return
+
+        self._revoke_server = server
         ctx.log.info(f"Started L7 revocation RPC server at {socket_path}")
 
+    def _stop_revoke_server(self):
+        """Tear down the RPC server and unlink its socket (best-effort)."""
+        server, self._revoke_server = self._revoke_server, None
+        if server is None:
+            return
+        try:
+            server.stop()
+        except Exception as e:
+            ctx.log.warn(f"Could not stop L7 revocation RPC server: {e!r}")
+
+    def done(self):
+        """mitmproxy shutdown hook."""
+        self._stop_revoke_server()
+
     def _get_active_flows(self):
-        """Get active flows for revocation. Returns empty list for now."""
-        # TODO: In a real implementation, this would return actual active flows
-        # For now, return empty list so tests pass
-        return []
+        """Flows currently in flight, for close-policy application."""
+        return self._flow_tracker.active()
 
     @staticmethod
     def _configure_op_token(token: str | None):
@@ -493,6 +551,15 @@ class SandcatAddon:
 
     def _load_network_rules(self, raw_rules: list):
         self.network_rules = raw_rules
+        for rule in raw_rules:
+            if not isinstance(rule, dict) or "enabled" not in rule:
+                continue
+            if _parse_rule_enabled(rule["enabled"]) is None:
+                ctx.log.warn(
+                    f"Network rule for host {rule.get('host')!r}: unrecognized "
+                    f"'enabled' value {rule['enabled']!r}; the rule stays enabled. "
+                    "Use true/false to control it."
+                )
         ctx.log.info(f"Loaded {len(self.network_rules)} network rule(s)")
 
     # ----------------------------------------------------------- DNS servers
@@ -565,7 +632,7 @@ class SandcatAddon:
     def _find_matching_rule(self, method: str | None, host: str) -> dict | None:
         host = host.lower().rstrip(".")
         for rule in self.network_rules:
-            if rule.get("enabled", True) is False:
+            if not _rule_enabled(rule):
                 continue
             if not fnmatch(host, rule["host"].lower()):
                 continue
@@ -585,7 +652,7 @@ class SandcatAddon:
     def _host_matches_network_allow_rule(self, host: str) -> bool:
         host = host.lower().rstrip(".")
         for rule in self.network_rules:
-            if rule.get("enabled", True) is False:
+            if not _rule_enabled(rule):
                 continue
             if rule.get("action") != "allow":
                 continue
@@ -811,6 +878,10 @@ class SandcatAddon:
             ctx.log.warn(f"L7 revoke deny: {method} {host}")
             return
 
+        # Only allowed flows are tracked: denied ones never reach upstream, so
+        # a later revoke has nothing to close for them.
+        self._flow_tracker.register(flow)
+
         if self._is_streaming_request(flow):
             self._prepare_streaming_request(flow)
 
@@ -821,6 +892,8 @@ class SandcatAddon:
             flow.response.stream = True
 
     def response(self, flow: http.HTTPFlow):
+        self._flow_tracker.unregister(flow)
+
         if os.environ.get("CAPABILITY_L7_RECORD") == "1":
             if flow.response and flow.response.status_code is not None:
                 status = flow.response.status_code
@@ -842,6 +915,10 @@ class SandcatAddon:
         if flow.metadata.get("sandcat_l7_drain"):
             flow.kill()
             ctx.log.info(f"L7 drain complete: killed flow to {flow.request.pretty_host}")
+
+    def error(self, flow: http.HTTPFlow):
+        """Connection died before a response — stop tracking it."""
+        self._flow_tracker.unregister(flow)
 
     def dns_request(self, flow: dns.DNSFlow):
         question = flow.request.question
