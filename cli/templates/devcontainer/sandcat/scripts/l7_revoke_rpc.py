@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ipaddress
 import json
+import logging
 import os
 import socket
 import threading
@@ -100,6 +101,9 @@ def _kill_if_still_open(flow: FlowLike) -> None:
         flow.kill()
 
 
+logger = logging.getLogger(__name__)
+
+
 def handle_revoke_flows(state: RevokeState, params: dict, get_active_flows: Callable) -> dict:
     """Handle the mitmproxy.l7.revoke_flows RPC method"""
     # Validate required parameters
@@ -111,6 +115,21 @@ def handle_revoke_flows(state: RevokeState, params: dict, get_active_flows: Call
     patterns = params["host_patterns"]
     policy = params["close_policy"]
     drain_seconds = params.get("drain_seconds")
+    capability_ref = params.get("capability_ref")
+    lease_id = params.get("lease_id")
+    reason = params.get("reason")
+    trigger = params.get("trigger")
+
+    logger.info(
+        "revoke_flows: capability_ref=%r lease_id=%r reason=%r trigger=%r "
+        "close_policy=%r host_patterns=%r",
+        capability_ref,
+        lease_id,
+        reason,
+        trigger,
+        policy,
+        patterns,
+    )
     
     # Apply revocation to state
     state.apply_revoke(patterns, policy, drain_seconds)
@@ -191,8 +210,13 @@ class RevokeRpcServer:
                 # Socket closed, exit loop
                 break
     
+    def _send_jsonrpc_response(self, client_socket, response: dict) -> None:
+        response_data = (json.dumps(response) + "\n").encode("utf-8")
+        client_socket.sendall(response_data)
+
     def _handle_client(self, client_socket):
         """Handle a single client connection (one request per connection)"""
+        request_id = None
         try:
             # Read line-delimited JSON request
             data = b""
@@ -204,29 +228,43 @@ class RevokeRpcServer:
             
             # Parse the line up to first newline
             line = data.split(b"\n", 1)[0]
-            request = json.loads(line.decode("utf-8"))
+            try:
+                request = json.loads(line.decode("utf-8"))
+            except json.JSONDecodeError as e:
+                self._send_jsonrpc_response(
+                    client_socket,
+                    {
+                        "jsonrpc": "2.0",
+                        "id": request_id,
+                        "error": {
+                            "code": -32700,  # Parse error
+                            "message": str(e),
+                        },
+                    },
+                )
+                return
+
+            request_id = request.get("id")
             
             # Handle the JSON-RPC request
             response = self._handle_jsonrpc_request(request)
             
             # Send response
-            response_data = json.dumps(response).encode("utf-8")
-            client_socket.sendall(response_data)
+            self._send_jsonrpc_response(client_socket, response)
         
         except Exception as e:
             # Send error response
             error_response = {
                 "jsonrpc": "2.0",
-                "id": request.get("id") if "request" in locals() else None,
+                "id": request_id,
                 "error": {
                     "code": -32603,  # Internal error
                     "message": str(e)
                 }
             }
             try:
-                response_data = json.dumps(error_response).encode("utf-8")
-                client_socket.sendall(response_data)
-            except:
+                self._send_jsonrpc_response(client_socket, error_response)
+            except OSError:
                 pass  # Client may have disconnected
         
         finally:
