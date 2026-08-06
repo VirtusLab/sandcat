@@ -176,3 +176,109 @@ def test_apply_close_to_flows_cidr_pattern():
     # Only flow in CIDR range should be killed
     assert flow1.killed is True
     assert flow2.killed is False
+
+
+def test_revoke_flows_rpc_updates_state(tmp_path):
+    import json
+    import socket
+    import threading
+    import time
+    from pathlib import Path
+    
+    from l7_revoke_rpc import RevokeRpcServer
+    
+    sock_path = tmp_path / "l7-revoke.sock"
+    state = RevokeState()
+    server = RevokeRpcServer(sock_path, state, get_active_flows=lambda: [])
+    server.start()
+    time.sleep(0.05)
+    try:
+        req = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "mitmproxy.l7.revoke_flows",
+            "params": {
+                "host_patterns": ["10.8.0.0/24"],
+                "close_policy": "immediate",
+                "drain_seconds": None,
+                "capability_ref": "cap-reach-api",
+                "reason": "test",
+                "trigger": "operator",
+            },
+        }
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
+            s.settimeout(2)
+            s.connect(str(sock_path))
+            s.sendall((json.dumps(req) + "\n").encode())
+            line = s.recv(65536)
+        resp = json.loads(line)
+        assert "result" in resp
+        assert resp["result"]["revoked"] is True
+        assert state.is_host_revoked("10.8.0.1") is True
+    finally:
+        server.stop()
+
+
+def test_revoke_flows_rpc_unknown_method(tmp_path):
+    import json
+    import socket
+    import time
+    
+    from l7_revoke_rpc import RevokeRpcServer
+    
+    sock_path = tmp_path / "l7-revoke.sock"
+    state = RevokeState()
+    server = RevokeRpcServer(sock_path, state, get_active_flows=lambda: [])
+    server.start()
+    time.sleep(0.05)
+    try:
+        req = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "unknown.method",
+            "params": {},
+        }
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
+            s.settimeout(2)
+            s.connect(str(sock_path))
+            s.sendall((json.dumps(req) + "\n").encode())
+            line = s.recv(65536)
+        resp = json.loads(line)
+        assert "error" in resp
+        assert resp["error"]["code"] == -32601  # Method not found
+    finally:
+        server.stop()
+
+
+def test_revoke_flows_rpc_missing_host_patterns(tmp_path):
+    import json
+    import socket
+    import time
+    
+    from l7_revoke_rpc import RevokeRpcServer
+    
+    sock_path = tmp_path / "l7-revoke.sock"
+    state = RevokeState()
+    server = RevokeRpcServer(sock_path, state, get_active_flows=lambda: [])
+    server.start()
+    time.sleep(0.05)
+    try:
+        req = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "mitmproxy.l7.revoke_flows",
+            "params": {
+                "close_policy": "immediate",
+                # missing host_patterns
+            },
+        }
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
+            s.settimeout(2)
+            s.connect(str(sock_path))
+            s.sendall((json.dumps(req) + "\n").encode())
+            line = s.recv(65536)
+        resp = json.loads(line)
+        assert "error" in resp
+        assert resp["error"]["code"] == -32602  # Invalid params
+    finally:
+        server.stop()
