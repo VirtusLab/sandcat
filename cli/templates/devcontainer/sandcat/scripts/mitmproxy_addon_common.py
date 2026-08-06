@@ -795,6 +795,12 @@ class SandcatAddon:
             flow.response.stream = True
 
     def response(self, flow: http.HTTPFlow):
+        # Handle L7 drain lifecycle - kill flows marked for draining after response
+        if flow.metadata.get("sandcat_l7_drain"):
+            flow.kill()
+            ctx.log.info(f"L7 drain complete: killed flow to {flow.request.pretty_host}")
+            return
+
         if os.environ.get("CAPABILITY_L7_RECORD") != "1":
             return
         if not flow.response or flow.response.status_code is None:
