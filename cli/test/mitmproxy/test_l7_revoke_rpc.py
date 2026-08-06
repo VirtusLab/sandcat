@@ -1,14 +1,30 @@
-import ipaddress
+import json
+import socket
 import time
-import threading
 from pathlib import Path
-from unittest.mock import MagicMock
 import sys
 
 SCRIPTS = Path(__file__).resolve().parents[2] / "templates/devcontainer/sandcat/scripts"
 sys.path.insert(0, str(SCRIPTS))
 
-from l7_revoke_rpc import RevokeState, host_matches_revoke_pattern, apply_close_to_flows
+from l7_revoke_rpc import (
+    FlowTracker,
+    RevokeRpcServer,
+    RevokeState,
+    apply_close_to_flows,
+    handle_restore_flows,
+    host_matches_revoke_pattern,
+)
+
+
+def _rpc_call(sock_path: Path, request: dict) -> dict:
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
+        s.settimeout(2)
+        s.connect(str(sock_path))
+        s.sendall((json.dumps(request) + "\n").encode())
+        line = s.recv(65536)
+    assert line.endswith(b"\n")
+    return json.loads(line.decode().strip())
 
 
 def test_host_matches_cidr():
@@ -139,6 +155,22 @@ def test_apply_close_to_flows_drain_deadline():
     assert non_matching_flow.killed is False
 
 
+def test_apply_close_to_flows_drain_deadline_kills_every_matching_flow():
+    """Each flow needs its own timer binding, not a shared closure variable."""
+    flows = [MockFlow("api.example.com") for _ in range(3)]
+
+    apply_close_to_flows(
+        flows=flows,
+        host_patterns=["api.example.com"],
+        close_policy="drain_deadline",
+        drain_seconds=0.1,
+    )
+
+    time.sleep(0.3)
+
+    assert [flow.killed for flow in flows] == [True, True, True]
+
+
 def test_apply_close_to_flows_multiple_patterns():
     """Test apply_close_to_flows works with multiple host patterns"""
     flow1 = MockFlow("api.example.com")
@@ -179,40 +211,28 @@ def test_apply_close_to_flows_cidr_pattern():
 
 
 def test_revoke_flows_rpc_updates_state(tmp_path):
-    import json
-    import socket
-    import threading
-    import time
-    from pathlib import Path
-    
-    from l7_revoke_rpc import RevokeRpcServer
-    
     sock_path = tmp_path / "l7-revoke.sock"
     state = RevokeState()
     server = RevokeRpcServer(sock_path, state, get_active_flows=lambda: [])
     server.start()
-    time.sleep(0.05)
+    assert server.wait_ready(2) is True
     try:
-        req = {
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "mitmproxy.l7.revoke_flows",
-            "params": {
-                "host_patterns": ["10.8.0.0/24"],
-                "close_policy": "immediate",
-                "drain_seconds": None,
-                "capability_ref": "cap-reach-api",
-                "reason": "test",
-                "trigger": "operator",
+        resp = _rpc_call(
+            sock_path,
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "mitmproxy.l7.revoke_flows",
+                "params": {
+                    "host_patterns": ["10.8.0.0/24"],
+                    "close_policy": "immediate",
+                    "drain_seconds": None,
+                    "capability_ref": "cap-reach-api",
+                    "reason": "test",
+                    "trigger": "operator",
+                },
             },
-        }
-        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
-            s.settimeout(2)
-            s.connect(str(sock_path))
-            s.sendall((json.dumps(req) + "\n").encode())
-            line = s.recv(65536)
-        resp = json.loads(line.decode().strip())
-        assert line.endswith(b"\n")
+        )
         assert "result" in resp
         assert resp["result"]["revoked"] is True
         assert state.is_host_revoked("10.8.0.1") is True
@@ -220,32 +240,94 @@ def test_revoke_flows_rpc_updates_state(tmp_path):
         server.stop()
 
 
-def test_revoke_flows_rpc_unknown_method(tmp_path):
-    import json
-    import socket
-    import time
-    
-    from l7_revoke_rpc import RevokeRpcServer
-    
+def test_revoke_flows_rpc_closes_tracked_flows(tmp_path):
+    """The server closes flows the addon is tracking, not a stubbed list."""
+    sock_path = tmp_path / "l7-revoke.sock"
+    state = RevokeState()
+    tracker = FlowTracker()
+    doomed = MockFlow("api.example.com")
+    spared = MockFlow("other.example.com")
+    tracker.register(doomed)
+    tracker.register(spared)
+
+    server = RevokeRpcServer(sock_path, state, get_active_flows=tracker.active)
+    server.start()
+    assert server.wait_ready(2) is True
+    try:
+        resp = _rpc_call(
+            sock_path,
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "mitmproxy.l7.revoke_flows",
+                "params": {
+                    "host_patterns": ["api.example.com"],
+                    "close_policy": "immediate",
+                    "capability_ref": "cap-reach-api",
+                },
+            },
+        )
+        assert resp["result"]["revoked"] is True
+        assert doomed.killed is True
+        assert spared.killed is False
+    finally:
+        server.stop()
+
+
+def test_restore_flows_rpc_clears_revocation(tmp_path):
     sock_path = tmp_path / "l7-revoke.sock"
     state = RevokeState()
     server = RevokeRpcServer(sock_path, state, get_active_flows=lambda: [])
     server.start()
-    time.sleep(0.05)
+    assert server.wait_ready(2) is True
     try:
-        req = {
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "unknown.method",
-            "params": {},
-        }
-        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
-            s.settimeout(2)
-            s.connect(str(sock_path))
-            s.sendall((json.dumps(req) + "\n").encode())
-            line = s.recv(65536)
-        resp = json.loads(line.decode().strip())
-        assert line.endswith(b"\n")
+        _rpc_call(
+            sock_path,
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "mitmproxy.l7.revoke_flows",
+                "params": {
+                    "host_patterns": ["10.8.0.0/24"],
+                    "close_policy": "deny_new",
+                    "capability_ref": "cap-reach-api",
+                },
+            },
+        )
+        assert state.is_host_revoked("10.8.0.1") is True
+
+        resp = _rpc_call(
+            sock_path,
+            {
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "mitmproxy.l7.restore_flows",
+                "params": {
+                    "host_patterns": ["10.8.0.0/24"],
+                    "capability_ref": "cap-reach-api",
+                    "reason": "lease granted",
+                    "trigger": "lease_granted",
+                },
+            },
+        )
+        assert resp["result"]["restored"] is True
+        assert resp["result"]["cleared"] >= 1
+        assert state.is_host_revoked("10.8.0.1") is False
+    finally:
+        server.stop()
+
+
+def test_revoke_flows_rpc_unknown_method(tmp_path):
+    sock_path = tmp_path / "l7-revoke.sock"
+    state = RevokeState()
+    server = RevokeRpcServer(sock_path, state, get_active_flows=lambda: [])
+    server.start()
+    assert server.wait_ready(2) is True
+    try:
+        resp = _rpc_call(
+            sock_path,
+            {"jsonrpc": "2.0", "id": 1, "method": "unknown.method", "params": {}},
+        )
         assert "error" in resp
         assert resp["error"]["code"] == -32601  # Method not found
     finally:
@@ -253,34 +335,43 @@ def test_revoke_flows_rpc_unknown_method(tmp_path):
 
 
 def test_revoke_flows_rpc_missing_host_patterns(tmp_path):
-    import json
-    import socket
-    import time
-    
-    from l7_revoke_rpc import RevokeRpcServer
-    
     sock_path = tmp_path / "l7-revoke.sock"
     state = RevokeState()
     server = RevokeRpcServer(sock_path, state, get_active_flows=lambda: [])
     server.start()
-    time.sleep(0.05)
+    assert server.wait_ready(2) is True
     try:
-        req = {
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "mitmproxy.l7.revoke_flows",
-            "params": {
-                "close_policy": "immediate",
-                # missing host_patterns
+        resp = _rpc_call(
+            sock_path,
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "mitmproxy.l7.revoke_flows",
+                "params": {"close_policy": "immediate"},  # missing host_patterns
             },
-        }
-        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
-            s.settimeout(2)
-            s.connect(str(sock_path))
-            s.sendall((json.dumps(req) + "\n").encode())
-            line = s.recv(65536)
-        resp = json.loads(line.decode().strip())
-        assert line.endswith(b"\n")
+        )
+        assert "error" in resp
+        assert resp["error"]["code"] == -32602  # Invalid params
+    finally:
+        server.stop()
+
+
+def test_restore_flows_rpc_requires_a_target(tmp_path):
+    sock_path = tmp_path / "l7-revoke.sock"
+    state = RevokeState()
+    server = RevokeRpcServer(sock_path, state, get_active_flows=lambda: [])
+    server.start()
+    assert server.wait_ready(2) is True
+    try:
+        resp = _rpc_call(
+            sock_path,
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "mitmproxy.l7.restore_flows",
+                "params": {"reason": "lease granted"},
+            },
+        )
         assert "error" in resp
         assert resp["error"]["code"] == -32602  # Invalid params
     finally:
@@ -288,17 +379,11 @@ def test_revoke_flows_rpc_missing_host_patterns(tmp_path):
 
 
 def test_revoke_flows_rpc_invalid_json(tmp_path):
-    import json
-    import socket
-    import time
-
-    from l7_revoke_rpc import RevokeRpcServer
-
     sock_path = tmp_path / "l7-revoke.sock"
     state = RevokeState()
     server = RevokeRpcServer(sock_path, state, get_active_flows=lambda: [])
     server.start()
-    time.sleep(0.05)
+    assert server.wait_ready(2) is True
     try:
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
             s.settimeout(2)
@@ -311,3 +396,93 @@ def test_revoke_flows_rpc_invalid_json(tmp_path):
         assert resp["error"]["code"] == -32700  # Parse error
     finally:
         server.stop()
+
+
+# ---------------------------------------------------------------------------
+# Restore (un-revoke) state transitions
+# ---------------------------------------------------------------------------
+
+
+def test_clear_patterns_only_drops_named_patterns():
+    state = RevokeState()
+    state.apply_revoke(
+        host_patterns=["10.8.0.0/24", "api.example.com"],
+        close_policy="deny_new",
+        drain_seconds=None,
+        capability_ref="cap-reach-api",
+    )
+
+    assert state.clear_patterns(["api.example.com"]) == 1
+    assert state.is_host_revoked("api.example.com") is False
+    assert state.is_host_revoked("10.8.0.5") is True
+
+
+def test_clear_patterns_matches_literally_not_by_cidr_containment():
+    state = RevokeState()
+    state.apply_revoke(["10.8.0.0/24"], "deny_new", None, "cap-reach-api")
+
+    assert state.clear_patterns(["10.8.0.5"]) == 0
+    assert state.is_host_revoked("10.8.0.5") is True
+
+
+def test_clear_capability_drops_every_entry_for_that_ref():
+    state = RevokeState()
+    state.apply_revoke(["10.8.0.0/24"], "deny_new", None, "cap-reach-api")
+    state.apply_revoke(["peer.netbird.selfhosted"], "drain", None, "cap-reach-api")
+    state.apply_revoke(["other.example.com"], "deny_new", None, "cap-other")
+
+    assert state.clear_capability("cap-reach-api") == 2
+    assert state.is_host_revoked("10.8.0.5") is False
+    assert state.is_host_revoked("peer.netbird.selfhosted") is False
+    assert state.is_host_revoked("other.example.com") is True
+
+
+def test_restore_after_revoke_reallows_host():
+    state = RevokeState()
+    state.apply_revoke(["api.example.com"], "deny_new", None, "cap-reach-api")
+    assert state.is_host_revoked("api.example.com") is True
+
+    result = handle_restore_flows(state, {"capability_ref": "cap-reach-api"})
+
+    assert result["restored"] is True
+    assert result["cleared"] == 1
+    assert state.is_host_revoked("api.example.com") is False
+
+
+# ---------------------------------------------------------------------------
+# Flow tracking
+# ---------------------------------------------------------------------------
+
+
+def test_flow_tracker_registers_and_unregisters():
+    tracker = FlowTracker()
+    flow = MockFlow("api.example.com")
+
+    tracker.register(flow)
+    assert tracker.active() == [flow]
+
+    tracker.unregister(flow)
+    assert tracker.active() == []
+
+
+def test_flow_tracker_deduplicates_by_flow_id():
+    tracker = FlowTracker()
+    flow = MockFlow("api.example.com")
+    flow.id = "flow-1"
+
+    tracker.register(flow)
+    tracker.register(flow)
+
+    assert len(tracker) == 1
+
+
+def test_flow_tracker_unregister_is_idempotent():
+    tracker = FlowTracker()
+    flow = MockFlow("api.example.com")
+
+    tracker.unregister(flow)
+    tracker.register(flow)
+    tracker.unregister(flow)
+    tracker.unregister(flow)
+
+    assert tracker.active() == []
