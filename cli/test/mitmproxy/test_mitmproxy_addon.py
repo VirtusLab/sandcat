@@ -258,6 +258,40 @@ class TestNetworkRules:
         assert addon._is_request_allowed(None, "api.github.com.") is True
         assert addon._is_request_allowed("GET", "api.github.com.") is True
 
+    def test_enabled_false_skips_rule(self, addon_cls):
+        addon = addon_cls()
+        addon.network_rules = [
+            {"action": "allow", "host": "api.example.com", "enabled": False},
+            {"action": "allow", "host": "*"},
+        ]
+        # First rule skipped → falls through to allow *
+        assert addon._is_request_allowed("GET", "api.example.com") is True
+        addon.network_rules = [
+            {"action": "allow", "host": "api.example.com", "enabled": False},
+        ]
+        assert addon._is_request_allowed("GET", "api.example.com") is False
+
+    def test_enabled_true_matches_as_today(self, addon_cls):
+        addon = addon_cls()
+        addon.network_rules = [
+            {"action": "allow", "host": "api.example.com", "enabled": True},
+        ]
+        assert addon._is_request_allowed("GET", "api.example.com") is True
+
+    def test_enabled_absent_defaults_true(self, addon_cls):
+        addon = addon_cls()
+        addon.network_rules = [
+            {"action": "allow", "host": "api.example.com"},
+        ]
+        assert addon._is_request_allowed("GET", "api.example.com") is True
+
+    def test_enabled_false_skipped_in_host_allow_helper(self, addon_cls):
+        addon = addon_cls()
+        addon.network_rules = [
+            {"action": "allow", "host": "api.example.com", "enabled": False},
+        ]
+        assert addon._host_matches_network_allow_rule("api.example.com") is False
+
 
 # ---------------------------------------------------------------------------
 # Secret substitution — shared logic, parameterised over both variants.

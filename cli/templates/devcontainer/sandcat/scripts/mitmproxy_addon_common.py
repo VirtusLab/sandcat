@@ -536,6 +536,8 @@ class SandcatAddon:
     def _find_matching_rule(self, method: str | None, host: str) -> dict | None:
         host = host.lower().rstrip(".")
         for rule in self.network_rules:
+            if rule.get("enabled", True) is False:
+                continue
             if not fnmatch(host, rule["host"].lower()):
                 continue
             rule_method = rule.get("method")
@@ -551,6 +553,8 @@ class SandcatAddon:
     def _host_matches_network_allow_rule(self, host: str) -> bool:
         host = host.lower().rstrip(".")
         for rule in self.network_rules:
+            if rule.get("enabled", True) is False:
+                continue
             if rule.get("action") != "allow":
                 continue
             if fnmatch(host, rule["host"].lower()):
