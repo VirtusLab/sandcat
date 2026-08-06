@@ -65,17 +65,46 @@ teardown() {
 		"$COMPOSE_DIR/sandcat/compose-proxy.yml"
 }
 
-@test "enable_capability mounts mitmproxy-config into capability-runtime" {
+@test "enable_capability mounts l7-revoke-socket into capability-runtime" {
 	enable_capability "$COMPOSE_DIR"
-	run yq '[.services."capability-runtime".volumes[]? | select(test("mitmproxy-config")) ] | length' \
+	yq -e '.services."capability-runtime".volumes[] | select(. == "l7-revoke-socket:/run/sandcat-l7-revoke")' \
+		"$COMPOSE_DIR/sandcat/compose-capability.yml"
+}
+
+@test "enable_capability mounts l7-revoke-socket into mitmproxy" {
+	enable_capability "$COMPOSE_DIR"
+	yq -e '.services.mitmproxy.volumes[] | select(. == "l7-revoke-socket:/run/sandcat-l7-revoke")' \
+		"$COMPOSE_DIR/sandcat/compose-proxy.yml"
+	yq -e '.volumes | has("l7-revoke-socket")' "$COMPOSE_DIR/sandcat/compose-proxy.yml"
+}
+
+@test "enable_capability keeps l7-revoke-socket out of the agent" {
+	enable_capability "$COMPOSE_DIR"
+	run yq '[.services.agent.volumes[]? | select(test("l7-revoke-socket"))] | length' \
+		"$COMPOSE_DIR/compose-all.yml"
+	assert_success
+	assert_output "0"
+}
+
+@test "enable_capability keeps l7-revoke-socket out of wg-client" {
+	enable_capability "$COMPOSE_DIR"
+	run yq '[.services."wg-client".volumes[]? | select(test("l7-revoke-socket"))] | length' \
+		"$COMPOSE_DIR/sandcat/compose-proxy.yml"
+	assert_success
+	assert_output "0"
+}
+
+@test "enable_capability keeps the revoke socket off the agent-visible config volume" {
+	enable_capability "$COMPOSE_DIR"
+	run yq '[.services."capability-runtime".environment[]? | select(test("MITMPROXY_REVOKE_SOCKET=/mitmproxy-config"))] | length' \
 		"$COMPOSE_DIR/sandcat/compose-capability.yml"
 	assert_success
-	[[ "$output" != "0" ]]
+	assert_output "0"
 }
 
 @test "enable_capability sets MITMPROXY_REVOKE_SOCKET on capability-runtime" {
 	enable_capability "$COMPOSE_DIR"
-	yq -e '.services."capability-runtime".environment[] | select(. == "MITMPROXY_REVOKE_SOCKET=/mitmproxy-config/l7-revoke.sock")' \
+	yq -e '.services."capability-runtime".environment[] | select(. == "MITMPROXY_REVOKE_SOCKET=/run/sandcat-l7-revoke/l7-revoke.sock")' \
 		"$COMPOSE_DIR/sandcat/compose-capability.yml"
 }
 
@@ -92,23 +121,28 @@ teardown() {
 		"$COMPOSE_DIR/sandcat/compose-proxy.yml"
 }
 
-@test "enable_capability declares mitmproxy-config volume for capability-only projects" {
+@test "enable_capability declares l7-revoke-socket volume for capability-only projects" {
 	rm "$COMPOSE_DIR/sandcat/compose-proxy.yml"
 	enable_capability "$COMPOSE_DIR"
-	yq -e '.volumes | has("mitmproxy-config")' "$COMPOSE_DIR/sandcat/compose-capability.yml"
+	yq -e '.volumes | has("l7-revoke-socket")' "$COMPOSE_DIR/sandcat/compose-capability.yml"
 }
 
-@test "enable_capability declares mitmproxy-config volume exactly once" {
+@test "enable_capability declares l7-revoke-socket volume exactly once" {
 	enable_capability "$COMPOSE_DIR"
 	enable_capability "$COMPOSE_DIR"
-	run yq '[.volumes | keys[] | select(. == "mitmproxy-config")] | length' \
+	run yq '[.volumes | keys[] | select(. == "l7-revoke-socket")] | length' \
 		"$COMPOSE_DIR/sandcat/compose-capability.yml"
+	assert_success
+	assert_output "1"
+
+	run yq '[.services.mitmproxy.volumes[] | select(. == "l7-revoke-socket:/run/sandcat-l7-revoke")] | length' \
+		"$COMPOSE_DIR/sandcat/compose-proxy.yml"
 	assert_success
 	assert_output "1"
 }
 
 @test "enable_capability sets MITMPROXY_REVOKE_SOCKET on mitmproxy" {
 	enable_capability "$COMPOSE_DIR"
-	yq -e '.services.mitmproxy.environment[] | select(. == "MITMPROXY_REVOKE_SOCKET=/home/mitmproxy/.mitmproxy/l7-revoke.sock")' \
+	yq -e '.services.mitmproxy.environment[] | select(. == "MITMPROXY_REVOKE_SOCKET=/run/sandcat-l7-revoke/l7-revoke.sock")' \
 		"$COMPOSE_DIR/sandcat/compose-proxy.yml"
 }
