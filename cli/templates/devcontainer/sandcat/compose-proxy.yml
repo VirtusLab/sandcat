@@ -60,7 +60,13 @@ services:
       - ./scripts/mitmproxy_addon_common.py:/scripts/mitmproxy_addon_common.py:ro
       # Imported by mitmproxy_addon_common at load time, so it is mounted for
       # every project — the revoke RPC server itself only starts when the
-      # capability runtime sets MITMPROXY_REVOKE_SOCKET.
+      # capability runtime sets MITMPROXY_REVOKE_SOCKET. enable_capability then
+      # also injects the l7-revoke-socket volume here, shared with
+      # capability-runtime and with nothing else: keeping the socket off
+      # mitmproxy-config is what keeps it out of the agent, since mitmproxy and
+      # the agent's vscode user are both uid 1000 and mode 0600 would not
+      # separate them. That costs the PRD's "no new volume" constraint, which
+      # loses to story 11 (revoke path inaccessible to the agent).
       - ./scripts/l7_revoke_rpc.py:/scripts/l7_revoke_rpc.py:ro
       - ~/.config/sandcat/settings.json:/config/settings.json:ro
     healthcheck:

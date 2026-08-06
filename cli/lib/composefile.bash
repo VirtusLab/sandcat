@@ -464,22 +464,28 @@ enable_capability() {
 		yq -i '.services.agent.depends_on.capability-runtime.condition = "service_started"' "$compose_file"
 	fi
 
-	# capability-runtime mounts mitmproxy-config to reach the L7 revoke socket,
-	# so the volume must be declared here too: a capability-only project has no
-	# compose-proxy.yml to declare it.
+	# The L7 revoke socket gets its own volume, shared by capability-runtime and
+	# mitmproxy alone — never the agent, whose vscode user shares uid 1000 with
+	# mitmproxy and would therefore satisfy the socket's 0600 mode. Declared here
+	# as well because a capability-only project has no compose-proxy.yml.
 	local cap_compose="$compose_dir/sandcat/compose-capability.yml"
-	local has_mitm_vol
-	has_mitm_vol=$(yq '[.volumes | keys[]? | select(. == "mitmproxy-config")] | length' "$cap_compose")
-	if [[ "$has_mitm_vol" -eq 0 ]]; then
-		yq -i '.volumes.mitmproxy-config = {}' "$cap_compose"
+	local has_revoke_vol
+	has_revoke_vol=$(yq '[.volumes | keys[]? | select(. == "l7-revoke-socket")] | length' "$cap_compose")
+	if [[ "$has_revoke_vol" -eq 0 ]]; then
+		yq -i '.volumes.l7-revoke-socket = {}' "$cap_compose"
 	fi
 
 	local proxy_compose="$compose_dir/sandcat/compose-proxy.yml"
 	if [[ -f "$proxy_compose" ]]; then
-		local has_cap_vol
+		local has_cap_vol has_proxy_revoke_vol
 		has_cap_vol=$(yq '[.volumes | keys[]? | select(. == "capability-socket")] | length' "$proxy_compose")
 		if [[ "$has_cap_vol" -eq 0 ]]; then
 			yq -i '.volumes.capability-socket = {}' "$proxy_compose"
+		fi
+
+		has_proxy_revoke_vol=$(yq '[.volumes | keys[]? | select(. == "l7-revoke-socket")] | length' "$proxy_compose")
+		if [[ "$has_proxy_revoke_vol" -eq 0 ]]; then
+			yq -i '.volumes.l7-revoke-socket = {}' "$proxy_compose"
 		fi
 
 		local has_mitm_cap_vol has_l7_client has_l7_record has_mitm_agent_id
@@ -509,10 +515,15 @@ enable_capability() {
 			yq -i '.services.mitmproxy.environment = ((.services.mitmproxy.environment // []) + ["SANDCAT_AGENT_ID=devcontainer-agent"])' "$proxy_compose"
 		fi
 
-		local has_mitm_revoke_socket
-		has_mitm_revoke_socket=$(yq '[.services.mitmproxy.environment[]? | select(. == "MITMPROXY_REVOKE_SOCKET=/home/mitmproxy/.mitmproxy/l7-revoke.sock")] | length' "$proxy_compose")
+		local has_mitm_revoke_vol has_mitm_revoke_socket
+		has_mitm_revoke_vol=$(yq '[.services.mitmproxy.volumes[]? | select(. == "l7-revoke-socket:/run/sandcat-l7-revoke")] | length' "$proxy_compose")
+		if [[ "$has_mitm_revoke_vol" -eq 0 ]]; then
+			yq -i '.services.mitmproxy.volumes += ["l7-revoke-socket:/run/sandcat-l7-revoke"]' "$proxy_compose"
+		fi
+
+		has_mitm_revoke_socket=$(yq '[.services.mitmproxy.environment[]? | select(. == "MITMPROXY_REVOKE_SOCKET=/run/sandcat-l7-revoke/l7-revoke.sock")] | length' "$proxy_compose")
 		if [[ "$has_mitm_revoke_socket" -eq 0 ]]; then
-			yq -i '.services.mitmproxy.environment = ((.services.mitmproxy.environment // []) + ["MITMPROXY_REVOKE_SOCKET=/home/mitmproxy/.mitmproxy/l7-revoke.sock"])' "$proxy_compose"
+			yq -i '.services.mitmproxy.environment = ((.services.mitmproxy.environment // []) + ["MITMPROXY_REVOKE_SOCKET=/run/sandcat-l7-revoke/l7-revoke.sock"])' "$proxy_compose"
 		fi
 	fi
 
