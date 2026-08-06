@@ -171,6 +171,39 @@ def test_apply_close_to_flows_drain_deadline_kills_every_matching_flow():
     assert [flow.killed for flow in flows] == [True, True, True]
 
 
+def test_apply_close_to_flows_immediate_continues_past_a_failing_kill():
+    """One flow that refuses to die must not spare the rest of the matches."""
+    exploding = MockFlow("api.example.com")
+    exploding.kill = lambda: (_ for _ in ()).throw(RuntimeError("already closed"))
+    survivor = MockFlow("api.example.com")
+
+    apply_close_to_flows(
+        flows=[exploding, survivor],
+        host_patterns=["api.example.com"],
+        close_policy="immediate",
+        drain_seconds=None,
+    )
+
+    assert survivor.killed is True
+
+
+def test_drain_deadline_timer_skips_a_flow_whose_flag_was_cleared():
+    """The addon clears the flag when it drains a flow; the timer must respect that."""
+    flow = MockFlow("api.example.com")
+
+    apply_close_to_flows(
+        flows=[flow],
+        host_patterns=["api.example.com"],
+        close_policy="drain_deadline",
+        drain_seconds=0.1,
+    )
+    flow.metadata.pop("sandcat_l7_drain")
+
+    time.sleep(0.3)
+
+    assert flow.killed is False
+
+
 def test_apply_close_to_flows_multiple_patterns():
     """Test apply_close_to_flows works with multiple host patterns"""
     flow1 = MockFlow("api.example.com")
@@ -415,6 +448,43 @@ def test_clear_patterns_only_drops_named_patterns():
     assert state.clear_patterns(["api.example.com"]) == 1
     assert state.is_host_revoked("api.example.com") is False
     assert state.is_host_revoked("10.8.0.5") is True
+
+
+def test_clear_patterns_scoped_to_capability_spares_other_capabilities():
+    state = RevokeState()
+    state.apply_revoke(["10.8.0.0/24"], "deny_new", None, "cap-a")
+    state.apply_revoke(["10.8.0.0/24"], "deny_new", None, "cap-b")
+
+    assert state.clear_patterns(["10.8.0.0/24"], capability_ref="cap-a") == 1
+    assert state.is_host_revoked("10.8.0.5") is True
+
+    assert state.clear_patterns(["10.8.0.0/24"], capability_ref="cap-b") == 1
+    assert state.is_host_revoked("10.8.0.5") is False
+
+
+def test_restore_flows_scoped_to_capability_leaves_shared_cidr_revoked():
+    """Restoring cap-a must not lift cap-b's revoke of the same CIDR."""
+    state = RevokeState()
+    state.apply_revoke(["10.8.0.0/24"], "deny_new", None, "cap-a")
+    state.apply_revoke(["10.8.0.0/24"], "deny_new", None, "cap-b")
+
+    result = handle_restore_flows(
+        state,
+        {"host_patterns": ["10.8.0.0/24"], "capability_ref": "cap-a"},
+    )
+
+    assert result["restored"] is True
+    assert state.is_host_revoked("10.8.0.5") is True
+    assert [entry.capability_ref for entry in state.entries] == ["cap-b"]
+
+
+def test_clear_patterns_without_capability_ref_clears_every_entry():
+    state = RevokeState()
+    state.apply_revoke(["api.example.com"], "deny_new", None, "cap-a")
+    state.apply_revoke(["api.example.com"], "deny_new", None, "cap-b")
+
+    assert state.clear_patterns(["api.example.com"]) == 2
+    assert state.is_host_revoked("api.example.com") is False
 
 
 def test_clear_patterns_matches_literally_not_by_cidr_containment():
