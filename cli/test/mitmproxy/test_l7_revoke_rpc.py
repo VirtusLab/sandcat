@@ -211,7 +211,8 @@ def test_revoke_flows_rpc_updates_state(tmp_path):
             s.connect(str(sock_path))
             s.sendall((json.dumps(req) + "\n").encode())
             line = s.recv(65536)
-        resp = json.loads(line)
+        resp = json.loads(line.decode().strip())
+        assert line.endswith(b"\n")
         assert "result" in resp
         assert resp["result"]["revoked"] is True
         assert state.is_host_revoked("10.8.0.1") is True
@@ -243,7 +244,8 @@ def test_revoke_flows_rpc_unknown_method(tmp_path):
             s.connect(str(sock_path))
             s.sendall((json.dumps(req) + "\n").encode())
             line = s.recv(65536)
-        resp = json.loads(line)
+        resp = json.loads(line.decode().strip())
+        assert line.endswith(b"\n")
         assert "error" in resp
         assert resp["error"]["code"] == -32601  # Method not found
     finally:
@@ -277,8 +279,35 @@ def test_revoke_flows_rpc_missing_host_patterns(tmp_path):
             s.connect(str(sock_path))
             s.sendall((json.dumps(req) + "\n").encode())
             line = s.recv(65536)
-        resp = json.loads(line)
+        resp = json.loads(line.decode().strip())
+        assert line.endswith(b"\n")
         assert "error" in resp
         assert resp["error"]["code"] == -32602  # Invalid params
+    finally:
+        server.stop()
+
+
+def test_revoke_flows_rpc_invalid_json(tmp_path):
+    import json
+    import socket
+    import time
+
+    from l7_revoke_rpc import RevokeRpcServer
+
+    sock_path = tmp_path / "l7-revoke.sock"
+    state = RevokeState()
+    server = RevokeRpcServer(sock_path, state, get_active_flows=lambda: [])
+    server.start()
+    time.sleep(0.05)
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
+            s.settimeout(2)
+            s.connect(str(sock_path))
+            s.sendall(b"not json\n")
+            line = s.recv(65536)
+        resp = json.loads(line.decode().strip())
+        assert line.endswith(b"\n")
+        assert "error" in resp
+        assert resp["error"]["code"] == -32700  # Parse error
     finally:
         server.stop()
