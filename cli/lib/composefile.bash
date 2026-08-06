@@ -464,20 +464,22 @@ enable_capability() {
 		yq -i '.services.agent.depends_on.capability-runtime.condition = "service_started"' "$compose_file"
 	fi
 
+	# capability-runtime mounts mitmproxy-config to reach the L7 revoke socket,
+	# so the volume must be declared here too: a capability-only project has no
+	# compose-proxy.yml to declare it.
+	local cap_compose="$compose_dir/sandcat/compose-capability.yml"
+	local has_mitm_vol
+	has_mitm_vol=$(yq '[.volumes | keys[]? | select(. == "mitmproxy-config")] | length' "$cap_compose")
+	if [[ "$has_mitm_vol" -eq 0 ]]; then
+		yq -i '.volumes.mitmproxy-config = {}' "$cap_compose"
+	fi
+
 	local proxy_compose="$compose_dir/sandcat/compose-proxy.yml"
 	if [[ -f "$proxy_compose" ]]; then
 		local has_cap_vol
 		has_cap_vol=$(yq '[.volumes | keys[]? | select(. == "capability-socket")] | length' "$proxy_compose")
 		if [[ "$has_cap_vol" -eq 0 ]]; then
 			yq -i '.volumes.capability-socket = {}' "$proxy_compose"
-		fi
-
-		# Ensure mitmproxy-config volume is declared in compose-capability.yml for capability-only projects
-		local cap_compose="$compose_dir/sandcat/compose-capability.yml"
-		local has_mitm_vol
-		has_mitm_vol=$(yq '[.volumes | keys[]? | select(. == "mitmproxy-config")] | length' "$cap_compose")
-		if [[ "$has_mitm_vol" -eq 0 ]]; then
-			yq -i '.volumes.mitmproxy-config = {}' "$cap_compose"
 		fi
 
 		local has_mitm_cap_vol has_l7_client has_l7_record has_mitm_agent_id

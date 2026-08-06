@@ -58,6 +58,10 @@ services:
       - mitmproxy-config:/home/mitmproxy/.mitmproxy
       - ./scripts/__AGENT_MITM_ADDON__:/scripts/__AGENT_MITM_ADDON__:ro
       - ./scripts/mitmproxy_addon_common.py:/scripts/mitmproxy_addon_common.py:ro
+      # Imported by mitmproxy_addon_common at load time, so it is mounted for
+      # every project — the revoke RPC server itself only starts when the
+      # capability runtime sets MITMPROXY_REVOKE_SOCKET.
+      - ./scripts/l7_revoke_rpc.py:/scripts/l7_revoke_rpc.py:ro
       - ~/.config/sandcat/settings.json:/config/settings.json:ro
     healthcheck:
       # dns.conf is written (last) by the addon's load() hook and cleared by

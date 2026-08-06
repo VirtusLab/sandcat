@@ -84,7 +84,27 @@ teardown() {
 	run yq '[.services.mitmproxy.volumes[]? | select(test("l7_revoke_rpc")) ] | length' \
 		"$COMPOSE_DIR/sandcat/compose-proxy.yml"
 	assert_success
-	[[ "$output" != "0" ]]
+	assert_output "1"
+}
+
+@test "compose-proxy template mounts l7_revoke_rpc without enable_capability" {
+	yq -e '.services.mitmproxy.volumes[] | select(. == "./scripts/l7_revoke_rpc.py:/scripts/l7_revoke_rpc.py:ro")' \
+		"$COMPOSE_DIR/sandcat/compose-proxy.yml"
+}
+
+@test "enable_capability declares mitmproxy-config volume for capability-only projects" {
+	rm "$COMPOSE_DIR/sandcat/compose-proxy.yml"
+	enable_capability "$COMPOSE_DIR"
+	yq -e '.volumes | has("mitmproxy-config")' "$COMPOSE_DIR/sandcat/compose-capability.yml"
+}
+
+@test "enable_capability declares mitmproxy-config volume exactly once" {
+	enable_capability "$COMPOSE_DIR"
+	enable_capability "$COMPOSE_DIR"
+	run yq '[.volumes | keys[] | select(. == "mitmproxy-config")] | length' \
+		"$COMPOSE_DIR/sandcat/compose-capability.yml"
+	assert_success
+	assert_output "1"
 }
 
 @test "enable_capability sets MITMPROXY_REVOKE_SOCKET on mitmproxy" {
