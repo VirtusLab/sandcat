@@ -19,13 +19,19 @@ from capability_runtime.errors import (
     CapabilityUnknown,
     LeaseExpired,
 )
+from capability_runtime.l7_revoke_push import (
+    DEFAULT_REVOKE_SOCKET,
+    push_l7_restore,
+    push_l7_revocation,
+)
 from capability_runtime.lease import LeaseManager
 from capability_runtime.network import NetworkBinding, RevocationClosePolicy
 from capability_runtime.netbird_backend import NetBirdRevocationBackend
 from capability_runtime.netbird_client import NetBirdClient
-from capability_runtime.netbird_sync import grant_network_binding
+from capability_runtime.netbird_sync import grant_network_binding, revoke_network_binding
 from capability_runtime.observability import ObservabilityCollector
 from capability_runtime.policy import LeasePolicy, LeasePolicyNotFound, lease_policy_for, register_lease_policy
+from capability_runtime.revocation_close import host_patterns_for_binding, resolve_close_policy
 from capability_runtime.revoke import RevocationManager
 from capability_runtime.types import (
     AgentIdentity,
@@ -76,6 +82,27 @@ class CapabilityRuntime:
         # Register create_pr as DECLARED (invisible until leased)
         self.catalog.register("create_pr", CapabilityRef("cap-create-pr"), LifecycleState.DECLARED)
 
+    @property
+    def _revoke_socket(self) -> Path:
+        return self._l7_revoke_socket or DEFAULT_REVOKE_SOCKET
+
+    def _revoke_physical(
+        self, binding: NetworkBinding, reason: str
+    ) -> Exception | None:
+        """Disable the NetBird binding, returning the failure instead of raising.
+
+        Callers push the L7 revoke before re-raising: the two layers are
+        independent, so a NetBird outage must not also cost us the proxy-side
+        deny that would otherwise contain the capability.
+        """
+        if self._netbird_backend is None:
+            return None
+        try:
+            revoke_network_binding(self._netbird_backend, binding, reason)
+        except Exception as exc:
+            return exc
+        return None
+
     def _push_l7_for_binding(
         self,
         binding: NetworkBinding,
@@ -86,9 +113,6 @@ class CapabilityRuntime:
         cli_override: RevocationClosePolicy | None = None,
     ) -> None:
         """Push L7 revocation for a network binding."""
-        from capability_runtime.revocation_close import resolve_close_policy, host_patterns_for_binding
-        from capability_runtime.l7_revoke_push import push_l7_revocation, DEFAULT_REVOKE_SOCKET
-
         policy, drain_seconds = resolve_close_policy(
             catalog_policy=binding.revoke_close_policy,
             catalog_drain_seconds=binding.revoke_drain_seconds,
@@ -96,11 +120,12 @@ class CapabilityRuntime:
             cli_override=cli_override,
         )
         patterns = host_patterns_for_binding(binding)
-        socket_path = self._l7_revoke_socket or DEFAULT_REVOKE_SOCKET
-        # For IMMEDIATE policy, don't pass drain_seconds
-        final_drain_seconds = drain_seconds if policy != RevocationClosePolicy.IMMEDIATE else None
+        # An immediate close has no drain window, whatever the catalog says.
+        final_drain_seconds = (
+            None if policy is RevocationClosePolicy.IMMEDIATE else drain_seconds
+        )
         ok = push_l7_revocation(
-            socket_path=socket_path,
+            socket_path=self._revoke_socket,
             host_patterns=patterns,
             close_policy=policy,
             drain_seconds=final_drain_seconds,
@@ -119,16 +144,50 @@ class CapabilityRuntime:
         }
         if lease_id is not None:
             event["lease_id"] = lease_id
-        if drain_seconds is not None:
-            event["drain_seconds"] = drain_seconds
+        # Report what was pushed, not the catalog value it was resolved from:
+        # the trace is the only record of the window flows actually got.
+        if final_drain_seconds is not None:
+            event["final_drain_seconds"] = final_drain_seconds
+        self.observability.emit_capability_event(event)
+
+    def _push_l7_restore_for_binding(
+        self,
+        binding: NetworkBinding,
+        *,
+        reason: str,
+        trigger: str,
+        lease_id: str | None = None,
+    ) -> None:
+        """Clear any standing L7 revocation for a binding that is live again.
+
+        Without this a revoked capability stays denied at the proxy forever:
+        re-enabling the NetBird route restores L3 reachability, but mitmproxy
+        keeps answering 403 from its own revoke state.
+        """
+        patterns = host_patterns_for_binding(binding)
+        ok = push_l7_restore(
+            socket_path=self._revoke_socket,
+            host_patterns=patterns,
+            capability_ref=binding.capability_ref.value,
+            lease_id=lease_id,
+            reason=reason,
+            trigger=trigger,
+        )
+        event = {
+            "event": "l7_restore_push" if ok else "l7_restore_push_failed",
+            "capability_ref": binding.capability_ref.value,
+            "host_patterns": patterns,
+            "reason": reason,
+            "trigger": trigger,
+        }
+        if lease_id is not None:
+            event["lease_id"] = lease_id
         self.observability.emit_capability_event(event)
 
     def process_expired_network_leases(self, now: datetime | None = None) -> None:
         """Disable NetBird bindings for expired network leases (TTL hook)."""
         if self._netbird_backend is None:
             return
-
-        from capability_runtime.netbird_sync import revoke_network_binding
 
         if now is None:
             now = datetime.now(timezone.utc)
@@ -144,13 +203,6 @@ class CapabilityRuntime:
                     continue
                 try:
                     revoke_network_binding(self._netbird_backend, binding, "TTL expired")
-                    # Push L7 revocation after physical revoke
-                    self._push_l7_for_binding(
-                        binding,
-                        reason="TTL expired",
-                        trigger="ttl_expired",
-                        lease_id=lease_id.value
-                    )
                 except Exception:
                     self.observability.emit_capability_event(
                         {
@@ -161,6 +213,15 @@ class CapabilityRuntime:
                         }
                     )
                     continue
+                # Outside the try: the push is best-effort, and letting it
+                # report a physical sync failure would both misattribute the
+                # fault and skip the logical revoke below.
+                self._push_l7_for_binding(
+                    binding,
+                    reason="TTL expired",
+                    trigger="ttl_expired",
+                    lease_id=lease_id.value,
+                )
                 self.revocation_manager.revoke_by_lease(lease_id, "TTL expired")
                 self.catalog.set_state(lease.capability_ref, LifecycleState.EXPIRED)
                 self.observability.emit_capability_event(
@@ -390,23 +451,34 @@ class CapabilityRuntime:
         binding = self.catalog.get_network_binding(capability_ref)
         physical_sync_status = None
         
-        if binding is not None and self._netbird_backend is not None:
-            # Attempt to enable the binding via NetBird
-            try:
-                updated_binding = grant_network_binding(self._netbird_backend, binding)
-                # Update the binding in catalog if route_id changed
-                if updated_binding.route_id != binding.route_id:
-                    self.catalog.set_network_binding(capability_ref, updated_binding)
-                physical_sync_status = "enabled"
-            except Exception as e:
-                # Rollback on failure (fail closed)
-                # 1. Revoke the lease
-                self.lease_manager._leases.pop(decision.lease_id, None)
-                self.lease_manager._remaining_quota.pop(decision.lease_id, None)
-                # 2. Revert catalog state
-                self.catalog.set_state(capability_ref, original_state)
-                # Re-raise the exception
-                raise
+        if binding is not None:
+            if self._netbird_backend is not None:
+                # Attempt to enable the binding via NetBird
+                try:
+                    updated_binding = grant_network_binding(self._netbird_backend, binding)
+                    # Update the binding in catalog if route_id changed
+                    if updated_binding.route_id != binding.route_id:
+                        self.catalog.set_network_binding(capability_ref, updated_binding)
+                        binding = updated_binding
+                    physical_sync_status = "enabled"
+                except Exception:
+                    # Rollback on failure (fail closed)
+                    # 1. Revoke the lease
+                    self.lease_manager._leases.pop(decision.lease_id, None)
+                    self.lease_manager._remaining_quota.pop(decision.lease_id, None)
+                    # 2. Revert catalog state
+                    self.catalog.set_state(capability_ref, original_state)
+                    # Re-raise the exception
+                    raise
+
+            # The proxy still denies whatever an earlier revoke pushed, so a
+            # re-granted lease is only usable once that state is cleared.
+            self._push_l7_restore_for_binding(
+                binding,
+                reason=justification,
+                trigger="lease_granted",
+                lease_id=decision.lease_id.value,
+            )
 
         # Emit appropriate event
         if physical_sync_status == "enabled":
@@ -457,20 +529,20 @@ class CapabilityRuntime:
             if lease is not None:
                 capability_ref_value = lease.capability_ref.value
                 binding = self.catalog.get_network_binding(lease.capability_ref)
-                if binding is not None and self._netbird_backend is not None:
-                    from capability_runtime.netbird_sync import revoke_network_binding
-
-                    revoke_network_binding(self._netbird_backend, binding, reason)
-                    physical_sync = "disabled"
-                    physical_revocation = True
-                    # Push L7 revocation after physical revoke
+                if binding is not None:
+                    physical_error = self._revoke_physical(binding, reason)
+                    if physical_error is None and self._netbird_backend is not None:
+                        physical_sync = "disabled"
+                        physical_revocation = True
                     self._push_l7_for_binding(
-                        binding, 
-                        reason=reason, 
+                        binding,
+                        reason=reason,
                         trigger=trigger,
                         lease_id=target.value,
-                        cli_override=close_policy
+                        cli_override=close_policy,
                     )
+                    if physical_error is not None:
+                        raise physical_error
             self.revocation_manager.revoke_by_lease(target, reason)
             self._bundle_version += 1
             event: dict[str, object] = {
@@ -488,19 +560,19 @@ class CapabilityRuntime:
             # Check if this is a network capability
             binding = self.catalog.get_network_binding(target)
             physical_sync: str | None = None
-            if binding is not None and self._netbird_backend is not None:
-                from capability_runtime.netbird_sync import revoke_network_binding
-
-                revoke_network_binding(self._netbird_backend, binding, reason)
-                physical_sync = "disabled"
-                physical_revocation = True
-                # Push L7 revocation after physical revoke
+            if binding is not None:
+                physical_error = self._revoke_physical(binding, reason)
+                if physical_error is None and self._netbird_backend is not None:
+                    physical_sync = "disabled"
+                    physical_revocation = True
                 self._push_l7_for_binding(
                     binding,
                     reason=reason,
                     trigger=trigger,
-                    cli_override=close_policy
+                    cli_override=close_policy,
                 )
+                if physical_error is not None:
+                    raise physical_error
 
             # Perform logical revocation
             self.revocation_manager.revoke_by_ref(target, reason)
@@ -588,18 +660,17 @@ class CapabilityRuntime:
             if lease is not None:
                 # Check if this is a network capability that needs physical sync
                 binding = self.catalog.get_network_binding(lease.capability_ref)
-                if binding is not None and self._netbird_backend is not None:
-                    # Disable the binding via NetBird
-                    from capability_runtime.netbird_sync import revoke_network_binding
-                    revoke_network_binding(self._netbird_backend, binding, "quota exhausted")
-                    # Push L7 revocation after physical revoke
+                if binding is not None:
+                    physical_error = self._revoke_physical(binding, "quota exhausted")
                     self._push_l7_for_binding(
                         binding,
                         reason="quota exhausted",
                         trigger="quota_exhausted",
-                        lease_id=lease_id.value
+                        lease_id=lease_id.value,
                     )
-                
+                    if physical_error is not None:
+                        raise physical_error
+
                 self.catalog.set_state(lease.capability_ref, LifecycleState.EXPIRED)
                 self.revocation_manager.revoke_by_lease(lease_id, "quota exhausted")
                 self._bundle_version += 1

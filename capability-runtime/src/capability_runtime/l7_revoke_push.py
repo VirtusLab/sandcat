@@ -14,6 +14,30 @@ DEFAULT_REVOKE_SOCKET = Path(
 )
 
 
+def _push(
+    *,
+    socket_path: Path,
+    method: str,
+    params: dict,
+    timeout: float,
+) -> bool:
+    """Best-effort JSON-RPC push to mitmproxy. Never raises.
+
+    The proxy may be absent, restarting, or running without the revoke addon;
+    none of those may abort the caller's revoke or grant, which stand on their
+    own at the network layer.
+    """
+    try:
+        resp = UnixRpcClient(socket_path, timeout=timeout).call(method, params)
+    except Exception as exc:
+        logger.warning("L7 push %s failed: %r", method, exc)
+        return False
+    if "error" in resp:
+        logger.warning("L7 push %s RPC error: %s", method, resp["error"])
+        return False
+    return True
+
+
 def push_l7_revocation(
     *,
     socket_path: Path,
@@ -37,14 +61,37 @@ def push_l7_revocation(
         params["capability_ref"] = capability_ref
     if lease_id is not None:
         params["lease_id"] = lease_id
-    try:
-        resp = UnixRpcClient(socket_path, timeout=timeout).call(
-            "mitmproxy.l7.revoke_flows", params
-        )
-    except OSError as exc:
-        logger.warning("L7 revoke push failed: %s", exc)
-        return False
-    if "error" in resp:
-        logger.warning("L7 revoke push RPC error: %s", resp["error"])
-        return False
-    return True
+    return _push(
+        socket_path=socket_path,
+        method="mitmproxy.l7.revoke_flows",
+        params=params,
+        timeout=timeout,
+    )
+
+
+def push_l7_restore(
+    *,
+    socket_path: Path,
+    host_patterns: list[str],
+    capability_ref: str | None,
+    lease_id: str | None,
+    reason: str,
+    trigger: str,
+    timeout: float = 0.5,
+) -> bool:
+    """Clear a previous revoke push so a re-granted capability is reachable."""
+    params = {
+        "host_patterns": host_patterns,
+        "reason": reason,
+        "trigger": trigger,
+    }
+    if capability_ref is not None:
+        params["capability_ref"] = capability_ref
+    if lease_id is not None:
+        params["lease_id"] = lease_id
+    return _push(
+        socket_path=socket_path,
+        method="mitmproxy.l7.restore_flows",
+        params=params,
+        timeout=timeout,
+    )
