@@ -39,6 +39,14 @@ class RevokeEntry:
 
 @dataclass
 class RevokeState:
+    """The proxy-side deny set, held only in memory.
+
+    A mitmproxy restart therefore drops every pushed revocation. Where NetBird
+    is configured the L3 route stays disabled and remains the authoritative
+    backstop; without NetBird a restart silently clears L7 enforcement, and the
+    capability runtime has to push again for the deny to take effect.
+    """
+
     entries: list[RevokeEntry] = field(default_factory=list)
     _lock: threading.Lock = field(
         default_factory=threading.Lock, repr=False, compare=False
@@ -58,18 +66,27 @@ class RevokeState:
                 )
             )
 
-    def clear_patterns(self, host_patterns: list[str]) -> int:
-        """Drop the given patterns from every entry; returns entries touched.
+    def clear_patterns(
+        self, host_patterns: list[str], capability_ref: str | None = None
+    ) -> int:
+        """Drop the given patterns from matching entries; returns entries touched.
 
         Patterns are matched literally (after case/trailing-dot normalization),
         not by CIDR containment: a restore must undo exactly what a revoke
         pushed, never a broader or narrower range.
+
+        When ``capability_ref`` is given, only that capability's entries are
+        touched. Two capabilities can revoke the same host or CIDR, and
+        restoring one of them must not lift the other's deny.
         """
         wanted = {_normalize_pattern(p) for p in host_patterns}
         kept: list[RevokeEntry] = []
         touched = 0
         with self._lock:
             for entry in self.entries:
+                if capability_ref is not None and entry.capability_ref != capability_ref:
+                    kept.append(entry)
+                    continue
                 remaining = [
                     p for p in entry.host_patterns if _normalize_pattern(p) not in wanted
                 ]
@@ -163,6 +180,26 @@ def flow_host(flow: FlowLike) -> str:
     return ""
 
 
+logger = logging.getLogger(__name__)
+
+
+def _kill_flow(flow: FlowLike) -> bool:
+    """Kill one flow, swallowing its failure. Returns whether the kill landed.
+
+    Known limitation: this runs on the RPC server thread (or on a deadline
+    timer thread), not on mitmproxy's event loop, so ``kill()`` races whatever
+    the loop is doing with the same flow. A flow that has already finished, or
+    that the loop tears down concurrently, raises — and one such flow must not
+    leave the rest of a revoke's matches open.
+    """
+    try:
+        flow.kill()
+    except Exception as exc:
+        logger.warning("Could not kill flow to %s: %r", flow_host(flow), exc)
+        return False
+    return True
+
+
 def apply_close_to_flows(
     flows: list[FlowLike],
     host_patterns: list[str],
@@ -178,7 +215,7 @@ def apply_close_to_flows(
     
     if close_policy == "immediate":
         for flow in matching_flows:
-            flow.kill()
+            _kill_flow(flow)
     elif close_policy in ("drain", "drain_deadline"):
         for flow in matching_flows:
             flow.metadata["sandcat_l7_drain"] = True
@@ -194,12 +231,13 @@ def apply_close_to_flows(
 
 
 def _kill_if_still_open(flow: FlowLike) -> None:
-    """Helper to kill flow if it's still draining after deadline"""
+    """Kill a draining flow once its deadline passes, if it is still open.
+
+    The addon clears ``sandcat_l7_drain`` when it kills the flow at the end of
+    ``response()``, so a flow that already drained cleanly makes this a no-op.
+    """
     if flow.metadata.get("sandcat_l7_drain"):
-        flow.kill()
-
-
-logger = logging.getLogger(__name__)
+        _kill_flow(flow)
 
 
 def handle_revoke_flows(state: RevokeState, params: dict, get_active_flows: Callable) -> dict:
@@ -243,6 +281,9 @@ def handle_restore_flows(state: RevokeState, params: dict) -> dict:
 
     Undoes a previous revoke push so a re-granted lease is reachable again.
     Already-closed flows are not resurrected; only the deny state is dropped.
+
+    A ``capability_ref`` scopes the restore to that capability's own entries, so
+    re-granting one capability cannot lift another's revoke of a shared host.
     """
     patterns = params.get("host_patterns") or []
     capability_ref = params.get("capability_ref")
@@ -255,7 +296,7 @@ def handle_restore_flows(state: RevokeState, params: dict) -> dict:
     if capability_ref is not None:
         cleared += state.clear_capability(capability_ref)
     if patterns:
-        cleared += state.clear_patterns(patterns)
+        cleared += state.clear_patterns(patterns, capability_ref=capability_ref)
 
     logger.info(
         "restore_flows: capability_ref=%r reason=%r trigger=%r host_patterns=%r cleared=%d",
