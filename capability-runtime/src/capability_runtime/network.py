@@ -13,6 +13,13 @@ class SyncMode(StrEnum):
     PEER_REMOVE = "peer_remove"  # break-glass; Phase 3 compat
 
 
+class RevocationClosePolicy(StrEnum):
+    IMMEDIATE = "immediate"
+    DRAIN = "drain"
+    DRAIN_DEADLINE = "drain_deadline"
+    DENY_NEW = "deny_new"
+
+
 @dataclass
 class NetworkBinding:
     capability_ref: CapabilityRef
@@ -21,6 +28,9 @@ class NetworkBinding:
     route_id: str | None
     sync_mode: SyncMode = field(default=SyncMode.ROUTE_ENABLE)
     dns_label: str | None = field(default=None)
+    peer_hostname: str | None = field(default=None)
+    revoke_close_policy: RevocationClosePolicy | None = field(default=None)
+    revoke_drain_seconds: int | None = field(default=None)
 
 
 def sync_mode_from_catalog(entry: dict[str, Any]) -> SyncMode:
