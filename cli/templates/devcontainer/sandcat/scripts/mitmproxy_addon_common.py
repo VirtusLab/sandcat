@@ -125,6 +125,8 @@ class SandcatAddon:
         self.dns_servers: list[str] = []  # custom upstream DNS for wg-client
         self.debug_enabled = False  # subclasses may flip this in _on_settings_merged
         self._pass_cli_logged_in = False  # True only after a successful pass-cli login
+        # In-memory only: a proxy restart drops the pushed L7 deny set. See
+        # RevokeState for why NetBird (when configured) is the backstop.
         self._revoke_state = RevokeState()
         self._flow_tracker = FlowTracker()
         self._revoke_server = None  # RevokeRpcServer instance
@@ -912,7 +914,9 @@ class SandcatAddon:
 
         # mitmproxy has already delivered the response body by the time
         # response() runs, so kill-after-hook approximates "finish response then close."
-        if flow.metadata.get("sandcat_l7_drain"):
+        # Clearing the flag first makes any drain_deadline timer still pending
+        # for this flow a no-op, instead of killing it a second time.
+        if flow.metadata.pop("sandcat_l7_drain", None):
             flow.kill()
             ctx.log.info(f"L7 drain complete: killed flow to {flow.request.pretty_host}")
 

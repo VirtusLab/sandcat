@@ -108,6 +108,7 @@ sys.path.insert(0, _SCRIPTS_DIR)
 common = importlib.import_module("mitmproxy_addon_common")
 claude_mod = importlib.import_module("mitmproxy_addon_claude")
 cursor_mod = importlib.import_module("mitmproxy_addon_cursor")
+l7_revoke_rpc = importlib.import_module("l7_revoke_rpc")
 
 ClaudeAddon = claude_mod.SandcatAddon
 CursorAddon = cursor_mod.SandcatAddon
@@ -883,6 +884,21 @@ class TestIntegration:
                 addon.response(flow)
 
         assert call_order == ["record", "kill"]
+        flow.kill.assert_called_once()
+
+    def test_response_drain_clears_flag_so_deadline_timer_is_a_noop(self, addon_cls):
+        """A drained flow must not be killed a second time by its deadline timer."""
+        addon = addon_cls()
+        addon.network_rules = [{"action": "allow", "host": "*"}]
+        flow = _make_flow(host="api.example.com", method="GET")
+        flow.response = types.SimpleNamespace(status_code=200)
+        flow.metadata = {"sandcat_l7_drain": True}
+        flow.kill = MagicMock()
+
+        addon.response(flow)
+
+        assert "sandcat_l7_drain" not in flow.metadata
+        l7_revoke_rpc._kill_if_still_open(flow)
         flow.kill.assert_called_once()
 
 
