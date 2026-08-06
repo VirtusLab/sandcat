@@ -141,9 +141,11 @@ capability_lease() {
 # Args:
 #   --ref <capability-ref|lease-id>  Revoke target (required)
 #   --reason <text>                  Revocation reason (required)
+#   --close-policy <policy>          Optional close policy override
 capability_revoke() {
 	local target=""
 	local reason=""
+	local close_policy=""
 
 	while [[ $# -gt 0 ]]; do
 		case $1 in
@@ -161,6 +163,14 @@ capability_revoke() {
 				return 1
 			fi
 			reason="$2"
+			shift 2
+			;;
+		--close-policy)
+			if [[ $# -lt 2 || "$2" == --* ]]; then
+				echo "Option --close-policy requires a value" | error
+				return 1
+			fi
+			close_policy="$2"
 			shift 2
 			;;
 		*)
@@ -182,9 +192,15 @@ capability_revoke() {
 	local project_dir
 	project_dir=$(capability_project_dir) || return 1
 
-	capability_compose_exec "$project_dir" capability.revoke \
-		--ref "$target" \
+	local -a exec_args=(
+		"$project_dir" capability.revoke
+		--ref "$target"
 		--reason "$reason"
+	)
+	if [[ -n "$close_policy" ]]; then
+		exec_args+=(--close-policy "$close_policy")
+	fi
+	capability_compose_exec "${exec_args[@]}"
 }
 
 # Operator watch: foreground capability.watch.poll loop with JSON log lines.

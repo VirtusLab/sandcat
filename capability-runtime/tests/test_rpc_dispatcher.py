@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from capability_runtime.catalog import LifecycleState
+from capability_runtime.network import RevocationClosePolicy
 from capability_runtime.runtime import CapabilityRuntime
 from capability_runtime.rpc.dispatcher import RpcDispatcher
 from capability_runtime.types import AgentIdentity, CapabilityRef
@@ -52,6 +53,47 @@ def test_agent_check_injects_agent_id(runtime):
     spy.assert_called_once()
     call_agent_id = spy.call_args[0][0]
     assert call_agent_id == AgentIdentity("devcontainer-agent")
+
+
+def test_admin_revoke_forwards_close_policy_to_runtime(runtime):
+    dispatcher = RpcDispatcher(runtime, surface="admin", bound_agent_id="operator")
+    with patch.object(runtime, "revoke_capability", wraps=runtime.revoke_capability) as spy:
+        response = dispatcher.handle(
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "capability.revoke",
+                "params": {
+                    "target": "cap-create-pr",
+                    "reason": "emergency",
+                    "close_policy": "immediate",
+                },
+            }
+        )
+    assert "result" in response
+    assert response["result"] == {"revoked": True}
+    spy.assert_called_once()
+    _, kwargs = spy.call_args
+    assert kwargs["close_policy"] == RevocationClosePolicy.IMMEDIATE
+    assert kwargs["trigger"] == "operator"
+
+
+def test_admin_revoke_rejects_invalid_close_policy(runtime):
+    dispatcher = RpcDispatcher(runtime, surface="admin", bound_agent_id="operator")
+    response = dispatcher.handle(
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "capability.revoke",
+            "params": {
+                "target": "cap-create-pr",
+                "reason": "x",
+                "close_policy": "not-a-policy",
+            },
+        }
+    )
+    assert "error" in response
+    assert response["error"]["code"] == -32602
 
 
 def test_admin_surface_allows_revoke(runtime):

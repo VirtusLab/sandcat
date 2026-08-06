@@ -55,6 +55,15 @@ teardown() {
 	assert_output --partial "capability.revoke"
 }
 
+@test "capability revoke forwards --close-policy to compose exec" {
+	capability_compose_exec() { echo "EXEC $*"; }
+	export -f capability_compose_exec
+	run capability_revoke --ref cap-reach-api --reason policy --close-policy immediate
+	assert_success
+	assert_output --partial "capability.revoke"
+	assert_output --partial "--close-policy immediate"
+}
+
 @test "capability watch execs into capability-runtime container" {
 	capability_compose_exec() { echo "EXEC $*"; }
 	export -f capability_compose_exec
