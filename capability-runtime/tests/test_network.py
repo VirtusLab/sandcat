@@ -102,6 +102,17 @@ class _StubBackend:
         pass
 
 
+def test_network_binding_close_policy_defaults_none():
+    binding = NetworkBinding(
+        CapabilityRef("cap-reach-api"),
+        "peer-abc",
+        "10.8.0.0/24",
+        None,
+    )
+    assert binding.revoke_close_policy is None
+    assert binding.revoke_drain_seconds is None
+
+
 def test_physical_revocation_backend_protocol_includes_grant_and_revoke_binding():
     backend: PhysicalRevocationBackend = _StubBackend()
     binding = NetworkBinding(
