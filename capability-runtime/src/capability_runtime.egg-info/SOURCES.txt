@@ -7,6 +7,7 @@ src/capability_runtime/cli.py
 src/capability_runtime/daemon.py
 src/capability_runtime/discover.py
 src/capability_runtime/errors.py
+src/capability_runtime/l7_record.py
 src/capability_runtime/lease.py
 src/capability_runtime/mcp_adapter.py
 src/capability_runtime/netbird_backend.py
@@ -35,10 +36,12 @@ src/capability_runtime/rpc/transports/stdio_bridge.py
 src/capability_runtime/rpc/transports/unix.py
 tests/test_agent_loop.py
 tests/test_catalog.py
+tests/test_catalog_lease_policy.py
 tests/test_daemon_integration.py
 tests/test_discover.py
 tests/test_errors.py
 tests/test_grant_revoke_integration.py
+tests/test_l7_record.py
 tests/test_lease.py
 tests/test_mcp_adapter.py
 tests/test_mcp_bridge.py
@@ -51,8 +54,12 @@ tests/test_observability.py
 tests/test_poc_create_pr.py
 tests/test_poc_network_route.py
 tests/test_policy.py
+tests/test_re_lease_after_revoke.py
+tests/test_resolve_dns_label.py
 tests/test_revoke.py
+tests/test_revoke_by_lease_network.py
 tests/test_route_watcher.py
+tests/test_route_watcher_routes.py
 tests/test_rpc_dispatcher.py
 tests/test_rpc_unix.py
 tests/test_runtime.py
