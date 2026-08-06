@@ -14,7 +14,7 @@ from pathlib import Path
 from capability_runtime.catalog import LifecycleState
 from capability_runtime.policy import LeasePolicy
 from capability_runtime.netbird_client import MockNetBirdClient, NetBirdClient, RestNetBirdClient
-from capability_runtime.network import NetworkBinding, sync_mode_from_catalog
+from capability_runtime.network import NetworkBinding, RevocationClosePolicy, sync_mode_from_catalog
 from capability_runtime.rpc.dispatcher import RpcDispatcher
 from capability_runtime.rpc.transports.unix import UnixRpcServer
 from capability_runtime.route_watcher import RouteDisappearanceWatcher
@@ -99,13 +99,19 @@ def load_catalog_into_runtime(runtime: CapabilityRuntime, catalog_path: Path) ->
                     "placeholder",
                 }:
                     route_id = None
+            raw_policy = entry.get("revoke_close_policy")
+            close_policy = RevocationClosePolicy(raw_policy) if raw_policy else None
+            drain_seconds = entry.get("revoke_drain_seconds")
             binding = NetworkBinding(
                 ref,
-                entry["peer_id"],
+                entry.get("peer_id", ""),
                 entry["network"],
                 route_id,
                 sync_mode_from_catalog(entry),
                 dns_label=entry.get("dns_label") or None,
+                peer_hostname=entry.get("peer_hostname") or None,
+                revoke_close_policy=close_policy,
+                revoke_drain_seconds=int(drain_seconds) if drain_seconds is not None else None,
             )
             runtime.register_network_capability(
                 name,
