@@ -64,3 +64,31 @@ teardown() {
 	yq -e '.services.mitmproxy.environment[] | select(. == "SANDCAT_AGENT_ID=devcontainer-agent")' \
 		"$COMPOSE_DIR/sandcat/compose-proxy.yml"
 }
+
+@test "enable_capability mounts mitmproxy-config into capability-runtime" {
+	enable_capability "$COMPOSE_DIR"
+	run yq '[.services."capability-runtime".volumes[]? | select(test("mitmproxy-config")) ] | length' \
+		"$COMPOSE_DIR/sandcat/compose-capability.yml"
+	assert_success
+	[[ "$output" != "0" ]]
+}
+
+@test "enable_capability sets MITMPROXY_REVOKE_SOCKET on capability-runtime" {
+	enable_capability "$COMPOSE_DIR"
+	yq -e '.services."capability-runtime".environment[] | select(. == "MITMPROXY_REVOKE_SOCKET=/mitmproxy-config/l7-revoke.sock")' \
+		"$COMPOSE_DIR/sandcat/compose-capability.yml"
+}
+
+@test "enable_capability mounts l7_revoke_rpc into mitmproxy" {
+	enable_capability "$COMPOSE_DIR"
+	run yq '[.services.mitmproxy.volumes[]? | select(test("l7_revoke_rpc")) ] | length' \
+		"$COMPOSE_DIR/sandcat/compose-proxy.yml"
+	assert_success
+	[[ "$output" != "0" ]]
+}
+
+@test "enable_capability sets MITMPROXY_REVOKE_SOCKET on mitmproxy" {
+	enable_capability "$COMPOSE_DIR"
+	yq -e '.services.mitmproxy.environment[] | select(. == "MITMPROXY_REVOKE_SOCKET=/home/mitmproxy/.mitmproxy/l7-revoke.sock")' \
+		"$COMPOSE_DIR/sandcat/compose-proxy.yml"
+}

@@ -472,6 +472,14 @@ enable_capability() {
 			yq -i '.volumes.capability-socket = {}' "$proxy_compose"
 		fi
 
+		# Ensure mitmproxy-config volume is declared in compose-capability.yml for capability-only projects
+		local cap_compose="$compose_dir/sandcat/compose-capability.yml"
+		local has_mitm_vol
+		has_mitm_vol=$(yq '[.volumes | keys[]? | select(. == "mitmproxy-config")] | length' "$cap_compose")
+		if [[ "$has_mitm_vol" -eq 0 ]]; then
+			yq -i '.volumes.mitmproxy-config = {}' "$cap_compose"
+		fi
+
 		local has_mitm_cap_vol has_l7_client has_l7_record has_mitm_agent_id
 		has_mitm_cap_vol=$(yq '[.services.mitmproxy.volumes[]? | select(. == "capability-socket:/run/sandcat-capability")] | length' "$proxy_compose")
 		if [[ "$has_mitm_cap_vol" -eq 0 ]]; then
@@ -483,6 +491,12 @@ enable_capability() {
 			yq -i '.services.mitmproxy.volumes += ["./scripts/l7_record_client.py:/scripts/l7_record_client.py:ro"]' "$proxy_compose"
 		fi
 
+		local has_l7_revoke
+		has_l7_revoke=$(yq '[.services.mitmproxy.volumes[]? | select(. == "./scripts/l7_revoke_rpc.py:/scripts/l7_revoke_rpc.py:ro")] | length' "$proxy_compose")
+		if [[ "$has_l7_revoke" -eq 0 ]]; then
+			yq -i '.services.mitmproxy.volumes += ["./scripts/l7_revoke_rpc.py:/scripts/l7_revoke_rpc.py:ro"]' "$proxy_compose"
+		fi
+
 		has_l7_record=$(yq '[.services.mitmproxy.environment[]? | select(. == "CAPABILITY_L7_RECORD")] | length' "$proxy_compose")
 		if [[ "$has_l7_record" -eq 0 ]]; then
 			yq -i '.services.mitmproxy.environment = ((.services.mitmproxy.environment // []) + ["CAPABILITY_L7_RECORD"])' "$proxy_compose"
@@ -491,6 +505,12 @@ enable_capability() {
 		has_mitm_agent_id=$(yq '[.services.mitmproxy.environment[]? | select(. == "SANDCAT_AGENT_ID=devcontainer-agent")] | length' "$proxy_compose")
 		if [[ "$has_mitm_agent_id" -eq 0 ]]; then
 			yq -i '.services.mitmproxy.environment = ((.services.mitmproxy.environment // []) + ["SANDCAT_AGENT_ID=devcontainer-agent"])' "$proxy_compose"
+		fi
+
+		local has_mitm_revoke_socket
+		has_mitm_revoke_socket=$(yq '[.services.mitmproxy.environment[]? | select(. == "MITMPROXY_REVOKE_SOCKET=/home/mitmproxy/.mitmproxy/l7-revoke.sock")] | length' "$proxy_compose")
+		if [[ "$has_mitm_revoke_socket" -eq 0 ]]; then
+			yq -i '.services.mitmproxy.environment = ((.services.mitmproxy.environment // []) + ["MITMPROXY_REVOKE_SOCKET=/home/mitmproxy/.mitmproxy/l7-revoke.sock"])' "$proxy_compose"
 		fi
 	fi
 
