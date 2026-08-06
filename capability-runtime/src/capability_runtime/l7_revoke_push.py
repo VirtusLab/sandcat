@@ -9,8 +9,10 @@ from capability_runtime.rpc.transports.unix import UnixRpcClient
 
 logger = logging.getLogger(__name__)
 
+# Lives on the l7-revoke-socket volume, which only mitmproxy and this runtime
+# mount — see compose-capability.yml for why it is not on mitmproxy-config.
 DEFAULT_REVOKE_SOCKET = Path(
-    os.environ.get("MITMPROXY_REVOKE_SOCKET", "/mitmproxy-config/l7-revoke.sock")
+    os.environ.get("MITMPROXY_REVOKE_SOCKET", "/run/sandcat-l7-revoke/l7-revoke.sock")
 )
 
 
