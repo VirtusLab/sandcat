@@ -13,7 +13,7 @@ teardown() {
 
 @test "stack_devbox_packages returns package specs for each stack" {
 	run stack_devbox_packages node
-	assert_output "nodejs@lts"
+	assert_output "nodejs"
 
 	run stack_devbox_packages python
 	assert_output "python@latest"

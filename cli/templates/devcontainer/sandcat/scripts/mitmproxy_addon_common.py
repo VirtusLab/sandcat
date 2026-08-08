@@ -52,6 +52,12 @@ from fnmatch import fnmatch
 from mitmproxy import ctx, dns, http
 
 _VALID_ENV_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+# RFC-1123 label / RFC-2181 length. Trailing dot is stripped before validation
+# so `nexus.corp.` normalises to `nexus.corp`.
+_VALID_HOSTNAME = re.compile(
+    r"^(?=.{1,253}$)[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?"
+    r"(\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$"
+)
 
 # Settings layers, lowest to highest precedence.
 SETTINGS_PATHS = [
@@ -65,6 +71,11 @@ CURSOR_CLI_CONFIG_PATH = "/home/mitmproxy/.mitmproxy/cursor-cli-config.json"
 # One IPv4/IPv6 address per line; empty or missing file means "use defaults".
 # (glibc/musl resolvers reject hostnames in `nameserver` directives.)
 SANDCAT_DNS_CONF_PATH = "/home/mitmproxy/.mitmproxy/dns.conf"
+# Sidecar file consumed by wg-client-init.sh. `IP<TAB>hostname` per line.
+# ALWAYS written by the addon (empty file when nothing configured) so
+# wg-client-init treats file-existence as authoritative and can clean out
+# stale entries from previous runs.
+EXTRA_HOSTS_PATH = "/home/mitmproxy/.mitmproxy/extra_hosts"
 
 logger = logging.getLogger(__name__)
 
@@ -111,6 +122,9 @@ class SandcatAddon:
             # signals "addon has loaded" for the mitmproxy healthcheck.
             self._write_dns_conf()
             self._write_cursor_cli_config({})
+            # Truncate extra_hosts too, so a stale file from a previous run
+            # doesn't leak entries into /etc/hosts when the addon is disabled.
+            self._write_extra_hosts({})
             logger.info("No settings files found — addon disabled")
             return
 
@@ -132,6 +146,7 @@ class SandcatAddon:
         self._write_placeholders_env()
         self._write_cursor_cli_config(merged)
         self._write_dns_conf()
+        self._write_extra_hosts(merged["extra_hosts"])
 
         ctx.log.info(
             f"Loaded {len(self.env)} env var(s), {len(self.secrets)} secret(s), "
@@ -302,6 +317,7 @@ class SandcatAddon:
 
         - env: dict merge, higher precedence overwrites.
         - secrets: dict merge, higher precedence overwrites.
+        - extra_hosts: dict merge, higher precedence overwrites.
         - network: concatenated, highest precedence first (top-to-bottom matching).
         - cursor.cli: deep merge, higher precedence overwrites nested keys.
         - op_service_account_token: highest precedence non-empty value wins.
@@ -312,6 +328,7 @@ class SandcatAddon:
         """
         env: dict[str, str] = {}
         secrets: dict[str, dict] = {}
+        extra_hosts: dict[str, str] = {}
         network: list[dict] = []
         cursor_cli: dict = {}
         op_token: str | None = None
@@ -321,6 +338,7 @@ class SandcatAddon:
         for layer in layers:
             env.update(layer.get("env", {}))
             secrets.update(layer.get("secrets", {}))
+            extra_hosts.update(layer.get("extra_hosts", {}))
             layer_cursor = layer.get("cursor", {})
             layer_cli = layer_cursor.get("cli", {})
             if layer_cli:
@@ -341,6 +359,7 @@ class SandcatAddon:
         return {
             "env": env,
             "secrets": secrets,
+            "extra_hosts": extra_hosts,
             "network": network,
             "cursor": {"cli": cursor_cli},
             "op_service_account_token": op_token,
@@ -554,6 +573,65 @@ class SandcatAddon:
         if self.dns_servers:
             ctx.log.info(
                 f"Wrote {len(self.dns_servers)} custom DNS server(s) to {SANDCAT_DNS_CONF_PATH}"
+            )
+
+    def _write_extra_hosts(self, extra_hosts: dict[str, str]):
+        """Write extra_hosts entries as an /etc/hosts-format file.
+
+        Consumed by wg-client-init.sh, which appends the file inside a
+        sentinel block in /etc/hosts. The agent inherits that /etc/hosts
+        via network_mode: service:wg-client, so `getent hosts <name>`
+        resolves the name via NSS before any DNS query.
+
+        Invalid entries are logged and skipped; the container still starts.
+        ALWAYS writes the file (empty when nothing configured) so
+        wg-client-init can treat file-existence as authoritative and clean
+        stale entries from previous runs.
+
+        IPv6 entries are validated but the container's kill-switch drops
+        outbound IPv6 traffic (ip6tables -A OUTPUT -o eth0 -j DROP), so
+        connections to IPv6-mapped hosts will fail — a warning is logged
+        but the entry is still written for NSS resolution consistency.
+        """
+        lines: list[str] = []
+        for raw_name, address in extra_hosts.items():
+            name = raw_name.rstrip(".") if isinstance(raw_name, str) else raw_name
+            if not isinstance(name, str) or not name or not _VALID_HOSTNAME.match(name):
+                ctx.log.warn(f"extra_hosts: invalid hostname {raw_name!r}, skipping")
+                continue
+            if not isinstance(address, str):
+                ctx.log.warn(
+                    f"extra_hosts[{name!r}]: value must be a string, skipping"
+                )
+                continue
+            try:
+                parsed = ipaddress.ip_address(address)
+            except ValueError:
+                ctx.log.warn(
+                    f"extra_hosts[{name!r}]: {address!r} is not a valid IP, skipping"
+                )
+                continue
+            if isinstance(parsed, ipaddress.IPv6Address):
+                ctx.log.warn(
+                    f"extra_hosts[{name!r}]: IPv6 address {address!r} accepted for "
+                    "NSS lookup but sandcat's kill-switch drops outbound IPv6 traffic"
+                )
+            lines.append(f"{address}\t{name}")
+
+        body = "\n".join(lines)
+        if lines:
+            body += "\n"
+        try:
+            self._atomic_write_text(EXTRA_HOSTS_PATH, body)
+        except OSError as e:
+            ctx.log.warn(
+                f"Could not write {EXTRA_HOSTS_PATH}: {e!r}; "
+                "wg-client will continue with its previous /etc/hosts entries"
+            )
+            return
+        if lines:
+            ctx.log.info(
+                f"Wrote {len(lines)} extra_hosts entry(ies) to {EXTRA_HOSTS_PATH}"
             )
 
     def _find_matching_rule(self, method: str | None, host: str) -> dict | None:

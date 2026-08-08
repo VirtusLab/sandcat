@@ -58,6 +58,93 @@ teardown() {
 	assert_success
 }
 
+@test "init accepts codex as valid --agent value" {
+	stub settings \
+		"$PROJECT_DIR/.sandcat/settings.json codex vscode : :"
+	stub devcontainer \
+		"--settings-file .sandcat/settings.json --project-path * --agent codex --ide vscode --name test --stacks * --proxy web --secret-provider none : :"
+
+	run init --agent codex --ide vscode --name test --path "$PROJECT_DIR" --stacks "" --proxy web --features "" --secret-provider none
+	assert_success
+}
+
+@test "init pre-creates host paths for codex config mount" {
+	stub settings "$PROJECT_DIR/.sandcat/settings.json codex vscode : :"
+	stub devcontainer \
+		"--settings-file .sandcat/settings.json --project-path * --agent codex --ide vscode --name test --stacks * --proxy web --secret-provider none : :"
+
+	run init --agent codex --ide vscode --name test --path "$PROJECT_DIR" --stacks "" --proxy web --features "" --secret-provider none
+	assert_success
+
+	# Directories/files pre-created so Docker won't materialise them as root-owned.
+	[[ -d "$HOME/.codex/skills" ]]
+	[[ -d "$HOME/.codex/commands" ]]
+	[[ -f "$HOME/.codex/AGENTS.md" ]]
+}
+
+@test "init skips host pre-creation when SANDCAT_MOUNT_CODEX_CONFIG=false" {
+	export SANDCAT_MOUNT_CODEX_CONFIG=false
+
+	stub settings "$PROJECT_DIR/.sandcat/settings.json codex vscode : :"
+	stub devcontainer \
+		"--settings-file .sandcat/settings.json --project-path * --agent codex --ide vscode --name test --stacks * --proxy web --secret-provider none : :"
+
+	run init --agent codex --ide vscode --name test --path "$PROJECT_DIR" --stacks "" --proxy web --features "" --secret-provider none
+	assert_success
+
+	[[ ! -d "$HOME/.codex" ]]
+}
+
+@test "init summary for codex mentions OPENAI_API_KEY" {
+	stub settings "$PROJECT_DIR/.sandcat/settings.json codex vscode : :"
+	stub devcontainer \
+		"--settings-file .sandcat/settings.json --project-path * --agent codex --ide vscode --name test --stacks * --proxy web --secret-provider none : :"
+
+	run init --agent codex --ide vscode --name test --path "$PROJECT_DIR" --stacks "" --proxy web --features "" --secret-provider none
+	assert_success
+	assert_output --partial "OPENAI_API_KEY"
+	assert_output --partial "Codex CLI"
+}
+
+@test "init seeds OPENAI_API_KEY into existing user settings when agent=codex" {
+	# Seed a pre-existing settings.json with only a GITHUB_TOKEN (simulating
+	# a user who ran init with --agent claude/cursor previously).
+	mkdir -p "$SCT_HOME_DIR"
+	cat > "$SCT_HOME_DIR/settings.json" <<'EOF'
+{
+    "env": {},
+    "secrets": {
+        "GITHUB_TOKEN": {"value": "", "hosts": ["github.com"]}
+    },
+    "network": [
+        {"action": "allow", "host": "github.com"}
+    ]
+}
+EOF
+
+	stub settings "$PROJECT_DIR/.sandcat/settings.json codex vscode : :"
+	stub devcontainer \
+		"--settings-file .sandcat/settings.json --project-path * --agent codex --ide vscode --name test --stacks * --proxy web --secret-provider none : :"
+
+	run init --agent codex --ide vscode --name test --path "$PROJECT_DIR" --stacks "" --proxy web --features "" --secret-provider none
+	assert_success
+
+	# Verify OPENAI_API_KEY seeded
+	run yq -r '.secrets.OPENAI_API_KEY.value' "$SCT_HOME_DIR/settings.json"
+	assert_output ""    # empty string is the seeded placeholder
+
+	run yq -r '.secrets.OPENAI_API_KEY.hosts | .[0]' "$SCT_HOME_DIR/settings.json"
+	assert_output "api.openai.com"
+
+	# Existing GITHUB_TOKEN preserved
+	run yq -r '.secrets.GITHUB_TOKEN.hosts | .[0]' "$SCT_HOME_DIR/settings.json"
+	assert_output "github.com"
+
+	# api.openai.com added to network allowlist
+	run yq -r '.network | map(.host) | index("api.openai.com")' "$SCT_HOME_DIR/settings.json"
+	refute_output "null"
+}
+
 @test "init rejects invalid --secret-provider value" {
 	run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" --stacks "" --proxy web --features "" --secret-provider invalid
 	assert_failure
@@ -137,7 +224,7 @@ teardown() {
 
 	stub read_line "* : echo ''"
 	stub select_option \
-		"'Select agent:' claude cursor : echo claude" \
+		"'Select agent:' claude cursor codex : echo claude" \
 		"'Select IDE:' vscode jetbrains none : echo vscode" \
 		"'Select secret provider:' 1password none protonpass : echo 1password"
 	stub select_multiple \
@@ -218,7 +305,7 @@ teardown() {
 
 	stub read_line "* : echo ''"
 	stub select_option \
-		"'Select agent:' claude cursor : echo claude" \
+		"'Select agent:' claude cursor codex : echo claude" \
 		"'Select IDE:' vscode jetbrains none : echo vscode" \
 		"'Select secret provider:' none 1password protonpass : echo none"
 	stub select_multiple \
@@ -297,7 +384,7 @@ teardown() {
 
 	stub read_line "* : echo ''"
 	stub select_option \
-		"'Select agent:' claude cursor : echo claude" \
+		"'Select agent:' claude cursor codex : echo claude" \
 		"'Select IDE:' vscode jetbrains none : echo vscode" \
 		"'Select secret provider:' none 1password protonpass : echo none"
 	stub select_multiple \

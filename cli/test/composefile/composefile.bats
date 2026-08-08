@@ -84,6 +84,39 @@ teardown() {
 }
 
 
+@test "add_codex_config_volumes adds AGENTS.md, skills, and commands" {
+	add_codex_config_volumes "$COMPOSE_FILE"
+
+	run yq '.services.agent.volumes | length' "$COMPOSE_FILE"
+	assert_output "4"
+
+	# shellcheck disable=SC2016
+	yq -e '.services.agent.volumes[] | select(. == "${HOME}/.codex/AGENTS.md:/home/vscode/.codex-host/AGENTS.md:ro")' "$COMPOSE_FILE"
+
+	# shellcheck disable=SC2016
+	yq -e '.services.agent.volumes[] | select(. == "${HOME}/.codex/skills:/home/vscode/.codex/skills:ro")' "$COMPOSE_FILE"
+
+	# shellcheck disable=SC2016
+	yq -e '.services.agent.volumes[] | select(. == "${HOME}/.codex/commands:/home/vscode/.codex/commands:ro")' "$COMPOSE_FILE"
+}
+
+@test "add_codex_config_volumes leaves entries commented when active=false" {
+	add_codex_config_volumes "$COMPOSE_FILE" false
+
+	# No new active volume entries — still just the initial one.
+	run yq '.services.agent.volumes | length' "$COMPOSE_FILE"
+	assert_output "1"
+
+	# All three paths appear as foot-comment lines.
+	run yq -P '.services.agent.volumes' "$COMPOSE_FILE"
+	# shellcheck disable=SC2016
+	assert_line '# - ${HOME}/.codex/AGENTS.md:/home/vscode/.codex-host/AGENTS.md:ro'
+	# shellcheck disable=SC2016
+	assert_line '# - ${HOME}/.codex/skills:/home/vscode/.codex/skills:ro'
+	# shellcheck disable=SC2016
+	assert_line '# - ${HOME}/.codex/commands:/home/vscode/.codex/commands:ro'
+}
+
 @test "add_git_readonly_volume adds .git mount as read-only" {
 	add_git_readonly_volume "$COMPOSE_FILE"
 
@@ -425,6 +458,26 @@ EOF
 	yq -e '.services.agent.volumes[] | select(. == "${HOME}/.cursor/projects/workspaces-test-project:/home/vscode/.cursor/projects/workspaces-test-project")' "$COMPOSE_FILE"
 	# No claude volumes leak through when agent=cursor.
 	run yq '.services.agent.volumes[] | select(test("\\.claude/"))' "$COMPOSE_FILE"
+	assert_output ""
+}
+
+# shellcheck disable=SC2016
+@test "customize_compose_file dispatches to add_codex_config_volumes for codex agent" {
+	# Dispatch smoke: all three codex mounts must appear; no claude/cursor volumes leak.
+	SETTINGS_FILE=".sandcat/settings.json"
+	mkdir -p "$BATS_TEST_TMPDIR/.sandcat"
+	touch "$BATS_TEST_TMPDIR/$SETTINGS_FILE"
+
+	customize_compose_file "$SETTINGS_FILE" "$COMPOSE_FILE" "codex" "vscode" "test-project"
+
+	# shellcheck disable=SC2016
+	yq -e '.services.agent.volumes[] | select(. == "${HOME}/.codex/AGENTS.md:/home/vscode/.codex-host/AGENTS.md:ro")' "$COMPOSE_FILE"
+	# shellcheck disable=SC2016
+	yq -e '.services.agent.volumes[] | select(. == "${HOME}/.codex/skills:/home/vscode/.codex/skills:ro")' "$COMPOSE_FILE"
+	# shellcheck disable=SC2016
+	yq -e '.services.agent.volumes[] | select(. == "${HOME}/.codex/commands:/home/vscode/.codex/commands:ro")' "$COMPOSE_FILE"
+	# No claude or cursor volumes leak through.
+	run yq '.services.agent.volumes[] | select(test("\\.claude/|\\.cursor/"))' "$COMPOSE_FILE"
 	assert_output ""
 }
 

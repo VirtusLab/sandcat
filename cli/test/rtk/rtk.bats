@@ -97,3 +97,10 @@ setup() {
 	assert_success
 	assert_output ""
 }
+
+@test "sct_rtk_user_init_block: codex emits nothing (rtk init is inlined in agents.bash for codex)" {
+	unset SANDCAT_RTK
+	run sct_rtk_user_init_block codex
+	assert_success
+	assert_output ""
+}

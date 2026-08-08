@@ -33,8 +33,10 @@ EOF
 
 # Emits the app-user-init.sh fragment that runs `rtk init` for the given
 # agent, guarded to a one-time execution. Currently wires `claude` and
-# `cursor`; unknown/future agents get a safe no-op so the binary is still
-# available on PATH but rtk stays uninitialized until the case is added.
+# `cursor`; unknown/future agents (including codex — rtk 0.44 does not
+# support `--agent codex`, and `--codex` cannot combine with `--hook-only`
+# or `--auto-patch`) get a safe no-op so the binary is still available on
+# PATH but rtk stays uninitialized until the case is added.
 #
 # Emits an empty output when the feature is disabled OR when the agent
 # has no rtk profile.

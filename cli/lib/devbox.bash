@@ -92,7 +92,7 @@ EOF
 # jq program that merges two devbox configs into one. When both files
 # list a package with the same name (part before '@'), the entry from
 # devbox.tools.json wins — that's the primary way to override a stack
-# default (e.g. `nodejs@22.5.1` in tools replaces stack's `nodejs@lts`).
+# default (e.g. `nodejs@22.5.1` in tools replaces stack's `nodejs`).
 #
 # For cross-family collisions (e.g. tools ships `openjdk17@latest` while
 # stack ships `temurin-bin-25@latest`, both providing bin/java), the merge

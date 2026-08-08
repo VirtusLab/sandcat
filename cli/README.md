@@ -4,6 +4,10 @@ Command-line tool for managing sandcat configurations and Docker Compose setups.
 
 Requires `docker` (and `docker compose`) and [`yq`](https://github.com/mikefarah/yq).
 
+See the top-level [README](../README.md#1-install-sandcat-cli) for install
+options: Docker image, shell installer (`curl … | sh`), or local git
+clone.
+
 ## Modules and Commands
 
 ### `sandcat init`
@@ -13,7 +17,7 @@ configuration files and network settings. Optional volume mounts (agent config, 
 commented-out entries in the generated compose file (agent config defaults to active for the selected agent).
 
 Options:
-- `--agent` - Agent type: `claude`, `cursor` (skips prompt)
+- `--agent` - Agent type: `claude`, `cursor`, `codex` (skips prompt)
 - `--ide` - IDE for devcontainer mode: `vscode`, `jetbrains`, `none` (skips prompt)
 - `--stacks` - Comma-separated development stacks to install: `node`, `python`, `java`, `rust`, `go`, `scala`, `ruby`, `dotnet`, `zig` (skips prompt)
 - `--proxy` - Proxy UI mode: `web` (default, mitmweb browser UI) or `tui` (mitmproxy console, use with `sandcat proxy` to attach)

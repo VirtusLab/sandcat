@@ -1,0 +1,19 @@
+{
+  "env": {},
+  "secrets": {
+    "OPENAI_API_KEY": {
+      "value": "",
+      "hosts": ["api.openai.com"]
+    },
+    "GITHUB_TOKEN": {
+      "value": "",
+      "hosts": ["github.com", "*.github.com", "*.githubusercontent.com"]
+    }
+  },
+  "network": [
+    {"action": "allow", "host": "*.github.com"},
+    {"action": "allow", "host": "github.com"},
+    {"action": "allow", "host": "*.githubusercontent.com"},
+    {"action": "allow", "host": "api.openai.com"}
+  ]
+}

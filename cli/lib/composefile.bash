@@ -13,6 +13,7 @@ source "$SCT_LIBDIR/agents.bash"
 # Optional volumes are added as commented-out entries by default. Set environment
 # variables to "true" before calling this function to add them as active mounts:
 #   - SANDCAT_MOUNT_CLAUDE_CONFIG: "true" to mount host Claude config (~/.claude)
+#   - SANDCAT_MOUNT_CODEX_CONFIG: "true" to mount host Codex config (~/.codex)
 #   - SANDCAT_MOUNT_CURSOR_CONFIG: "true" to mount host Cursor config (~/.cursor
 #     customization read-only; workspace-scoped projects/<id>/ read-write;
 #     mcp.json read-only). chats/, plugins/, and subagents/ stay in agent-home
@@ -59,6 +60,9 @@ customize_compose_file() {
 	case "$agent" in
 		claude)
 			add_claude_config_volumes "$compose_file" "${SANDCAT_MOUNT_CLAUDE_CONFIG:=true}"
+			;;
+		codex)
+			add_codex_config_volumes "$compose_file" "${SANDCAT_MOUNT_CODEX_CONFIG:=true}"
 			;;
 		cursor)
 			add_cursor_config_volumes "$compose_file" "${SANDCAT_MOUNT_CURSOR_CONFIG:=true}" "$project_name"
@@ -254,6 +258,22 @@ add_claude_config_volumes() {
 	add_volume_entry "$compose_file" '${HOME}/.claude/agents:/home/vscode/.claude/agents:ro' "$active"
 	# shellcheck disable=SC2016
 	add_volume_entry "$compose_file" '${HOME}/.claude/commands:/home/vscode/.claude/commands:ro' "$active"
+}
+
+# Adds Codex config volume mounts to the agent service.
+# Args:
+#   $1 - Path to the Docker Compose file
+#   $2 - true to add as active, false to add as comment
+add_codex_config_volumes() {
+	local compose_file=$1
+	local active=${2:-true}
+
+	# shellcheck disable=SC2016
+	add_volume_entry "$compose_file" '${HOME}/.codex/AGENTS.md:/home/vscode/.codex-host/AGENTS.md:ro' "$active" 'Host Codex config (optional) — copied into writable ~/.codex/AGENTS.md by app-user-init.sh so rtk can patch it'
+	# shellcheck disable=SC2016
+	add_volume_entry "$compose_file" '${HOME}/.codex/skills:/home/vscode/.codex/skills:ro' "$active"
+	# shellcheck disable=SC2016
+	add_volume_entry "$compose_file" '${HOME}/.codex/commands:/home/vscode/.codex/commands:ro' "$active"
 }
 
 # Adds Cursor config volume mounts to the agent service.

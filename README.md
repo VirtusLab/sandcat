@@ -45,35 +45,59 @@ It has two main tasks:
 * run `docker compose` commands with the correct compose file automatically
   detected, so you don't have to remember the file names or paths.
 
-The CLI can itself be run through a docker image that we publish to our
-repository, so that no local installation is required; or installed locally by
-cloning this git repository.
+#### Shell installer (recommended)
 
-#### Run as docker image (recommended)
+Install sandcat CLI to `~/.local/share/sandcat/` with a launcher symlink
+at `~/.local/bin/sandcat`. Requires `yq` (Mike Farah's Go variant) already
+installed on the host — see [yq prerequisite](#yq-prerequisite) below.
 
 ```bash
-# Pull the image to local docker
-docker pull ghcr.io/virtuslab/sandcat
-
-# Add to your .bashrc or .zshrc
-alias sandcat='docker run --rm -it -v "/var/run/docker.sock:/var/run/docker.sock" -v"$PWD:$PWD" -v"$HOME/.config/sandcat:$HOME/.config/sandcat" -w"$PWD" -e TERM -e HOME ghcr.io/virtuslab/sandcat'
+curl -fsSL https://raw.githubusercontent.com/VirtusLab/sandcat/master/install.sh | sh
 ```
 
-The CLI needs access to your current directory (to copy project configuration),
-the host Docker socket (to manage sandbox containers), your user config
-directory (`~/.config/sandcat/` to initialize the settings file), and a couple
-of environment variables (`TERM` for terminal handling, `HOME` so Docker Compose
-can resolve `~` in volume mounts).
+Ensure `~/.local/bin` is on your `PATH` (the installer prints a hint if it
+isn't), then jump to [Initialize the sandbox](#2-initialize-the-sandbox-for-your-project).
 
-Using the Docker image disables the editor integration (`vi` installed in the
-image will be used instead of your host editor). Host environment variables are
-not forwarded unless you add `-e` flags explicitly.
+**Upgrade:** re-run the same command. The installer atomically swaps the
+existing install; `~/.config/sandcat/` (user settings) is never touched.
+Combine with `SANDCAT_REF` to jump to a different branch/tag/commit:
 
-The image runs as root, to avoid permission issues with the host Docker socket.
-On Colima file ownership is mapped automatically, on Linux you should add
-`--user` parameter accordingly.
+```bash
+curl -fsSL https://raw.githubusercontent.com/VirtusLab/sandcat/master/install.sh | SANDCAT_REF=v1.0.0 sh
+curl -fsSL https://raw.githubusercontent.com/VirtusLab/sandcat/master/install.sh | SANDCAT_REF=abc123 sh
+```
 
-#### Local install
+Custom paths (env overrides), e.g. system-wide install:
+
+```bash
+SANDCAT_HOME=/opt/sandcat SANDCAT_BIN_DIR=/usr/local/bin \
+    curl -fsSL https://.../install.sh | sudo -E sh
+```
+
+Non-interactive mode (CI):
+
+```bash
+curl -fsSL https://.../install.sh | SANDCAT_NON_INTERACTIVE=true sh
+```
+
+Uninstall (preserves user config and Docker state):
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/VirtusLab/sandcat/master/install.sh) --uninstall
+```
+
+Env overrides in one place:
+
+| Var | Default | Purpose |
+|---|---|---|
+| `SANDCAT_HOME` | `$HOME/.local/share/sandcat` | Install root |
+| `SANDCAT_BIN_DIR` | `$HOME/.local/bin` | Launcher symlink dir |
+| `SANDCAT_REF` | `master` | Branch / tag / commit to fetch |
+| `SANDCAT_NON_INTERACTIVE` | `false` | Skip all prompts (CI) |
+
+#### Alternative: git clone
+
+For contributors, or if you prefer to track a working tree directly:
 
 ```bash
 # Clone the repo
@@ -83,9 +107,13 @@ git clone https://github.com/VirtusLab/sandcat.git
 export PATH="$PWD/sandcat/cli/bin:$PATH"
 ```
 
+Update via `git pull` in the cloned directory.
+
+#### yq prerequisite
+
 `yq` is required to edit compose files. Sandcat uses [Mike Farah's Go `yq`](https://github.com/mikefarah/yq); the unrelated Python `yq` (kislyuk/yq) is **not** compatible.
 
-On Debian/Ubuntu, `apt install yq` installs the Python variant. Install Mike Farah's `yq` instead — for example `snap install yq`, or download a binary from the [release page](https://github.com/mikefarah/yq/releases). Homebrew, Alpine `apk`, and the project's own Docker image already ship the correct one.
+On Debian/Ubuntu, `apt install yq` installs the Python variant. Install Mike Farah's `yq` instead — for example `snap install yq`, or download a binary from the [release page](https://github.com/mikefarah/yq/releases). Homebrew and Alpine `apk` already ship the correct one.
 
 ### 2. Initialize the sandbox for your project
 
@@ -102,6 +130,11 @@ sandcat init --agent claude --ide vscode --stacks "python,node"
 # With optional features (proxy TUI, 1Password integration)
 sandcat init --secret-provider 1password --agent claude --ide vscode
 ```
+
+Available agents:
+- `claude` (Claude Code CLI)
+- `cursor` (Cursor IDE)
+- `codex` (OpenAI Codex CLI — https://github.com/openai/codex)
 
 Available stacks: `node`, `python`, `java`, `rust`, `go`, `scala`, `ruby`,
 `dotnet`, `zig`. Versions default to LTS where available (e.g. Node.js LTS,
@@ -134,7 +167,7 @@ At image build time the two files are merged into a single devbox global
 config. `devbox.tools.json` wins over `devbox.stack.json` on:
 
 * **Same package name** — the `@` prefix. Put `nodejs@22.5.1` in tools
-  to replace the stack's `nodejs@lts`.
+  to replace the stack's `nodejs` (without a specifier, `nodejs` refers to lts).
 * **Cross-family collisions** — tools packages providing the same file
   as a stack package win too. Put `openjdk17@latest` in tools to make
   it the active Java over the stack's `temurin-bin-25@latest`; the
@@ -193,6 +226,7 @@ flags today.
 |-----------|-------------------------------|-----------------------------------------|
 | Claude    | `SANDCAT_MOUNT_CLAUDE_CONFIG` | `true`                                  |
 | Cursor    | `SANDCAT_MOUNT_CURSOR_CONFIG` | `true`                                  |
+| Codex     | `SANDCAT_MOUNT_CODEX_CONFIG`  | `true`                                  |
 | Any       | `SANDCAT_MOUNT_GIT_READONLY`  | `false` (commented in compose)          |
 | JetBrains | `SANDCAT_MOUNT_IDEA_READONLY` | `false` (active when `--ide jetbrains`) |
 | Any       | `SANDCAT_MOUNT_SHARED_CACHE`  | `true` — see [Shared dependency caches](#shared-dependency-caches) |
@@ -447,6 +481,54 @@ host …`) and Cursor CLI runs without the hook. The rtk binary is still
 on `PATH` inside the container, so you can invoke `rtk grep`, `rtk ls`,
 etc. by hand.
 
+##### Codex CLI (`--agent codex`)
+
+Sandcat installs [OpenAI's Codex CLI](https://github.com/openai/codex)
+into every codex-agent sandbox and wires `OPENAI_API_KEY` through the
+mitmproxy secret substitution layer. Codex reads its config from
+`~/.codex/config.toml` (per-sandbox, agent-home volume) and picks up
+the API key directly from the environment — no `codex login` required.
+
+**Setup:**
+
+```bash
+sandcat init --agent codex --ide vscode
+# Edit ~/.config/sandcat/settings.json — set secrets.OPENAI_API_KEY.value
+sandcat run
+codex "explain this codebase"
+```
+
+**Bash alias:** `codex-yolo` (= `codex --yolo`) is available in every
+codex sandbox for parity with `claude-yolo`.
+
+**Host config sharing** (optional, default on): `~/.codex/AGENTS.md`,
+`~/.codex/skills/`, and `~/.codex/commands/` are bind-mounted read-only
+from the host into the container, matching how `~/.claude/` is handled.
+The rest of `~/.codex/` (config.toml, credentials, history) lives in
+the container's agent-home volume — per-sandbox persistent, per-sandbox
+isolated. Opt out with `SANDCAT_MOUNT_CODEX_CONFIG=false`.
+
+**RTK integration:** works out of the box. On first container start,
+sandcat seeds `~/.codex/AGENTS.md` (from the host bind-mount if
+present) and runs `rtk init -g --codex` to write `~/.codex/RTK.md`
+and add an `@RTK.md` reference to `AGENTS.md`. Idempotent: skipped
+once the reference is already there. Disable with `--features
+no-rtk` or `SANDCAT_RTK=false`.
+
+Note: because rtk needs to patch a writable `AGENTS.md`, sandcat
+mounts the host's `~/.codex/AGENTS.md` at `~/.codex-host/AGENTS.md`
+(a helper path) — the user-init step copies it into the writable
+`~/.codex/AGENTS.md`. Host edits to `AGENTS.md` take effect after a
+`docker compose down -v` (or manual rm inside). Skills and commands
+directories are bind-mounted normally at `~/.codex/skills` and
+`~/.codex/commands`, so those live-reload as usual.
+
+**Auth model:** first iteration supports `OPENAI_API_KEY` only.
+ChatGPT sign-in (`chatgpt.com` / `auth.openai.com`) is not in the
+default allowlist — users who want that flow can add the hosts to
+`.sandcat/settings.local.json` and run `codex login` manually inside
+the container.
+
 ### 3. Start the sandbox
 
 **CLI mode:**
@@ -515,6 +597,7 @@ no files exist, the addon disables itself.
 **Merge rules:**
 - `env` — merged; higher-precedence values overwrite lower ones.
 - `secrets` — merged; higher-precedence entries overwrite lower ones.
+- `extra_hosts` — merged; higher-precedence entries overwrite lower ones.
 - `network` — concatenated; highest-precedence rules come first. Since rules are
   evaluated top-to-bottom with first-match-wins, this means local rules take
   priority over project rules, which take priority over user rules.
@@ -716,6 +799,58 @@ would otherwise be forwarded by Docker's embedded resolver to the host's
 upstream DNS, bypassing mitmproxy — wg-client is launched with a `dns:` sink
 (RFC 5737 `192.0.2.1`). Sibling names still resolve locally; anything else
 under the search domain fails fast without leaving the host.
+
+### Resolving internal hostnames — `extra_hosts`
+
+DNS inside the sandbox goes through mitmproxy to public resolvers (or the
+`dns_servers` you configured), so names that only live in your host's
+`/etc/hosts` or on an unroutable internal network won't resolve. Use
+`extra_hosts` in `settings.json` to map hostnames to IPs; the addon writes
+them to a sidecar file which `wg-client` splices into its `/etc/hosts`
+inside a `# sandcat extra_hosts` sentinel block. The agent inherits that
+file via `network_mode: service:wg-client`, so `getent hosts <name>`,
+`curl`, `mvn`, Java's `InetAddress` etc. resolve the name via NSS before
+any DNS query.
+
+```json
+{
+  "extra_hosts": {
+    "maven-proxy.corp": "192.168.1.100",
+    "jira.internal": "10.0.0.50"
+  },
+  "network": [
+    {"action": "allow", "host": "maven-proxy.corp"},
+    {"action": "allow", "host": "jira.internal"}
+  ]
+}
+```
+
+**A matching network allow rule is still required.** Mitmproxy enforces
+network policy on the HTTP `Host` / TLS `SNI` regardless of how the name
+was resolved. Without an allow rule, requests to the internal host are
+blocked with 403.
+
+**Merge rules.** `extra_hosts` is a dict merged across the three settings
+layers (user / project / local); higher precedence overwrites per-key.
+
+**Validation.** Invalid entries are logged as warnings and skipped; the
+container still starts. Requirements:
+- **Hostname** — RFC-1123 label (letters, digits, hyphens, max 253 chars).
+  A trailing dot (`nexus.corp.`) is stripped before validation.
+- **IP** — IPv4 or IPv6 accepted by Python's `ipaddress` module.
+
+**IPv6 caveat.** Sandcat's kill-switch drops outbound IPv6 traffic
+(`ip6tables -A OUTPUT -o eth0 -j DROP`) so mapping a name to an IPv6
+address will resolve via NSS but the connection itself will time out.
+The addon logs a warning for IPv6 entries but still writes them, in case
+you're using them for tools that only need name-to-address lookup (e.g.
+some healthchecks) rather than actual connectivity.
+
+**Applying changes.** Run `sandcat restart-proxy` to re-read settings —
+the sentinel block in `/etc/hosts` is replaced atomically on each start.
+Processes already running inside the agent may cache DNS results (Java
+`sun.net.InetAddressCachePolicy`, curl connection pool, etc.) and won't
+pick up the change until they reconnect or the agent is restarted.
 
 ## Secret substitution
 

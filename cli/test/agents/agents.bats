@@ -19,16 +19,21 @@ setup() {
 
 # ---------------------------------------------------------------- discovery
 
-@test "sct_available_agents lists claude and cursor" {
+@test "sct_available_agents lists claude, cursor and codex" {
 	run sct_available_agents
 	assert_success
-	assert_output "claude cursor"
+	assert_output "claude cursor codex"
 }
 
 @test "sct_is_valid_agent accepts known agents" {
 	run sct_is_valid_agent claude
 	assert_success
 	run sct_is_valid_agent cursor
+	assert_success
+}
+
+@test "sct_is_valid_agent accepts codex" {
+	run sct_is_valid_agent codex
 	assert_success
 }
 
@@ -47,6 +52,11 @@ setup() {
 @test "sct_agent_mount_env_var: cursor" {
 	run sct_agent_mount_env_var cursor
 	assert_output "SANDCAT_MOUNT_CURSOR_CONFIG"
+}
+
+@test "sct_agent_mount_env_var: codex" {
+	run sct_agent_mount_env_var codex
+	assert_output "SANDCAT_MOUNT_CODEX_CONFIG"
 }
 
 @test "sct_agent_mount_env_var: unknown returns empty" {
@@ -85,6 +95,15 @@ setup() {
 	refute_output --partial '$HOME/.cursor/chats/'
 	refute_output --partial '$HOME/.cursor/plugins/'
 	refute_output --partial '$HOME/.cursor/subagents/'
+}
+
+@test "sct_agent_host_config_paths: codex lists ~/.codex entries" {
+	run sct_agent_host_config_paths codex
+	assert_output --partial '$HOME/.codex/AGENTS.md'
+	assert_output --partial '$HOME/.codex/skills/'
+	assert_output --partial '$HOME/.codex/commands/'
+	refute_output --partial '$HOME/.codex/config.toml'
+	refute_output --partial '$HOME/.codex/.credentials.json'
 }
 
 @test "sct_agent_host_config_paths: unknown returns empty" {
@@ -159,6 +178,29 @@ setup() {
 	[[ ! -d "$HOME/.cursor" ]]
 }
 
+@test "ensure_host_agent_config_paths: creates codex paths under HOME" {
+	export HOME="$BATS_TEST_TMPDIR/home"
+	mkdir -p "$HOME"
+
+	export SANDCAT_MOUNT_CODEX_CONFIG=true
+	ensure_host_agent_config_paths codex
+
+	[[ -d "$HOME/.codex/skills" ]]
+	[[ -d "$HOME/.codex/commands" ]]
+	[[ -f "$HOME/.codex/AGENTS.md" ]]
+}
+
+@test "ensure_host_agent_config_paths: codex opt-out via SANDCAT_MOUNT_CODEX_CONFIG=false" {
+	export HOME="$BATS_TEST_TMPDIR/home"
+	mkdir -p "$HOME"
+
+	export SANDCAT_MOUNT_CODEX_CONFIG=false
+	ensure_host_agent_config_paths codex
+
+	# Nothing should have been created on the host.
+	[[ ! -d "$HOME/.codex" ]]
+}
+
 @test "ensure_host_agent_config_paths: no-op for unknown agent" {
 	export HOME="$BATS_TEST_TMPDIR/home"
 	mkdir -p "$HOME"
@@ -179,6 +221,12 @@ setup() {
 	assert_output --partial "CURSOR_API_KEY"
 }
 
+@test "sct_agent_api_key_help: codex" {
+	run sct_agent_api_key_help codex
+	assert_output --partial "OPENAI_API_KEY"
+	assert_output --partial "Codex CLI"
+}
+
 @test "sct_agent_api_key_help: unknown falls back to anthropic line" {
 	run sct_agent_api_key_help unknown
 	assert_output --partial "ANTHROPIC_API_KEY"
@@ -194,6 +242,12 @@ setup() {
 	run sct_agent_op_api_key_help cursor
 	assert_output --partial "CURSOR_API_KEY"
 	assert_output --partial 'op://vault/Cursor API Key/credential'
+}
+
+@test "sct_agent_op_api_key_help: codex" {
+	run sct_agent_op_api_key_help codex
+	assert_output --partial "OPENAI_API_KEY"
+	assert_output --partial "op://vault/OpenAI API Key/credential"
 }
 
 @test "sct_agent_op_api_key_help: unknown falls back to anthropic line" {
@@ -212,6 +266,11 @@ setup() {
 @test "sct_agent_vscode_extension: cursor" {
 	run sct_agent_vscode_extension cursor
 	assert_output "anysphere.cursor"
+}
+
+@test "sct_agent_vscode_extension: codex" {
+	run sct_agent_vscode_extension codex
+	assert_output "openai.chatgpt"
 }
 
 @test "sct_agent_vscode_extension: unknown returns empty" {
@@ -234,6 +293,11 @@ setup() {
 	assert_output --partial "Cursor"
 }
 
+@test "sct_agent_devcontainer_settings_block: codex returns empty" {
+	run sct_agent_devcontainer_settings_block codex
+	assert_output ""
+}
+
 @test "sct_agent_devcontainer_settings_block: unknown returns empty" {
 	run sct_agent_devcontainer_settings_block unknown
 	assert_output ""
@@ -248,6 +312,11 @@ setup() {
 
 @test "sct_agent_compose_environment_entries: cursor returns empty" {
 	run sct_agent_compose_environment_entries cursor
+	assert_output ""
+}
+
+@test "sct_agent_compose_environment_entries: codex returns empty" {
+	run sct_agent_compose_environment_entries codex
 	assert_output ""
 }
 
@@ -266,6 +335,35 @@ setup() {
 @test "sct_agent_docker_install_block: cursor installs cursor cli" {
 	run sct_agent_docker_install_block cursor
 	assert_output --partial "cursor.com/install"
+}
+
+@test "sct_agent_docker_install_block: codex installs codex to /usr/local/bin" {
+	unset SANDCAT_RTK
+	run sct_agent_docker_install_block codex
+	assert_output --partial "chatgpt.com/codex/install.sh"
+	assert_output --partial "CODEX_INSTALL_DIR=/usr/local/bin"
+	assert_output --partial "CODEX_HOME=/opt/codex-home"
+	assert_output --partial "USER root"
+	assert_output --partial "USER vscode"
+	# Env vars must be inline on `sh` (not `ENV`) — otherwise CODEX_HOME
+	# would leak to runtime.
+	refute_output --partial "ENV CODEX_HOME"
+	refute_output --partial "ENV CODEX_INSTALL_DIR"
+}
+
+@test "sct_agent_docker_install_block: codex append rtk install when enabled" {
+	source "$SCT_LIBDIR/rtk.bash"
+	unset SANDCAT_RTK
+	run sct_agent_docker_install_block codex
+	assert_output --partial "chatgpt.com/codex/install.sh"
+	assert_output --partial "raw.githubusercontent.com/rtk-ai/rtk"
+}
+
+@test "sct_agent_docker_install_block: codex skips rtk when SANDCAT_RTK=false" {
+	source "$SCT_LIBDIR/rtk.bash"
+	SANDCAT_RTK=false run sct_agent_docker_install_block codex
+	assert_output --partial "chatgpt.com/codex/install.sh"
+	refute_output --partial "raw.githubusercontent.com/rtk-ai/rtk"
 }
 
 @test "sct_agent_docker_install_block: unknown returns empty" {
@@ -306,6 +404,13 @@ setup() {
 @test "sct_agent_docker_home_prep_block: cursor pre-creates ~/.cursor" {
 	run sct_agent_docker_home_prep_block cursor
 	assert_output --partial "/home/vscode/.cursor"
+}
+
+@test "sct_agent_docker_home_prep_block: codex pre-creates ~/.codex, ~/.codex-host and codex-yolo alias" {
+	run sct_agent_docker_home_prep_block codex
+	assert_output --partial "/home/vscode/.codex"
+	assert_output --partial "/home/vscode/.codex-host"
+	assert_output --partial 'alias codex-yolo="codex --yolo"'
 }
 
 @test "sct_agent_docker_home_prep_block: unknown returns empty" {
@@ -361,6 +466,25 @@ setup() {
 	refute_output --partial "rtk init"
 }
 
+@test "sct_agent_user_init_block: codex emits rtk init --codex + host AGENTS.md seed" {
+	source "$SCT_LIBDIR/rtk.bash"
+	unset SANDCAT_RTK
+	run sct_agent_user_init_block codex
+	assert_output --partial "codex --version"
+	assert_output --partial "rtk init -g --codex"
+	assert_output --partial ".codex-host/AGENTS.md"
+	assert_output --partial "@RTK.md"
+	assert_output --partial "non-fatal"
+}
+
+@test "sct_agent_user_init_block: codex has SANDCAT_RTK runtime guard" {
+	source "$SCT_LIBDIR/rtk.bash"
+	unset SANDCAT_RTK
+	run sct_agent_user_init_block codex
+	assert_output --partial 'SANDCAT_RTK:-true'
+	assert_output --partial '!= "false"'
+}
+
 # --------------------------------------------------- mitm streaming flags
 
 @test "sct_agent_mitm_streaming_flags: cursor returns streaming flags" {
@@ -376,6 +500,11 @@ setup() {
 	# buffers <1MB bodies, which is what the addon's body-content leak check
 	# relies on.
 	run sct_agent_mitm_streaming_flags claude
+	assert_output ""
+}
+
+@test "sct_agent_mitm_streaming_flags: codex returns empty" {
+	run sct_agent_mitm_streaming_flags codex
 	assert_output ""
 }
 
@@ -408,6 +537,25 @@ setup() {
 	run sct_agent_post_user_settings_hook claude
 	assert_success
 	[[ ! -f "$marker" ]]
+}
+
+@test "sct_agent_post_user_settings_hook: codex calls ensure_codex_user_settings_defaults when defined" {
+	called=""
+	ensure_codex_user_settings_defaults() {
+		called="yes"
+	}
+	export -f ensure_codex_user_settings_defaults
+
+	sct_agent_post_user_settings_hook codex
+
+	[ "$called" = "yes" ]
+}
+
+@test "sct_agent_post_user_settings_hook: codex with helper missing is a no-op" {
+	unset -f ensure_codex_user_settings_defaults
+	run sct_agent_post_user_settings_hook codex
+	assert_success
+	assert_output ""
 }
 
 @test "sct_agent_post_user_settings_hook: unknown is a no-op" {

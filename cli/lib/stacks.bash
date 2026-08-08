@@ -16,7 +16,7 @@ STACK_NAMES=(node python java rust go scala ruby dotnet zig)
 # detection against the same package name.
 stack_devbox_packages() {
 	case $1 in
-		node)   echo "nodejs@lts" ;;
+		node)   echo "nodejs" ;;
 		python) echo "python@latest" ;;
 		java)   echo "temurin-bin-25@latest" ;;
 		rust)   echo "rustc@latest cargo@latest" ;;

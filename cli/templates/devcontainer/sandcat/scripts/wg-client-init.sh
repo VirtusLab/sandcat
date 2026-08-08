@@ -276,6 +276,37 @@ main() {
     mkdir -p "$(dirname "$SHARED_RESOLV_CONF")"
     write_resolv_conf "$SHARED_RESOLV_CONF" "${search_domains[@]}"
 
+    # ── Apply extra_hosts from settings ────────────────────────────────────────
+    # The mitmproxy addon writes user-configured extra_hosts entries to the
+    # shared volume (empty file when nothing configured — see
+    # _write_extra_hosts). Splice them into /etc/hosts inside a sentinel block;
+    # the agent inherits our /etc/hosts via network_mode: service:wg-client, so
+    # `getent hosts <name>` resolves there via NSS before any DNS query.
+    #
+    # Always strip the sentinel block first (even when the sidecar file is
+    # absent) so stale entries from a previous run cannot leak into a fresh
+    # startup where extra_hosts has been emptied. Then re-append only when the
+    # sidecar file is non-empty.
+    #
+    # /etc/hosts is bind-mounted by Docker, so `sed -i` fails at rename(2)
+    # with EBUSY ("Device or resource busy"). Read the file into a variable,
+    # filter the sentinel block out, then truncate + rewrite in place so we
+    # never leave the file's inode.
+    EXTRA_HOSTS_FILE="/mitmproxy-config/extra_hosts"
+    hosts_content=$(awk '
+        /^# sandcat extra_hosts BEGIN/ { skip = 1; next }
+        /^# sandcat extra_hosts END/   { skip = 0; next }
+        !skip
+    ' /etc/hosts)
+    printf '%s\n' "$hosts_content" > /etc/hosts
+    if [[ -s "$EXTRA_HOSTS_FILE" ]]; then
+        {
+            echo "# sandcat extra_hosts BEGIN"
+            cat "$EXTRA_HOSTS_FILE"
+            echo "# sandcat extra_hosts END"
+        } >> /etc/hosts
+    fi
+
     # Signal readiness to containers waiting on the healthcheck.
     touch /tmp/wg-ready
 

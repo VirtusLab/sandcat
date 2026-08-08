@@ -5,7 +5,7 @@ source "${BASH_SOURCE[0]%/*}/rtk.bash"
 
 # Returns supported agents as a space-separated list.
 sct_available_agents() {
-	echo "claude cursor"
+	echo "claude cursor codex"
 }
 
 # Returns 0 if agent is valid.
@@ -42,6 +42,7 @@ sct_agent_mount_env_var() {
 	case "$agent" in
 		claude) echo "SANDCAT_MOUNT_CLAUDE_CONFIG" ;;
 		cursor) echo "SANDCAT_MOUNT_CURSOR_CONFIG" ;;
+		codex)  echo "SANDCAT_MOUNT_CODEX_CONFIG"  ;;
 		*)      echo "" ;;
 	esac
 }
@@ -85,6 +86,13 @@ EOF
 \$HOME/.cursor/AGENTS.md
 \$HOME/.cursor/hooks.json
 \$HOME/.cursor/mcp.json
+EOF
+			;;
+		codex)
+			cat <<'EOF'
+$HOME/.codex/AGENTS.md
+$HOME/.codex/skills/
+$HOME/.codex/commands/
 EOF
 			;;
 		*)
@@ -181,6 +189,7 @@ sct_agent_api_key_help() {
 	case "$agent" in
 		claude) echo "ANTHROPIC_API_KEY  your Anthropic API key (for Claude Code)" ;;
 		cursor) echo "CURSOR_API_KEY     your Cursor API key (for Cursor CLI)" ;;
+		codex)  echo "OPENAI_API_KEY     your OpenAI API key (for Codex CLI)" ;;
 		*)      echo "ANTHROPIC_API_KEY  API key for your selected agent" ;;
 	esac
 }
@@ -195,6 +204,9 @@ sct_agent_op_api_key_help() {
 	case "$agent" in
 		cursor)
 			echo "CURSOR_API_KEY     \"op\": \"op://vault/Cursor API Key/credential\""
+			;;
+		codex)
+			echo "OPENAI_API_KEY     \"op\": \"op://vault/OpenAI API Key/credential\""
 			;;
 		claude|*)
 			echo "ANTHROPIC_API_KEY  \"op\": \"op://vault/Anthropic API Key/credential\""
@@ -220,6 +232,11 @@ sct_agent_post_user_settings_hook() {
 				ensure_cursor_user_settings_defaults
 			fi
 			;;
+		codex)
+			if declare -F ensure_codex_user_settings_defaults >/dev/null; then
+				ensure_codex_user_settings_defaults
+			fi
+			;;
 		*)
 			return 0
 			;;
@@ -234,6 +251,7 @@ sct_agent_vscode_extension() {
 	case "$agent" in
 		claude) echo "anthropic.claude-code" ;;
 		cursor) echo "anysphere.cursor" ;;
+		codex)  echo "openai.chatgpt"       ;;
 		*)      echo "" ;;
 	esac
 }
@@ -263,6 +281,10 @@ EOF
 				// auth/network config. Add Cursor-specific settings here if needed.
 EOF
 			;;
+		codex)
+			# No forced VS Code settings for codex in this iteration.
+			echo ""
+			;;
 		*)
 			echo ""
 			;;
@@ -282,7 +304,7 @@ sct_agent_compose_environment_entries() {
 		claude)
 			echo "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1"
 			;;
-		cursor|*)
+		cursor|codex|*)
 			echo ""
 			;;
 	esac
@@ -304,6 +326,21 @@ EOF
 			cat <<'EOF'
 # Install Cursor CLI.
 RUN curl https://cursor.com/install -fsS | bash
+EOF
+			;;
+		codex)
+			cat <<'EOF'
+# Install Codex CLI (OpenAI). CODEX_INSTALL_DIR + CODEX_HOME point at
+# system paths only for the install.sh invocation so the resolved
+# symlink target survives the agent-home volume mask on upgrade.
+# Env vars go on the `sh` end of the pipe (not `curl`) so install.sh
+# actually sees them; using inline `VAR=val` (not `ENV`) keeps them
+# out of the image environment — at runtime CODEX_HOME is unset and
+# codex reads user config from ~/.codex/ (agent-home, per-sandbox).
+USER root
+RUN curl -fsSL https://chatgpt.com/codex/install.sh | \
+    CODEX_INSTALL_DIR=/usr/local/bin CODEX_HOME=/opt/codex-home sh
+USER vscode
 EOF
 			;;
 		*)
@@ -334,6 +371,16 @@ EOF
 RUN mkdir -p /home/vscode/.cursor /home/vscode/.config/cursor
 EOF
 			;;
+		codex)
+			cat <<'EOF'
+# Pre-create ~/.codex and ~/.codex-host so Docker bind-mounts don't
+# create them as root-owned. The host AGENTS.md is bind-mounted into
+# ~/.codex-host/ (not directly into ~/.codex/) so the user-init copy
+# step can seed a writable ~/.codex/AGENTS.md that rtk can patch.
+RUN mkdir -p /home/vscode/.codex /home/vscode/.codex-host
+RUN echo 'alias codex-yolo="codex --yolo"' >> /home/vscode/.bashrc
+EOF
+			;;
 		*)
 			echo ""
 			;;
@@ -360,7 +407,7 @@ sct_agent_mitm_streaming_flags() {
 		cursor)
 			echo "--set stream_large_bodies=1m --set connection_strategy=lazy --set anticomp=true --set timeout_read=300"
 			;;
-		claude|*)
+		claude|codex|*)
 			echo ""
 			;;
 	esac
@@ -418,6 +465,45 @@ else
     if [ -f "$SANDCAT_CURSOR_CLI" ]; then
         echo "Warning: jq not found; cannot apply Sandcat cursor.cli settings" >&2
     fi
+fi
+EOF
+			;;
+		codex)
+			cat <<'EOF'
+# Codex CLI is installed at build time (Dockerfile.app). Codex reads
+# $OPENAI_API_KEY directly from the environment — sandcat.env has already
+# been sourced with the placeholder or 1Password-resolved value.
+# Basic health check on first start; failure is non-fatal.
+if command -v codex >/dev/null 2>&1; then
+    codex --version >/dev/null 2>&1 \
+        || echo "sandcat: codex --version failed (non-fatal)" >&2
+fi
+
+# Seed the writable ~/.codex/AGENTS.md from the host bind-mount so
+# `rtk init --codex` can patch it. Sandcat mounts the host's
+# ~/.codex/AGENTS.md read-only at ~/.codex-host/AGENTS.md (a separate
+# path) precisely so this copy can happen without hitting EROFS.
+# Copy is one-shot: only when ~/.codex/AGENTS.md does not exist yet
+# (agent-home volume was fresh). Later host edits to AGENTS.md take
+# effect after a `docker compose down -v` (or manual rm inside).
+if [ -f "$HOME/.codex-host/AGENTS.md" ] && [ ! -e "$HOME/.codex/AGENTS.md" ]; then
+    mkdir -p "$HOME/.codex"
+    cp "$HOME/.codex-host/AGENTS.md" "$HOME/.codex/AGENTS.md"
+elif [ ! -e "$HOME/.codex/AGENTS.md" ]; then
+    # No host AGENTS.md either — create empty one so rtk init has
+    # something to patch.
+    mkdir -p "$HOME/.codex"
+    : > "$HOME/.codex/AGENTS.md"
+fi
+
+# Auto-init rtk for codex: writes ~/.codex/RTK.md and appends an
+# @RTK.md reference to ~/.codex/AGENTS.md. Idempotent — skipped once
+# the reference is already present.
+if command -v rtk >/dev/null 2>&1 \
+   && [ "${SANDCAT_RTK:-true}" != "false" ] \
+   && ! grep -q '@RTK.md\|RTK\.md' "$HOME/.codex/AGENTS.md" 2>/dev/null; then
+    rtk init -g --codex >/dev/null 2>&1 \
+        || echo "sandcat: rtk init failed (non-fatal)" >&2
 fi
 EOF
 			;;
