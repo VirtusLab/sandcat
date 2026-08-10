@@ -123,3 +123,40 @@ teardown() {
 	grep -q '"dev.containers.copyGitConfig"' "$template"
 	grep -q "host user settings" "$template"
 }
+
+@test "sandcat init installs upstream_ca_bundles mount" {
+	mkdir -p "$BATS_TEST_TMPDIR/home/.config/sandcat"
+	local ca="$BATS_TEST_TMPDIR/company.pem"
+	printf -- '-----BEGIN CERTIFICATE-----\nABC\n-----END CERTIFICATE-----\n' > "$ca"
+	cat > "$BATS_TEST_TMPDIR/home/.config/sandcat/settings.json" <<EOF
+{ "upstream_ca_bundles": ["$ca"] }
+EOF
+
+	local proj="$BATS_TEST_TMPDIR/proj"
+	mkdir -p "$proj"
+	( cd "$proj" && git init -q )
+
+	HOME="$BATS_TEST_TMPDIR/home" run "$SCT_ROOT/bin/sandcat" init \
+		--agent claude --ide none --name testproj --path "$proj" \
+		--stacks "" --secret-provider none --features "no-rtk,no-gitignore" --proxy web
+	assert_success
+
+	yq -e ".services.mitmproxy.volumes[] | select(. == \"${ca}:/upstream-ca/000-company.crt:ro\")" \
+		"$proj/.devcontainer/sandcat/compose-proxy.yml"
+}
+
+@test "sandcat init fails fast when upstream_ca_bundles path is bad" {
+	mkdir -p "$BATS_TEST_TMPDIR/home/.config/sandcat"
+	cat > "$BATS_TEST_TMPDIR/home/.config/sandcat/settings.json" <<'EOF'
+{ "upstream_ca_bundles": ["/no/such/file.pem"] }
+EOF
+	local proj="$BATS_TEST_TMPDIR/proj"
+	mkdir -p "$proj"
+	( cd "$proj" && git init -q )
+
+	HOME="$BATS_TEST_TMPDIR/home" run "$SCT_ROOT/bin/sandcat" init \
+		--agent claude --ide none --name testproj --path "$proj" \
+		--stacks "" --secret-provider none --features "no-rtk,no-gitignore" --proxy web
+	assert_failure
+	assert_output --partial "file not found"
+}
