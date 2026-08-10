@@ -20,8 +20,6 @@ adds Cursor-specific behaviour:
   - Optional debug logging via the ``SANDCAT_MITM_DEBUG`` env var or setting.
 """
 
-import base64
-import binascii
 import os
 
 from mitmproxy import http
@@ -118,42 +116,5 @@ class SandcatAddon(_SandcatAddonBase):
             or media_type.endswith("+json")
             or media_type.endswith("+xml")
         )
-
-    # ----------------------------------------------------- basic auth helpers
-
-    @staticmethod
-    def _basic_auth_contains_placeholder(auth_header: str | None, placeholder: str) -> bool:
-        if not auth_header or not auth_header.lower().startswith("basic "):
-            return False
-        encoded = auth_header.split(" ", 1)[1].strip()
-        if not encoded:
-            return False
-        try:
-            decoded = base64.b64decode(encoded).decode("utf-8")
-        except (binascii.Error, UnicodeDecodeError, ValueError):
-            return False
-        return placeholder in decoded
-
-    @staticmethod
-    def _replace_placeholder_in_basic_auth(
-        auth_header: str | None, placeholder: str, value: str
-    ) -> tuple[str | None, bool]:
-        if not auth_header or not auth_header.lower().startswith("basic "):
-            return auth_header, False
-        encoded = auth_header.split(" ", 1)[1].strip()
-        if not encoded:
-            return auth_header, False
-        try:
-            decoded = base64.b64decode(encoded).decode("utf-8")
-        except (binascii.Error, UnicodeDecodeError, ValueError):
-            return auth_header, False
-        if placeholder not in decoded:
-            return auth_header, False
-        replaced = decoded.replace(placeholder, value)
-        # Trim only outer CR/LF; avoids invisible line-ending damage from clients/editors.
-        replaced = replaced.strip("\r\n")
-        new_encoded = base64.b64encode(replaced.encode("utf-8")).decode("ascii")
-        return f"Basic {new_encoded}", True
-
 
 addons = [SandcatAddon()]

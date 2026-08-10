@@ -18,12 +18,10 @@ Agent variants override a small set of hook methods to customise behaviour:
   - ``_prepare_streaming_request(flow)``    — per-request streaming setup.
   - ``_normalize_authorization_header(v)``  — sanitize the ``Authorization``
     header after substitution.
-  - ``_basic_auth_contains_placeholder(auth_header, placeholder) -> bool``.
-  - ``_replace_placeholder_in_basic_auth(auth_header, placeholder, value)``.
   - ``_is_textual_content_type(ct) -> bool`` — body substitution gate.
 
 The defaults are tuned to match the simplest "Claude" behaviour (no streaming,
-no Basic Auth handling, body substitution always permitted).
+Basic Auth substitution, body substitution always permitted).
 
 Proton Pass authentication
 --------------------------
@@ -722,15 +720,49 @@ class SandcatAddon:
 
     @staticmethod
     def _basic_auth_contains_placeholder(auth_header: str | None, placeholder: str) -> bool:
-        """Default: no Basic Auth substitution support."""
-        return False
+        """Return True when the decoded Basic Auth credentials contain the placeholder.
+
+        Git credential helpers (e.g. ``gh auth git-credential``) return the
+        token placeholder as the password.  Git then base64-encodes the whole
+        ``username:password`` pair, so the placeholder never appears in plain
+        text in the header — this decode-then-search is required to detect it.
+        """
+        if not auth_header or not auth_header.lower().startswith("basic "):
+            return False
+        encoded = auth_header.split(" ", 1)[1].strip()
+        if not encoded:
+            return False
+        try:
+            decoded = base64.b64decode(encoded).decode("utf-8")
+        except (binascii.Error, UnicodeDecodeError, ValueError):
+            return False
+        return placeholder in decoded
 
     @staticmethod
     def _replace_placeholder_in_basic_auth(
         auth_header: str | None, placeholder: str, value: str
     ) -> tuple[str | None, bool]:
-        """Default: do not touch Basic Auth headers. Returns (header, replaced=False)."""
-        return auth_header, False
+        """Decode the Basic Auth blob, replace the placeholder, and re-encode.
+
+        Returns ``(new_header, True)`` on success or ``(original, False)`` when
+        the header is absent, not Basic scheme, or does not contain the placeholder.
+        """
+        if not auth_header or not auth_header.lower().startswith("basic "):
+            return auth_header, False
+        encoded = auth_header.split(" ", 1)[1].strip()
+        if not encoded:
+            return auth_header, False
+        try:
+            decoded = base64.b64decode(encoded).decode("utf-8")
+        except (binascii.Error, UnicodeDecodeError, ValueError):
+            return auth_header, False
+        if placeholder not in decoded:
+            return auth_header, False
+        replaced = decoded.replace(placeholder, value)
+        # Trim only outer CR/LF; avoids invisible line-ending damage from clients/editors.
+        replaced = replaced.strip("\r\n")
+        new_encoded = base64.b64encode(replaced.encode("utf-8")).decode("ascii")
+        return f"Basic {new_encoded}", True
 
     @staticmethod
     def _is_textual_content_type(content_type: str | None) -> bool:
