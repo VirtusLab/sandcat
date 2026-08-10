@@ -55,6 +55,7 @@ teardown() {
 
 	run cat "$local_settings"
 	assert_output --partial '"real"'
+}
 
 @test "read_upstream_ca_bundles returns empty when no settings configured" {
 	# shellcheck source=../../lib/composefile.bash

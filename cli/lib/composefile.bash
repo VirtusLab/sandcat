@@ -513,3 +513,57 @@ validate_upstream_ca_bundle() {
 	fi
 	return 0
 }
+
+# Adds the user's upstream CA bundles as read-only bind-mounts on the
+# mitmproxy service and rewrites the entrypoint to install them into the
+# container's system trust store before docker-entrypoint.sh drops
+# privileges. No-op when no bundles are configured. Validates each path
+# before touching the compose file — on any failure, the compose file is
+# left unchanged.
+# Args:
+#   $1 - Path to compose-proxy.yml
+#   $2 - Project directory
+apply_upstream_ca_bundles() {
+	require yq
+	local compose_file=$1
+	local project_dir=$2
+
+	local bundles=()
+	local line
+	while IFS= read -r line || [[ -n "$line" ]]; do
+		[[ -n "$line" ]] || continue
+		bundles+=("$line")
+	done < <(read_upstream_ca_bundles "$project_dir")
+
+	[[ ${#bundles[@]} -eq 0 ]] && return 0
+
+	# Fail fast if any bundle is invalid — do not touch compose file.
+	local b
+	for b in "${bundles[@]}"; do
+		validate_upstream_ca_bundle "$b" || return 1
+	done
+
+	# Build the list of new volume entries. Naming: NNN-<basename>.crt.
+	local yq_array="" idx=0 host basename mount
+	for b in "${bundles[@]}"; do
+		host="$b"
+		basename=$(basename "$host")
+		basename="${basename%.*}"
+		mount=$(printf '%s:/upstream-ca/%03d-%s.crt:ro' "$host" "$idx" "$basename")
+		# JSON-string escape backslashes and quotes.
+		local escaped="${mount//\\/\\\\}"
+		escaped="${escaped//\"/\\\"}"
+		yq_array+="\"${escaped}\","
+		idx=$((idx + 1))
+	done
+	yq_array="[${yq_array%,}]"
+
+	yq -i ".services.mitmproxy.volumes = ((.services.mitmproxy.volumes // []) + ${yq_array})" "$compose_file"
+
+	# Rewrite entrypoint to prepend CA installation. Preserve the existing
+	# dns.conf cleanup and exec docker-entrypoint.sh chain — see design doc.
+	local new_entrypoint='if [ -d /upstream-ca ] && ls /upstream-ca/*.crt >/dev/null 2>&1; then cp /upstream-ca/*.crt /usr/local/share/ca-certificates/ && update-ca-certificates >/dev/null; fi && rm -f /home/mitmproxy/.mitmproxy/dns.conf && exec docker-entrypoint.sh "$@"'
+	new_entrypoint="$new_entrypoint" yq -i \
+		'.services.mitmproxy.entrypoint = ["/bin/sh", "-c", strenv(new_entrypoint), "sh"]' \
+		"$compose_file"
+}
