@@ -175,6 +175,52 @@ apply_inline_placeholders() {
 	mv "$tmpfile" "$file"
 }
 
+# Adds stack-contributed environment variables (e.g. uv's TLS config for the
+# python stack) to services.agent.environment in compose-all.yml.
+# Args:
+#   $1 - Path to compose-all.yml
+#   $@ - Stack names (remaining args)
+customize_compose_stack_environment() {
+	local compose_file=$1
+	shift
+
+	local entries="" stack env
+	for stack in "$@"; do
+		env=$(stack_env_entries "$stack")
+		[[ -n "$env" ]] && entries="${entries}${env}"$'\n'
+	done
+
+	merge_compose_agent_environment "$compose_file" "$entries"
+}
+
+# Merges KEY=value environment entries into services.agent.environment in
+# compose-all.yml. Appends to any entries already present (rather than
+# overwriting) so agent- and stack-contributed variables coexist regardless
+# of call order. Building the array structurally avoids fragile
+# line-counting in compose-all.yml. No-op when passed no entries — compose
+# rejects `environment: {}`.
+# Args:
+#   $1 - Path to compose-all.yml
+#   $2 - Newline-separated "KEY=value" entries (empty lines ignored)
+merge_compose_agent_environment() {
+	local compose_file=$1
+	local entries=$2
+
+	local entry yq_array=""
+	while IFS= read -r entry; do
+		[[ -z "$entry" ]] && continue
+		# Wrap each entry as a JSON string for yq's expression parser;
+		# escape backslashes and double quotes so KEY=VALUE pairs with
+		# special characters round-trip correctly.
+		local escaped="${entry//\\/\\\\}"
+		escaped="${escaped//\"/\\\"}"
+		yq_array+="\"${escaped}\","
+	done <<< "$entries"
+	[[ -z "$yq_array" ]] && return 0
+	yq_array="[${yq_array%,}]"
+	yq -i ".services.agent.environment = ((.services.agent.environment // []) + ${yq_array})" "$compose_file"
+}
+
 # Replaces provider-specific placeholders in generated templates.
 # Args:
 #   $1 - Path to devcontainer directory
@@ -219,23 +265,7 @@ customize_agent_templates() {
 		"__AGENT_EXTENSION__" "$extension_replacement" \
 		"__AGENT_SETTINGS__"  "$settings_block"
 
-	# services.agent.environment is added via yq only when the agent
-	# contributes entries — compose rejects `environment: {}`. Building the
-	# array structurally avoids fragile line-counting in compose-all.yml.
-	if [[ -n "$environment_entries" ]]; then
-		local entry yq_array=""
-		while IFS= read -r entry; do
-			[[ -z "$entry" ]] && continue
-			# Wrap each entry as a JSON string for yq's expression parser;
-			# escape backslashes and double quotes so KEY=VALUE pairs with
-			# special characters round-trip correctly.
-			local escaped="${entry//\\/\\\\}"
-			escaped="${escaped//\"/\\\"}"
-			yq_array+="\"${escaped}\","
-		done <<< "$environment_entries"
-		yq_array="[${yq_array%,}]"
-		yq -i ".services.agent.environment = ${yq_array}" "$devcontainer_dir/compose-all.yml"
-	fi
+	merge_compose_agent_environment "$devcontainer_dir/compose-all.yml" "$environment_entries"
 
 	apply_template_placeholders \
 		"$devcontainer_dir/Dockerfile.app" \

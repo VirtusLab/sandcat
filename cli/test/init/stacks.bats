@@ -85,6 +85,19 @@ teardown() {
 	assert_output ""
 }
 
+@test "stack_env_entries returns uv TLS config for python" {
+	run stack_env_entries python
+	assert_output "UV_SYSTEM_CERTS=1"
+}
+
+@test "stack_env_entries returns empty for stacks without env contributions" {
+	run stack_env_entries node
+	assert_output ""
+
+	run stack_env_entries java
+	assert_output ""
+}
+
 @test "stack_deps returns java for scala" {
 	run stack_deps scala
 	assert_output "java"

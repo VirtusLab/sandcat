@@ -103,6 +103,7 @@ devcontainer() {
 		local stacks_arr=()
 		read -ra stacks_arr <<< "$stacks"
 		customize_devcontainer_extensions "$devcontainer_dir/devcontainer.json" "${stacks_arr[@]}"
+		customize_compose_stack_environment "$compose_file" "${stacks_arr[@]}"
 		customize_devbox "$devcontainer_dir" "${stacks_arr[@]}"
 	else
 		customize_devcontainer_extensions "$devcontainer_dir/devcontainer.json"

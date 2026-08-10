@@ -212,3 +212,57 @@ teardown() {
 	run grep '__AGENT_MITM_STREAMING_FLAGS__' "$BATS_TEST_TMPDIR/sandcat/compose-proxy.yml"
 	assert_failure
 }
+
+# --------------------------------------------------- stack environment
+
+@test "customize_compose_stack_environment adds python's uv TLS env vars" {
+	echo 'services: {agent: {}}' > "$BATS_TEST_TMPDIR/compose-all.yml"
+
+	customize_compose_stack_environment "$BATS_TEST_TMPDIR/compose-all.yml" python
+
+	yq -e '.services.agent.environment[] | select(. == "UV_SYSTEM_CERTS=1")' \
+		"$BATS_TEST_TMPDIR/compose-all.yml"
+}
+
+@test "customize_compose_stack_environment is a no-op for stacks without env contributions" {
+	echo 'services: {agent: {}}' > "$BATS_TEST_TMPDIR/compose-all.yml"
+
+	customize_compose_stack_environment "$BATS_TEST_TMPDIR/compose-all.yml" node java
+
+	# compose rejects `environment: {}` — the key must be entirely absent,
+	# not present-but-empty.
+	run yq -e '.services.agent | has("environment")' "$BATS_TEST_TMPDIR/compose-all.yml"
+	assert_failure
+}
+
+@test "customize_compose_stack_environment and customize_agent_templates environment entries coexist regardless of call order" {
+	# Real init flow calls the stack merge before the agent merge; this test
+	# guards against a regression where either merge overwrites the other's
+	# entries instead of appending (the bug the append-based
+	# merge_compose_agent_environment helper exists to prevent).
+	echo 'services: {agent: {}}' > "$BATS_TEST_TMPDIR/compose-all.yml"
+	echo "__AGENT_DOCKER_INSTALL__" > "$BATS_TEST_TMPDIR/Dockerfile.app"
+	echo "__AGENT_USER_INIT__" > "$BATS_TEST_TMPDIR/sandcat/scripts/app-user-init.sh"
+
+	customize_compose_stack_environment "$BATS_TEST_TMPDIR/compose-all.yml" python
+	customize_agent_templates "$BATS_TEST_TMPDIR" "claude"
+
+	yq -e '.services.agent.environment[] | select(. == "UV_SYSTEM_CERTS=1")' \
+		"$BATS_TEST_TMPDIR/compose-all.yml"
+	yq -e '.services.agent.environment[] | select(. == "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1")' \
+		"$BATS_TEST_TMPDIR/compose-all.yml"
+}
+
+@test "customize_agent_templates and customize_compose_stack_environment environment entries coexist in reverse call order" {
+	echo 'services: {agent: {}}' > "$BATS_TEST_TMPDIR/compose-all.yml"
+	echo "__AGENT_DOCKER_INSTALL__" > "$BATS_TEST_TMPDIR/Dockerfile.app"
+	echo "__AGENT_USER_INIT__" > "$BATS_TEST_TMPDIR/sandcat/scripts/app-user-init.sh"
+
+	customize_agent_templates "$BATS_TEST_TMPDIR" "claude"
+	customize_compose_stack_environment "$BATS_TEST_TMPDIR/compose-all.yml" python
+
+	yq -e '.services.agent.environment[] | select(. == "UV_SYSTEM_CERTS=1")' \
+		"$BATS_TEST_TMPDIR/compose-all.yml"
+	yq -e '.services.agent.environment[] | select(. == "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1")' \
+		"$BATS_TEST_TMPDIR/compose-all.yml"
+}

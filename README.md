@@ -1505,7 +1505,10 @@ enough for most tools — but some runtimes bring their own CA handling:
   trust store resolution. `app-user-init.sh` pre-creates the `scala-cli` config
   file with the trust store path so it works even before scala-cli is installed.
   Other native tools may need similar tool-specific configuration.
-- **Python** uses the system CA store — works out of the box.
+- **Python** uses the system CA store — works out of the box. The exception is
+  **uv**, which is itself a Rust binary and (like other `rustls`-based tools)
+  bundles its own root CAs. The `python` stack sets `UV_SYSTEM_CERTS` on the
+  agent service automatically so `uv` reads the system store instead.
 
 ## Development
 
