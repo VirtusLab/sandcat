@@ -402,6 +402,8 @@ EOF
 	[[ "$ep" == *"/upstream-ca"* ]]
 	[[ "$ep" == *"rm -f /home/mitmproxy/.mitmproxy/dns.conf"* ]]
 	[[ "$ep" == *"exec docker-entrypoint.sh"* ]]
+	# Fail-loud: no conditional guard around the CA install.
+	[[ "$ep" != *"if [ -d"* ]]
 }
 
 @test "apply_upstream_ca_bundles fails and does not modify compose on invalid path" {

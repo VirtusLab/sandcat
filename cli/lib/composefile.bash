@@ -562,7 +562,7 @@ apply_upstream_ca_bundles() {
 
 	# Rewrite entrypoint to prepend CA installation. Preserve the existing
 	# dns.conf cleanup and exec docker-entrypoint.sh chain — see design doc.
-	local new_entrypoint='if [ -d /upstream-ca ] && ls /upstream-ca/*.crt >/dev/null 2>&1; then cp /upstream-ca/*.crt /usr/local/share/ca-certificates/ && update-ca-certificates >/dev/null; fi && rm -f /home/mitmproxy/.mitmproxy/dns.conf && exec docker-entrypoint.sh "$@"'
+	local new_entrypoint='cp /upstream-ca/*.crt /usr/local/share/ca-certificates/ && update-ca-certificates >/dev/null && rm -f /home/mitmproxy/.mitmproxy/dns.conf && exec docker-entrypoint.sh "$@"'
 	new_entrypoint="$new_entrypoint" yq -i \
 		'.services.mitmproxy.entrypoint = ["/bin/sh", "-c", strenv(new_entrypoint), "sh"]' \
 		"$compose_file"
