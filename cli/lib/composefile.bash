@@ -477,8 +477,10 @@ read_upstream_ca_bundles() {
 	local f
 	for f in "$user_settings" "$project_local"; do
 		[[ -f "$f" ]] || continue
-		# Extract the array; treat missing key as empty. yq prints "null"
-		# for missing keys with `.foo // []`, so guard by branching on type.
+		# `(.upstream_ca_bundles // []) | .[]` yields one line per array entry
+		# and empty output when the key is missing or the array is empty. yq's
+		# stderr is discarded so a corrupted settings file (invalid JSON) is
+		# treated as "nothing configured" rather than aborting init.
 		local piece
 		piece=$(yq -r '(.upstream_ca_bundles // []) | .[]' "$f" 2>/dev/null || true)
 		[[ -n "$piece" ]] && out+="${piece}"$'\n'

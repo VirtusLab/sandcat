@@ -115,3 +115,13 @@ EOF
 	assert_success
 	assert_output ""
 }
+
+@test "read_upstream_ca_bundles handles empty array as no-op" {
+	# shellcheck source=../../lib/composefile.bash
+	source "$SCT_LIBDIR/composefile.bash"
+	mkdir -p "$BATS_TEST_TMPDIR/home/.config/sandcat"
+	echo '{ "upstream_ca_bundles": [] }' > "$BATS_TEST_TMPDIR/home/.config/sandcat/settings.json"
+	HOME="$BATS_TEST_TMPDIR/home" run read_upstream_ca_bundles "$BATS_TEST_TMPDIR/proj"
+	assert_success
+	assert_output ""
+}
