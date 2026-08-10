@@ -488,3 +488,28 @@ read_upstream_ca_bundles() {
 	# Strip trailing newline; leave inner newlines as separators.
 	printf '%s' "${out%$'\n'}"
 }
+
+# Validates a single upstream CA bundle path. Prints an error to stderr and
+# returns 1 on failure; returns 0 silently on success.
+# Args:
+#   $1 - Path to check
+validate_upstream_ca_bundle() {
+	local path=$1
+	if [[ "$path" != /* ]]; then
+		echo "upstream_ca_bundles: expected absolute path, got '$path'" >&2
+		return 1
+	fi
+	if [[ ! -e "$path" ]]; then
+		echo "upstream_ca_bundles: file not found: $path" >&2
+		return 1
+	fi
+	if [[ ! -r "$path" ]]; then
+		echo "upstream_ca_bundles: file not readable: $path" >&2
+		return 1
+	fi
+	if ! grep -q -- '-----BEGIN CERTIFICATE-----' "$path"; then
+		echo "upstream_ca_bundles: no PEM certificate block in $path" >&2
+		return 1
+	fi
+	return 0
+}

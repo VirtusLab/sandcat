@@ -125,3 +125,53 @@ EOF
 	assert_success
 	assert_output ""
 }
+
+@test "validate_upstream_ca_bundle accepts absolute path with PEM" {
+	# shellcheck source=../../lib/composefile.bash
+	source "$SCT_LIBDIR/composefile.bash"
+	local f="$BATS_TEST_TMPDIR/ca.pem"
+	printf -- '-----BEGIN CERTIFICATE-----\nABC\n-----END CERTIFICATE-----\n' > "$f"
+	run validate_upstream_ca_bundle "$f"
+	assert_success
+	assert_output ""
+}
+
+@test "validate_upstream_ca_bundle rejects relative path" {
+	# shellcheck source=../../lib/composefile.bash
+	source "$SCT_LIBDIR/composefile.bash"
+	run validate_upstream_ca_bundle "relative/path.pem"
+	assert_failure
+	assert_output --partial "expected absolute path"
+	assert_output --partial "relative/path.pem"
+}
+
+@test "validate_upstream_ca_bundle rejects missing file" {
+	# shellcheck source=../../lib/composefile.bash
+	source "$SCT_LIBDIR/composefile.bash"
+	run validate_upstream_ca_bundle "/nonexistent/ca.pem"
+	assert_failure
+	assert_output --partial "file not found"
+	assert_output --partial "/nonexistent/ca.pem"
+}
+
+@test "validate_upstream_ca_bundle rejects unreadable file" {
+	# shellcheck source=../../lib/composefile.bash
+	source "$SCT_LIBDIR/composefile.bash"
+	local f="$BATS_TEST_TMPDIR/unreadable.pem"
+	printf -- '-----BEGIN CERTIFICATE-----\n' > "$f"
+	chmod 000 "$f"
+	run validate_upstream_ca_bundle "$f"
+	assert_failure
+	assert_output --partial "not readable"
+	chmod 644 "$f"
+}
+
+@test "validate_upstream_ca_bundle rejects non-PEM content" {
+	# shellcheck source=../../lib/composefile.bash
+	source "$SCT_LIBDIR/composefile.bash"
+	local f="$BATS_TEST_TMPDIR/notpem.crt"
+	printf 'this is not a certificate\n' > "$f"
+	run validate_upstream_ca_bundle "$f"
+	assert_failure
+	assert_output --partial "no PEM certificate block"
+}
