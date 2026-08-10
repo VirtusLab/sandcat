@@ -6,6 +6,13 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.app
+    # We set `no-new-privileges` to true to "disable container processes from
+    # gaining new privileges."
+    # https://docs.docker.com/reference/cli/docker/container/run/#security-opt
+    # https://docs.docker.com/reference/compose-file/services/#security_opt
+    # https://www.kernel.org/doc/Documentation/prctl/no_new_privs.txt
+    security_opt:
+      - no-new-privileges
     # Share wg-client's network namespace so all traffic goes through its
     # WireGuard tunnel. The app container has no NET_ADMIN capability,
     # so processes inside cannot modify routing, iptables, or the tunnel.
