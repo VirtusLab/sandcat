@@ -460,3 +460,29 @@ add_jetbrains_capabilities() {
 	yq -i '(.services.agent.cap_add[] | select(. == "CHOWN")) head_comment = "JetBrains IDE: change ownership of IDE cache and state files"' "$compose_file"
 	yq -i '(.services.agent.cap_add[] | select(. == "FOWNER")) head_comment = "JetBrains IDE: bypass ownership checks on IDE-managed files"' "$compose_file"
 }
+
+# Reads the merged `upstream_ca_bundles` list from user settings
+# (~/.config/sandcat/settings.json) and project settings.local.json,
+# printing absolute paths one per line. Empty output if unconfigured.
+# Args:
+#   $1 - Project directory (contains .sandcat/settings.local.json if used)
+read_upstream_ca_bundles() {
+	require yq
+	local project_dir=$1
+
+	local user_settings="${HOME}/.config/sandcat/settings.json"
+	local project_local="${project_dir}/.sandcat/settings.local.json"
+
+	local out=""
+	local f
+	for f in "$user_settings" "$project_local"; do
+		[[ -f "$f" ]] || continue
+		# Extract the array; treat missing key as empty. yq prints "null"
+		# for missing keys with `.foo // []`, so guard by branching on type.
+		local piece
+		piece=$(yq -r '(.upstream_ca_bundles // []) | .[]' "$f" 2>/dev/null || true)
+		[[ -n "$piece" ]] && out+="${piece}"$'\n'
+	done
+	# Strip trailing newline; leave inner newlines as separators.
+	printf '%s' "${out%$'\n'}"
+}
