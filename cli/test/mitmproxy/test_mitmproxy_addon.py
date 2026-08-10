@@ -594,10 +594,10 @@ class TestCursorStreaming:
 
 
 # ---------------------------------------------------------------------------
-# Cursor-specific: Basic Auth substitution.
+# Basic Auth substitution (common across agents post-#85).
 # ---------------------------------------------------------------------------
 
-class TestCursorBasicAuth:
+class TestBasicAuth:
     @staticmethod
     def _make_addon():
         addon = CursorAddon()
@@ -660,8 +660,8 @@ class TestCursorBasicAuth:
         assert replaced is False
         assert result == "Bearer abc"
 
-    def test_claude_does_not_touch_basic_auth(self):
-        """Base addon never inspects Basic Auth payloads."""
+    def test_claude_also_substitutes_basic_auth(self):
+        """ClaudeAddon inherits the common Basic Auth substitution (see #85)."""
         import base64
 
         encoded = base64.b64encode(b"user:SANDCAT_PLACEHOLDER_API_KEY").decode("ascii")
@@ -679,8 +679,8 @@ class TestCursorBasicAuth:
             headers={"authorization": f"Basic {encoded}"},
         )
         addon.request(flow)
-        # Claude leaves the encoded payload untouched (placeholder hidden inside base64).
-        assert flow.request.headers["authorization"] == f"Basic {encoded}"
+        new_encoded = flow.request.headers["authorization"].split(" ", 1)[1]
+        assert base64.b64decode(new_encoded) == b"user:real-pass"
 
 
 # ---------------------------------------------------------------------------
