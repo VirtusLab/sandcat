@@ -5,7 +5,7 @@ source "${BASH_SOURCE[0]%/*}/rtk.bash"
 
 # Returns supported agents as a space-separated list.
 sct_available_agents() {
-	echo "claude cursor codex"
+	echo "claude cursor codex copilot"
 }
 
 # Returns 0 if agent is valid.
@@ -40,10 +40,11 @@ sct_cursor_workspace_project_id() {
 sct_agent_mount_env_var() {
 	local agent=$1
 	case "$agent" in
-		claude) echo "SANDCAT_MOUNT_CLAUDE_CONFIG" ;;
-		cursor) echo "SANDCAT_MOUNT_CURSOR_CONFIG" ;;
-		codex)  echo "SANDCAT_MOUNT_CODEX_CONFIG"  ;;
-		*)      echo "" ;;
+		claude)  echo "SANDCAT_MOUNT_CLAUDE_CONFIG"  ;;
+		cursor)  echo "SANDCAT_MOUNT_CURSOR_CONFIG"  ;;
+		codex)   echo "SANDCAT_MOUNT_CODEX_CONFIG"   ;;
+		copilot) echo "SANDCAT_MOUNT_COPILOT_CONFIG" ;;
+		*)       echo "" ;;
 	esac
 }
 
@@ -93,6 +94,12 @@ EOF
 $HOME/.codex/AGENTS.md
 $HOME/.codex/skills/
 $HOME/.codex/commands/
+EOF
+			;;
+		copilot)
+			cat <<'EOF'
+$HOME/.copilot/mcp-config.json
+$HOME/.copilot/session-state/
 EOF
 			;;
 		*)
@@ -187,10 +194,11 @@ ensure_host_agent_config_paths() {
 sct_agent_api_key_help() {
 	local agent=$1
 	case "$agent" in
-		claude) echo "ANTHROPIC_API_KEY  your Anthropic API key (for Claude Code)" ;;
-		cursor) echo "CURSOR_API_KEY     your Cursor API key (for Cursor CLI)" ;;
-		codex)  echo "OPENAI_API_KEY     your OpenAI API key (for Codex CLI)" ;;
-		*)      echo "ANTHROPIC_API_KEY  API key for your selected agent" ;;
+		claude)  echo "ANTHROPIC_API_KEY  your Anthropic API key (for Claude Code)" ;;
+		cursor)  echo "CURSOR_API_KEY     your Cursor API key (for Cursor CLI)" ;;
+		codex)   echo "OPENAI_API_KEY     your OpenAI API key (for Codex CLI)" ;;
+		copilot) echo "COPILOT_GITHUB_TOKEN  fine-grained GitHub PAT with \"Copilot Requests\" permission (or \$(gh auth token))" ;;
+		*)       echo "ANTHROPIC_API_KEY  API key for your selected agent" ;;
 	esac
 }
 
@@ -207,6 +215,9 @@ sct_agent_op_api_key_help() {
 			;;
 		codex)
 			echo "OPENAI_API_KEY     \"op\": \"op://vault/OpenAI API Key/credential\""
+			;;
+		copilot)
+			echo "COPILOT_GITHUB_TOKEN  \"op\": \"op://vault/GitHub Copilot Token/credential\""
 			;;
 		claude|*)
 			echo "ANTHROPIC_API_KEY  \"op\": \"op://vault/Anthropic API Key/credential\""

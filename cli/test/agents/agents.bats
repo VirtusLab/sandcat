@@ -19,10 +19,10 @@ setup() {
 
 # ---------------------------------------------------------------- discovery
 
-@test "sct_available_agents lists claude, cursor and codex" {
+@test "sct_available_agents lists claude, cursor, codex and copilot" {
 	run sct_available_agents
 	assert_success
-	assert_output "claude cursor codex"
+	assert_output "claude cursor codex copilot"
 }
 
 @test "sct_is_valid_agent accepts known agents" {
@@ -568,5 +568,50 @@ setup() {
 	# succeed (declare -F guard) so unit-testing agents.bash standalone works.
 	unset -f ensure_cursor_user_settings_defaults 2>/dev/null || true
 	run sct_agent_post_user_settings_hook cursor
+	assert_success
+}
+
+# --------------------------------------------------- copilot agent tests
+
+@test "sct_available_agents includes copilot" {
+	run sct_available_agents
+	assert_success
+	assert_output --partial "copilot"
+}
+
+@test "sct_is_valid_agent accepts copilot" {
+	run sct_is_valid_agent copilot
+	assert_success
+}
+
+@test "sct_agent_mount_env_var returns SANDCAT_MOUNT_COPILOT_CONFIG for copilot" {
+	run sct_agent_mount_env_var copilot
+	assert_success
+	assert_output "SANDCAT_MOUNT_COPILOT_CONFIG"
+}
+
+@test "sct_agent_host_config_paths returns copilot paths" {
+	run sct_agent_host_config_paths copilot ""
+	assert_success
+	assert_line --partial ".copilot/mcp-config.json"
+	assert_line --partial ".copilot/session-state/"
+}
+
+@test "sct_agent_api_key_help returns COPILOT_GITHUB_TOKEN line" {
+	run sct_agent_api_key_help copilot
+	assert_success
+	assert_output --partial "COPILOT_GITHUB_TOKEN"
+	assert_output --partial "Copilot Requests"
+}
+
+@test "sct_agent_op_api_key_help returns 1Password ref for copilot" {
+	run sct_agent_op_api_key_help copilot
+	assert_success
+	assert_output --partial 'COPILOT_GITHUB_TOKEN'
+	assert_output --partial 'op://vault'
+}
+
+@test "sct_agent_post_user_settings_hook copilot is a no-op" {
+	run sct_agent_post_user_settings_hook copilot
 	assert_success
 }
