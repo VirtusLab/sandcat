@@ -247,6 +247,10 @@ customize_agent_templates() {
 			mitm_addon_file="mitmproxy_addon_codex.py"
 			mitm_http2="true"
 			;;
+		copilot)
+			mitm_addon_file="mitmproxy_addon_copilot.py"
+			mitm_http2="true"
+			;;
 		claude|*)
 			mitm_addon_file="mitmproxy_addon_claude.py"
 			mitm_http2="true"

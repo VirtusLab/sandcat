@@ -1,0 +1,15 @@
+{
+  "env": {},
+  "secrets": {
+    "COPILOT_GITHUB_TOKEN": {
+      "value": "",
+      "hosts": ["api.github.com", "*.github.com", "*.githubcopilot.com", "*.githubusercontent.com"]
+    }
+  },
+  "network": [
+    {"action": "allow", "host": "*.github.com"},
+    {"action": "allow", "host": "github.com"},
+    {"action": "allow", "host": "*.githubusercontent.com"},
+    {"action": "allow", "host": "*.githubcopilot.com"}
+  ]
+}
