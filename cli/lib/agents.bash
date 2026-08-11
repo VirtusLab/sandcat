@@ -260,10 +260,11 @@ sct_agent_post_user_settings_hook() {
 sct_agent_vscode_extension() {
 	local agent=$1
 	case "$agent" in
-		claude) echo "anthropic.claude-code" ;;
-		cursor) echo "anysphere.cursor" ;;
-		codex)  echo "openai.chatgpt"       ;;
-		*)      echo "" ;;
+		claude)  echo "anthropic.claude-code" ;;
+		cursor)  echo "anysphere.cursor"      ;;
+		codex)   echo "openai.chatgpt"        ;;
+		copilot) echo "GitHub.copilot"        ;;
+		*)       echo ""                      ;;
 	esac
 }
 
@@ -292,11 +293,8 @@ EOF
 				// auth/network config. Add Cursor-specific settings here if needed.
 EOF
 			;;
-		codex)
-			# No forced VS Code settings for codex in this iteration.
-			echo ""
-			;;
-		*)
+		codex|copilot|*)
+			# No forced VS Code settings for codex, copilot, or unknown agents.
 			echo ""
 			;;
 	esac
@@ -315,7 +313,7 @@ sct_agent_compose_environment_entries() {
 		claude)
 			echo "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1"
 			;;
-		cursor|codex|*)
+		cursor|codex|copilot|*)
 			echo ""
 			;;
 	esac
@@ -418,7 +416,7 @@ sct_agent_mitm_streaming_flags() {
 		cursor)
 			echo "--set stream_large_bodies=1m --set connection_strategy=lazy --set anticomp=true --set timeout_read=300"
 			;;
-		claude|codex|*)
+		claude|codex|copilot|*)
 			echo ""
 			;;
 	esac

@@ -615,3 +615,27 @@ setup() {
 	run sct_agent_post_user_settings_hook copilot
 	assert_success
 }
+
+@test "sct_agent_vscode_extension returns GitHub.copilot for copilot" {
+	run sct_agent_vscode_extension copilot
+	assert_success
+	assert_output "GitHub.copilot"
+}
+
+@test "sct_agent_devcontainer_settings_block for copilot is empty" {
+	run sct_agent_devcontainer_settings_block copilot
+	assert_success
+	[ -z "$output" ]
+}
+
+@test "sct_agent_compose_environment_entries for copilot is empty" {
+	run sct_agent_compose_environment_entries copilot
+	assert_success
+	[ -z "$output" ]
+}
+
+@test "sct_agent_mitm_streaming_flags for copilot is empty" {
+	run sct_agent_mitm_streaming_flags copilot
+	assert_success
+	[ -z "$output" ]
+}
