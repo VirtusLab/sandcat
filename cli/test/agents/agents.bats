@@ -639,3 +639,25 @@ setup() {
 	assert_success
 	[ -z "$output" ]
 }
+
+@test "sct_agent_docker_install_block copilot installs Node.js 22 + @github/copilot" {
+	run sct_agent_docker_install_block copilot
+	assert_success
+	assert_output --partial "setup_22.x"
+	assert_output --partial "nodejs"
+	assert_output --partial "npm install -g @github/copilot"
+	assert_output --partial "USER root"
+	assert_output --partial "USER vscode"
+}
+
+@test "sct_agent_docker_home_prep_block copilot pre-creates ~/.copilot" {
+	run sct_agent_docker_home_prep_block copilot
+	assert_success
+	assert_output --partial "mkdir -p /home/vscode/.copilot"
+}
+
+@test "sct_agent_user_init_block copilot runs a copilot --version health check" {
+	run sct_agent_user_init_block copilot
+	assert_success
+	assert_output --partial "copilot --version"
+}

@@ -352,6 +352,21 @@ RUN curl -fsSL https://chatgpt.com/codex/install.sh | \
 USER vscode
 EOF
 			;;
+		copilot)
+			cat <<'EOF'
+# Install Node.js 22 (Copilot CLI requires Node.js 20+).
+# NodeSource setup script is the shortest path to a current Node on the
+# vscode base image (Debian). Runs as root; USER is restored to vscode
+# before the block ends.
+USER root
+RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
+    && rm -rf /var/lib/apt/lists/*
+# Install GitHub Copilot CLI.
+RUN npm install -g @github/copilot
+USER vscode
+EOF
+			;;
 		*)
 			return 0
 			;;
@@ -388,6 +403,12 @@ EOF
 # step can seed a writable ~/.codex/AGENTS.md that rtk can patch.
 RUN mkdir -p /home/vscode/.codex /home/vscode/.codex-host
 RUN echo 'alias codex-yolo="codex --yolo"' >> /home/vscode/.bashrc
+EOF
+			;;
+		copilot)
+			cat <<'EOF'
+# Pre-create ~/.copilot so Docker bind-mounts don't create it as root-owned.
+RUN mkdir -p /home/vscode/.copilot
 EOF
 			;;
 		*)
@@ -513,6 +534,18 @@ if command -v rtk >/dev/null 2>&1 \
    && ! grep -q '@RTK.md\|RTK\.md' "$HOME/.codex/AGENTS.md" 2>/dev/null; then
     rtk init -g --codex >/dev/null 2>&1 \
         || echo "sandcat: rtk init failed (non-fatal)" >&2
+fi
+EOF
+			;;
+		copilot)
+			cat <<'EOF'
+# Copilot CLI reads $COPILOT_GITHUB_TOKEN directly from environment —
+# sandcat.env has already been sourced with the placeholder or
+# 1Password-resolved value. Basic health check on first start;
+# failure is non-fatal.
+if command -v copilot >/dev/null 2>&1; then
+    copilot --version >/dev/null 2>&1 \
+        || echo "sandcat: copilot --version failed (non-fatal)" >&2
 fi
 EOF
 			;;
