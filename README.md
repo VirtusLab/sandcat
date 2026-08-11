@@ -1621,11 +1621,12 @@ git-ignored by default):
     }
 
 Values are absolute paths on the host. Files are bind-mounted read-only
-into mitmproxy at `/upstream-ca/` and installed into its system trust
-store via `update-ca-certificates` at container start. mitmproxy's
-Python `ssl` module then trusts them for upstream TLS validation
-automatically. Public CAs are **extended, not replaced** — public HTTPS
-services keep working.
+into mitmproxy at `/upstream-ca/` and installed at container start into
+(a) the OS trust store via `update-ca-certificates` and (b) the
+`certifi` bundle that mitmproxy loads on the upstream leg
+(`mitmproxy/net/tls.py` uses `certifi.where()`, not the OS store).
+Public CAs are **extended, not replaced** — public HTTPS services keep
+working.
 
 Re-run `sandcat init` after adding, removing, or changing paths in this
 setting (bind-mounts are set at compose-render time). Changing only the

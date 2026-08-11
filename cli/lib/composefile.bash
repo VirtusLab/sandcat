@@ -560,9 +560,14 @@ apply_upstream_ca_bundles() {
 
 	yq -i ".services.mitmproxy.volumes = ((.services.mitmproxy.volumes // []) + ${yq_array})" "$compose_file"
 
-	# Rewrite entrypoint to prepend CA installation. Preserve the existing
-	# dns.conf cleanup and exec docker-entrypoint.sh chain — see design doc.
-	local new_entrypoint='cp /upstream-ca/*.crt /usr/local/share/ca-certificates/ && update-ca-certificates >/dev/null && rm -f /home/mitmproxy/.mitmproxy/dns.conf && exec docker-entrypoint.sh "$@"'
+	# Rewrite entrypoint to prepend CA installation. Two separate installs
+	# are required because mitmproxy loads its trust store from certifi
+	# (mitmproxy/net/tls.py calls certifi.where()), not the OS store — so
+	# update-ca-certificates alone does not make mitmproxy trust our CAs
+	# on the upstream leg. We append to certifi's bundle as well.
+	# Preserve the existing dns.conf cleanup and exec docker-entrypoint.sh
+	# chain — see design doc.
+	local new_entrypoint='cp /upstream-ca/*.crt /usr/local/share/ca-certificates/ && update-ca-certificates >/dev/null && cat /upstream-ca/*.crt >> "$(python3 -c '"'"'import certifi; print(certifi.where())'"'"')" && rm -f /home/mitmproxy/.mitmproxy/dns.conf && exec docker-entrypoint.sh "$@"'
 	new_entrypoint="$new_entrypoint" yq -i \
 		'.services.mitmproxy.entrypoint = ["/bin/sh", "-c", strenv(new_entrypoint), "sh"]' \
 		"$compose_file"

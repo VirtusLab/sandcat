@@ -404,6 +404,10 @@ EOF
 	[[ "$ep" == *"exec docker-entrypoint.sh"* ]]
 	# Fail-loud: no conditional guard around the CA install.
 	[[ "$ep" != *"if [ -d"* ]]
+	# certifi bundle patch: mitmproxy uses certifi.where() for upstream
+	# trust store, not the OS store, so update-ca-certificates alone is
+	# insufficient. E2E verified.
+	[[ "$ep" == *"certifi.where()"* ]]
 }
 
 @test "apply_upstream_ca_bundles fails and does not modify compose on invalid path" {
