@@ -566,7 +566,7 @@ YAML
 	add_copilot_config_volumes "$compose_file" true
 
 	# shellcheck disable=SC2016
-	yq -e '.services.agent.volumes[] | select(. == "${HOME}/.copilot/session-state:/home/vscode/.copilot/session-state:ro")' "$compose_file"
+	yq -e '.services.agent.volumes[] | select(. == "${HOME}/.copilot/session-state:/home/vscode/.copilot/session-state:rw")' "$compose_file"
 }
 
 @test "add_copilot_config_volumes emits commented entries when active=false" {

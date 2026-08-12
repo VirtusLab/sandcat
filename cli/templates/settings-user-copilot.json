@@ -3,6 +3,7 @@
   "secrets": {
     "COPILOT_GITHUB_TOKEN": {
       "value": "",
+      "placeholder": "gho_SANDCAT_PLACEHOLDER_COPILOT_GITHUB_TOKEN",
       "hosts": ["api.github.com", "*.github.com", "*.githubcopilot.com", "*.githubusercontent.com"]
     }
   },

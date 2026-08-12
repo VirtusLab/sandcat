@@ -291,8 +291,12 @@ add_copilot_config_volumes() {
 
 	# shellcheck disable=SC2016
 	add_volume_entry "$compose_file" '${HOME}/.copilot/mcp-config.json:/home/vscode/.copilot/mcp-config.json:ro' "$active" 'Host Copilot MCP config (optional)'
+	# session-state is read-write: Copilot CLI persists chat session events
+	# there (events.jsonl per session UUID). Read-only mount fails with
+	# EROFS on every prompt. Same trust posture as other host-mounted agent
+	# data — user chose to bind-mount, we honor read+write.
 	# shellcheck disable=SC2016
-	add_volume_entry "$compose_file" '${HOME}/.copilot/session-state:/home/vscode/.copilot/session-state:ro' "$active"
+	add_volume_entry "$compose_file" '${HOME}/.copilot/session-state:/home/vscode/.copilot/session-state:rw' "$active"
 }
 
 # Adds Cursor config volume mounts to the agent service.
