@@ -34,9 +34,14 @@
 				// __STACK_EXTENSIONS__
 			],
 			"settings": {
-				// Prevent VS Code from copying host .gitconfig into the
-				// container, which can leak credential helpers and signing
-				// key references.
+				// Signal our intent to VS Code that host .gitconfig should not
+				// be copied into the container (which can leak credential helpers
+				// and signing key references). NOTE: this setting is read by VS
+				// Code's Dev Containers extension from HOST user settings, not
+				// from this file, so it only takes full effect if you also set
+				// "dev.containers.copyGitConfig": false in your host user settings.
+				// See README for details. app-user-init.sh removes any .gitconfig
+				// that gets through as a defense-in-depth cleanup.
 				"dev.containers.copyGitConfig": false,
 				// Prompt before trusting workspace settings, which container
 				// code could modify via the bind-mounted project folder.

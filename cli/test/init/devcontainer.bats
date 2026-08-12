@@ -113,3 +113,13 @@ teardown() {
 	run grep -c '__CUSTOMIZATIONS_' "$DEVCONTAINER_JSON"
 	assert_output "0"
 }
+
+@test "devcontainer.json comment notes copyGitConfig needs host user settings" {
+	# Verify the comment above `dev.containers.copyGitConfig` explicitly
+	# points at the host-user-settings requirement — mirrors the note on
+	# `terminal.integrated.allowLocalTerminal`. See issue #34.
+	local template="$SCT_TEMPLATEDIR/devcontainer/devcontainer.json"
+	run grep -B4 '"dev.containers.copyGitConfig"' "$template"
+	assert_success
+	assert_output --partial "host user settings"
+}
