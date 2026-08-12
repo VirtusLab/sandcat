@@ -574,17 +574,15 @@ approximately 120 MB. The image is built once and cached locally; rebuilds are
 fast.
 
 **VS Code integration:** When the IDE is `vscode`, the bundled `devcontainer.json`
-includes the `GitHub.copilot` and `GitHub.copilot-chat` extensions. Both use the
-same GitHub account as the Copilot CLI (authenticated via the `COPILOT_GITHUB_TOKEN`
-environment variable) — no separate sign-in step is needed.
+includes the `GitHub.copilot` extension. It uses the same GitHub account as the
+Copilot CLI (authenticated via the `COPILOT_GITHUB_TOKEN` environment variable) —
+no separate sign-in step is needed.
 
 **Placeholder:** Sandcat automatically sets the placeholder to
-`SANDCAT_PLACEHOLDER_COPILOT_GITHUB_TOKEN`. The container sees only the
+`gho_SANDCAT_PLACEHOLDER_COPILOT_GITHUB_TOKEN`. The container sees only the
 placeholder; the real token is injected by mitmproxy only for allowed Copilot
 hosts. No manual configuration is needed.
 
-**Bash alias:** `copilot-yolo` (= `copilot --allow-all-tools`) is available in every
-copilot sandbox for parity with `claude-yolo` and `codex-yolo`.
 
 ### 3. Start the sandbox
 
