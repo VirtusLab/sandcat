@@ -21,6 +21,19 @@ services:
     cap_add:
       - SOME_CAPABILITY # need at least one entry so that we can add foot comments
 YAML
+
+	# mitmproxy lives in the file compose-all.yml includes, never in
+	# compose-all.yml itself — Compose rejects a service declared in both.
+	PROXY_COMPOSE_FILE="$BATS_TEST_TMPDIR/sandcat/compose-proxy.yml"
+	mkdir -p "$BATS_TEST_TMPDIR/sandcat"
+
+	cat >"$PROXY_COMPOSE_FILE" <<'YAML'
+services:
+  mitmproxy:
+    image: mitmproxy/mitmproxy:latest
+    volumes:
+      - ~/.config/sandcat/settings.json:/config/settings.json:ro
+YAML
 }
 
 teardown() {
@@ -28,9 +41,9 @@ teardown() {
 }
 
 @test "add_settings_volume adds settings mount to proxy service" {
-	add_settings_volume "$COMPOSE_FILE" ".sandcat/settings.json"
+	add_settings_volume "$PROXY_COMPOSE_FILE" ".sandcat/settings.json"
 
-	yq -e '.services.mitmproxy.volumes[] | select(. == ".sandcat:/config/project:ro")' "$COMPOSE_FILE"
+	yq -e '.services.mitmproxy.volumes[] | select(. == ".sandcat:/config/project:ro")' "$PROXY_COMPOSE_FILE"
 }
 
 @test "add_claude_config_volumes adds CLAUDE.md and settings.json" {
@@ -92,8 +105,10 @@ assert_jetbrains_capabilities() {
 assert_customize_compose_file_common() {
 	local compose_file=$1
 
-	# Verify settings volume on proxy
-	yq -e '.services.mitmproxy.volumes[] | select(. == ".sandcat:/config/project:ro")' "$compose_file"
+	# Verify settings volume on proxy, re-based on the included file's directory
+	yq -e '.services.mitmproxy.volumes[] | select(. == "../.sandcat:/config/project:ro")' "$PROXY_COMPOSE_FILE"
+	run yq '.services | has("mitmproxy")' "$compose_file"
+	assert_output "false"
 
 	# shellcheck disable=SC2016
 	yq -e '.services.agent.volumes[] | select(. == "${HOME}/.claude/CLAUDE.md:/home/vscode/.claude/CLAUDE.md:ro")' "$compose_file"
@@ -210,7 +225,7 @@ EOF
 	customize_compose_file "$SETTINGS_FILE" "$COMPOSE_FILE" "claude" "jetbrains" "test-project"
 
 	# Verify settings volume on proxy
-	yq -e '.services.mitmproxy.volumes[] | select(. == ".sandcat:/config/project:ro")' "$COMPOSE_FILE"
+	yq -e '.services.mitmproxy.volumes[] | select(. == "../.sandcat:/config/project:ro")' "$PROXY_COMPOSE_FILE"
 
 	# Verify .idea volume is active
 	yq -e '.services.agent.volumes[] | select(. == "../.idea:/workspace/.idea:ro")' "$COMPOSE_FILE"
@@ -337,6 +352,63 @@ YAML
 
 	yq -e '.services.mitmproxy.image == "ghcr.io/virtuslab/sandcat-mitmproxy-pass:latest"' "$proxy_compose"
 	yq -e '.services.mitmproxy.environment[] | select(. == "PROTON_PASS_PERSONAL_ACCESS_TOKEN")' "$proxy_compose"
+}
+
+@test "apply_secret_provider appends token without wiping existing env" {
+	local proxy_compose="$BATS_TEST_TMPDIR/compose-proxy-preserve.yml"
+	cat >"$proxy_compose" <<'YAML'
+services:
+  mitmproxy:
+    image: mitmproxy/mitmproxy:latest
+    environment:
+      - NB_SETUP_KEY
+      - NB_MANAGEMENT_URL=http://192.168.5.2:33073
+YAML
+
+	apply_secret_provider "$proxy_compose" "protonpass"
+
+	yq -e '.services.mitmproxy.environment[] | select(. == "NB_SETUP_KEY")' "$proxy_compose"
+	yq -e '.services.mitmproxy.environment[] | select(. == "NB_MANAGEMENT_URL=http://192.168.5.2:33073")' "$proxy_compose"
+	yq -e '.services.mitmproxy.environment[] | select(. == "PROTON_PASS_PERSONAL_ACCESS_TOKEN")' "$proxy_compose"
+}
+
+@test "apply_secret_provider does not clobber Dockerfile.mitmproxy build" {
+	local proxy_compose="$BATS_TEST_TMPDIR/compose-proxy-netbird.yml"
+	cat >"$proxy_compose" <<'YAML'
+services:
+  mitmproxy:
+    build:
+      context: .
+      dockerfile: Dockerfile.mitmproxy
+    environment:
+      - NB_SETUP_KEY
+YAML
+
+	apply_secret_provider "$proxy_compose" "protonpass"
+
+	yq -e '.services.mitmproxy.build.dockerfile == "Dockerfile.mitmproxy"' "$proxy_compose"
+	run yq '.services.mitmproxy | has("image")' "$proxy_compose"
+	assert_output "false"
+	yq -e '.services.mitmproxy.environment[] | select(. == "NB_SETUP_KEY")' "$proxy_compose"
+	yq -e '.services.mitmproxy.environment[] | select(. == "PROTON_PASS_PERSONAL_ACCESS_TOKEN")' "$proxy_compose"
+}
+
+@test "apply_secret_provider passes provider image as BASE_IMAGE to Dockerfile.mitmproxy" {
+	local proxy_compose="$BATS_TEST_TMPDIR/compose-proxy-base-image.yml"
+	cat >"$proxy_compose" <<'YAML'
+services:
+  mitmproxy:
+    build:
+      context: .
+      dockerfile: Dockerfile.mitmproxy
+YAML
+
+	apply_secret_provider "$proxy_compose" "protonpass"
+
+	# image: would be ignored next to build:, leaving the built image without
+	# pass-cli and every pass:// reference unresolvable.
+	run yq -r '.services.mitmproxy.build.args.BASE_IMAGE' "$proxy_compose"
+	assert_output "ghcr.io/virtuslab/sandcat-mitmproxy-pass:latest"
 }
 
 @test "apply_secret_provider leaves default image for none" {

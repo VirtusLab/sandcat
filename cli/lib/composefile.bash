@@ -44,7 +44,17 @@ customize_compose_file() {
 
 	set_workspace "$compose_file" "$project_name"
 
-	add_settings_volume "$compose_file" "$settings_file"
+	# mitmproxy is declared by the included sandcat/compose-proxy.yml, so the
+	# mount has to go there. Declaring the service here as well makes Compose
+	# reject the project ("conflicts with imported resource") — include copies
+	# resources into the model, it never merges them. The extra ".." re-bases
+	# the path on the included file's own directory, which is how Compose
+	# resolves relative paths inside it.
+	local proxy_compose="$compose_dir/sandcat/compose-proxy.yml"
+	if [[ -f "$proxy_compose" ]]
+	then
+		add_settings_volume "$proxy_compose" "../$settings_file"
+	fi
 
 	case "$agent" in
 		claude)
@@ -63,14 +73,34 @@ customize_compose_file() {
 		add_jetbrains_capabilities "$compose_file"
 	fi
 
-	# Remove blank lines between volume entries/comments.
-	# yq inserts blank lines between foot comments and the next sibling.
-	# When a blank line is followed by an indented line, strip the blank line
-	# via substitution to keep the indented line intact.
+	strip_entry_blank_lines "$compose_file"
+	if [[ -f "$proxy_compose" ]]
+	then
+		strip_entry_blank_lines "$proxy_compose"
+	fi
+}
+
+# Removes blank lines between volume entries/comments.
+# yq inserts blank lines between foot comments and the next sibling.
+# When a blank line is followed by an indented line, strip the blank line
+# via substitution to keep the indented line intact.
+# Args:
+#   $1 - Path to the Docker Compose file
+strip_entry_blank_lines() {
+	local compose_file=$1
+
 	sed '/^$/{ N; /^\n[[:space:]]/{ s/^\n//; }; }' "$compose_file" > "$compose_file.tmp" && mv "$compose_file.tmp" "$compose_file"
 }
 
 # Configures the mitmproxy image and secret-backend environment for compose-proxy.yml.
+#
+# Environment entries are appended (idempotent), never assigned as a fresh array —
+# otherwise a later call would wipe NetBird passthrough vars such as NB_SETUP_KEY
+# that enable_netbird() injects for the Dockerfile.mitmproxy variant.
+#
+# When mitmproxy already builds from Dockerfile.mitmproxy, the stock/op/pass
+# image pin is skipped so NetBird enrollment keeps its custom entrypoint.
+#
 # Args:
 #   $1 - Path to the compose-proxy.yml file
 #   $2 - Secret provider: none | 1password | protonpass
@@ -78,30 +108,50 @@ apply_secret_provider() {
 	require yq
 	local compose_file=$1
 	local provider=${2:-none}
+	local token_env=""
+	local provider_image=""
 
 	case "$provider" in
 	none)
 		return 0
 		;;
 	1password)
-		yq -i '
-			.services.mitmproxy.image = "ghcr.io/virtuslab/sandcat-mitmproxy-op:latest" |
-			.services.mitmproxy.environment = ["OP_SERVICE_ACCOUNT_TOKEN"]
-		' "$compose_file"
+		token_env="OP_SERVICE_ACCOUNT_TOKEN"
+		provider_image="ghcr.io/virtuslab/sandcat-mitmproxy-op:latest"
 		;;
 	protonpass)
-		yq -i '
-			.services.mitmproxy.image = "ghcr.io/virtuslab/sandcat-mitmproxy-pass:latest" |
-			.services.mitmproxy.environment = ["PROTON_PASS_PERSONAL_ACCESS_TOKEN"]
-		' "$compose_file"
+		token_env="PROTON_PASS_PERSONAL_ACCESS_TOKEN"
+		provider_image="ghcr.io/virtuslab/sandcat-mitmproxy-pass:latest"
 		;;
 	*)
 		echo "Unknown secret provider: $provider" >&2
 		return 1
 		;;
 	esac
-}
 
+	local dockerfile
+	dockerfile=$(yq -r '.services.mitmproxy.build.dockerfile // ""' "$compose_file")
+	if [[ "$dockerfile" == "Dockerfile.mitmproxy" ]]; then
+		# NetBird already replaced image: with a build. Pinning image: here would
+		# be ignored by compose and the provider CLI would be missing from the
+		# built image, so pass the provider variant in as the build base instead.
+		provider_image="$provider_image" yq -i '
+			.services.mitmproxy.build.args.BASE_IMAGE = env(provider_image)
+		' "$compose_file"
+	else
+		provider_image="$provider_image" yq -i '
+			.services.mitmproxy.image = env(provider_image)
+		' "$compose_file"
+	fi
+
+	local has_token
+	has_token=$(yq "[(.services.mitmproxy.environment // [])[] | select(. == \"$token_env\")] | length" "$compose_file")
+	if [[ "$has_token" -eq 0 ]]; then
+		token_env="$token_env" yq -i '
+			.services.mitmproxy.environment = ((.services.mitmproxy.environment // []) + [env(token_env)])
+		' "$compose_file"
+	fi
+}
 # Switches the mitmproxy service from web UI to console (mitmdump) mode.
 # Replaces the mitmweb command with mitmdump, strips mitmweb-only flags
 # (--web-host and --set web_password), and removes the web UI port.
@@ -342,7 +392,10 @@ apply_netbird_build_args() {
 	" "$compose_file"
 }
 
-# Copies proxy-peer compose stack and injects NetBird build args.
+# Copies proxy-peer compose stack, registers its include, and injects NetBird
+# build args. Without the include the copied file is inert and the proxy-peer
+# service never joins the stack.
+# Idempotent: skips the include when already present.
 # Args:
 #   $1 - Path to the devcontainer directory (parent of sandcat/)
 enable_proxy_peer() {
@@ -355,11 +408,28 @@ enable_proxy_peer() {
 	cp "$SCT_TEMPLATEDIR/devcontainer/sandcat/scripts/proxy-peer-init.sh" "$compose_dir/sandcat/scripts/"
 	cp "$SCT_TEMPLATEDIR/devcontainer/sandcat/scripts/proxy-peer-hello.py" "$compose_dir/sandcat/scripts/"
 	apply_netbird_build_args "$dst" "proxy-peer"
+
+	local compose_file="$compose_dir/compose-all.yml"
+	local has_include
+	has_include=$(yq '[.include[]? | select(.path == "sandcat/compose-proxy-peer.yml")] | length' "$compose_file")
+	if [[ "$has_include" -eq 0 ]]; then
+		yq -i '.include += [{"path": "sandcat/compose-proxy-peer.yml"}]' "$compose_file"
+	fi
 }
 
-# Adds NB_SETUP_KEY to the wg-client service's environment in the deployed
-# compose-proxy.yml. wg-client-init.sh reads this at startup to enroll the
-# container as a NetBird peer and start the daemon on wt0.
+# Wires NetBird enrollment into the mitmproxy service in compose-proxy.yml.
+# mitmproxy is the sole NetBird mesh participant in the agent stack; wg-client
+# remains a pure tunnel shim (wg0 only). Traffic always flows:
+#   agent → wg0 (wg-client) → mitmproxy L7 inspect → internet or wt0 mesh.
+#
+# When NetBird is enabled, this function:
+#   1. Switches mitmproxy from the stock image to a build using Dockerfile.mitmproxy
+#      (which installs the pinned NetBird binary and mitmproxy-init.sh entrypoint).
+#   2. Removes the compose-level entrypoint override (mitmproxy-init.sh handles it).
+#   3. Adds cap_add: [NET_ADMIN] and the WireGuard src_valid_mark sysctl.
+#   4. Adds NB_SETUP_KEY (and optionally NB_MANAGEMENT_URL) to the environment.
+#   5. Injects NetBird build args (version + per-arch checksums) from netbird.env.
+#
 # Args:
 #   $1 - Path to compose-proxy.yml
 #   $2 - Optional NetBird management server URL
@@ -372,11 +442,82 @@ enable_netbird() {
 	local netbird_management_url=${2:-}
 	local enrollment_url
 
-	local already_set
-	already_set=$(yq '[(.services."wg-client".environment // [])[] | select(. == "NB_SETUP_KEY")] | length' "$compose_file")
+	# Switch mitmproxy from image: to build: using Dockerfile.mitmproxy.
+	# Idempotent: skip if a build section is already present.
+	local has_build
+	has_build=$(yq '(.services.mitmproxy | has("build"))' "$compose_file")
+	if [[ "$has_build" != "true" ]]; then
+		# Carry the pinned image over as the build base. apply_secret_provider
+		# runs first, so this is where a provider variant (pass/op) would
+		# otherwise be dropped, taking pass-cli / op with it.
+		local base_image
+		base_image=$(yq -r '.services.mitmproxy.image // ""' "$compose_file")
+		yq -i '
+			del(.services.mitmproxy.image) |
+			del(.services.mitmproxy.entrypoint) |
+			.services.mitmproxy.build = {"context": ".", "dockerfile": "Dockerfile.mitmproxy"}
+		' "$compose_file"
+		if [[ -n "$base_image" ]]; then
+			base_image="$base_image" yq -i '
+				.services.mitmproxy.build.args.BASE_IMAGE = env(base_image)
+			' "$compose_file"
+		fi
+	fi
 
+	# Add NET_ADMIN capability (required for `ip link add wt0 type wireguard`).
+	local has_net_admin
+	has_net_admin=$(yq '[(.services.mitmproxy.cap_add // [])[] | select(. == "NET_ADMIN")] | length' "$compose_file")
+	if [[ "$has_net_admin" -eq 0 ]]; then
+		yq -i '.services.mitmproxy.cap_add += ["NET_ADMIN"]' "$compose_file"
+	fi
+
+	# src_valid_mark sysctl is needed for WireGuard fwmark routing on wt0.
+	# Scope the check to mitmproxy — wg-client already declares the same sysctl,
+	# so a file-wide grep would skip adding it here and leave wt0 unusable.
+	# Match via test() on the key name only; avoid == with a literal '=1'
+	# suffix, which segfaults certain yq versions.
+	local has_src_valid_mark
+	has_src_valid_mark=$(yq '[(.services.mitmproxy.sysctls // [])[] | select(test("src_valid_mark"))] | length' "$compose_file")
+	if [[ "$has_src_valid_mark" -eq 0 ]]; then
+		yq -i '.services.mitmproxy.sysctls += ["net.ipv4.conf.all.src_valid_mark=1"]' "$compose_file"
+	fi
+
+	# Add NB_SETUP_KEY to mitmproxy environment (value provided at runtime via env).
+	# sandcat compose/run export the key from layered settings (user/project/local);
+	# without this passthrough the container only sees ~/.config/sandcat/settings.json
+	# and misses project-level netbird_enrollment_key.
+	local already_set
+	already_set=$(yq '[(.services.mitmproxy.environment // [])[] | select(. == "NB_SETUP_KEY")] | length' "$compose_file")
 	if [[ "$already_set" -eq 0 ]]; then
-		yq -i '.services."wg-client".environment += ["NB_SETUP_KEY"]' "$compose_file"
+		yq -i '.services.mitmproxy.environment = ((.services.mitmproxy.environment // []) + ["NB_SETUP_KEY"])' "$compose_file"
+	fi
+
+	# Drop stale NetBird env from wg-client (pre–NetBird-on-mitmproxy layout).
+	yq -i '
+		.services."wg-client".environment = (
+			(.services."wg-client".environment // [])
+			| map(select(
+				. != "NB_SETUP_KEY"
+				and (test("^NB_MANAGEMENT_URL=") | not)
+				and (test("^NB_USE_LEGACY_ROUTING=") | not)
+			))
+		)
+	' "$compose_file"
+	# Remove an empty environment block left after stripping the last entries.
+	local wg_env_len
+	wg_env_len=$(yq '[.services."wg-client".environment[]?] | length' "$compose_file")
+	if [[ "$wg_env_len" -eq 0 ]]; then
+		yq -i 'del(.services."wg-client".environment)' "$compose_file"
+	fi
+
+	# Publish the mesh DNS domain so the mitmproxy addon can emit it to sandcat.env
+	# and the agent can form peer FQDNs without hard-coding the domain.
+	# Default is netbird.selfhosted; override by editing the compose file or
+	# by passing a custom NETBIRD_DNS_DOMAIN in docker-compose.override.yml.
+	local has_dns_domain
+	has_dns_domain=$(yq '[(.services.mitmproxy.environment // [])[] | select(test("^NETBIRD_DNS_DOMAIN="))] | length' "$compose_file")
+	if [[ "$has_dns_domain" -eq 0 ]]; then
+		yq -i '.services.mitmproxy.environment += ["NETBIRD_DNS_DOMAIN=netbird.selfhosted"]' "$compose_file"
 	fi
 
 	if [[ -n "$netbird_management_url" ]]; then
@@ -384,22 +525,35 @@ enable_netbird() {
 		if [[ -n "$enrollment_url" ]]; then
 			enrollment_url="$enrollment_url" \
 				yq -i '
-					.services."wg-client".environment = (
-						(.services."wg-client".environment // [])
+					.services.mitmproxy.environment = (
+						(.services.mitmproxy.environment // [])
 						| map(select(test("^NB_MANAGEMENT_URL=") | not))
 					) + ["NB_MANAGEMENT_URL=" + env(enrollment_url)]
 				' "$compose_file"
 			if netbird_enrollment_url_uses_host_bypass "$enrollment_url"; then
 				yq -i '
-					.services."wg-client".environment = (
-						(.services."wg-client".environment // [])
+					.services.mitmproxy.environment = (
+						(.services.mitmproxy.environment // [])
 						| map(select(test("^NB_USE_LEGACY_ROUTING=") | not))
 					) + ["NB_USE_LEGACY_ROUTING=true"]
 				' "$compose_file"
 			fi
 			netbird_sync_local_server_exposed_address
+		else
+			# localhost/127.0.0.1 resolves to the container itself, so no
+			# NB_MANAGEMENT_URL is emitted. netbird then falls back to its
+			# api.netbird.io default and rejects a self-hosted setup key with
+			# "invalid setup-key" — warn rather than fail silently.
+			echo "mitmproxy has no NB_MANAGEMENT_URL: $netbird_management_url is not reachable from inside the container." | warning
+			echo "  NetBird would enroll against the cloud default (https://api.netbird.io) and reject a self-hosted setup key." | warning
+			echo "  Set netbird_enrollment_management_url to a container-reachable address in $(sct_home)/settings.json:" | warning
+			echo "    \"netbird_enrollment_management_url\": \"http://<docker-host-ip>:33073\"" | warning
+			echo "  Then re-run: sandcat init --netbird ..." | warning
 		fi
 	fi
+
+	# Inject pinned NetBird build args (version + per-arch checksums) from netbird.env.
+	apply_netbird_build_args "$compose_file" "mitmproxy"
 }
 
 # Adds capability-runtime sidecar include and agent socket mount/env to compose-all.yml.

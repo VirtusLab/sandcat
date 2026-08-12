@@ -19,10 +19,12 @@ Options:
 - `--proxy` - Proxy UI mode: `web` (default, mitmweb browser UI) or `tui` (mitmproxy console, use with `sandcat proxy` to attach)
 - `--secret-provider` / `--sp` - Secret backend: `none` (default), `1password`, `protonpass` (skips prompt when set)
 - `--netbird` - Enable dynamic WireGuard control via NetBird. The NetBird client
-  daemon starts inside `wg-client` (the sole `NET_ADMIN` container) and manages
-  a second interface `wt0` for the NetBird overlay mesh. `wg0` (the mitmproxy
-  inspection tunnel) is untouched. Seeds `netbird_enrollment_key` and
-  `netbird_api_token` in `~/.config/sandcat/settings.json`.
+  daemon runs inside the **mitmproxy** container and manages `wt0` — a second
+  WireGuard interface for the NetBird overlay mesh. Agent egress always flows
+  `wg0 (wg-client) → mitmproxy L7 inspect → internet or wt0 mesh`, so all
+  traffic — including mesh traffic — is subject to mitmproxy network rules and
+  secret substitution. Seeds `netbird_enrollment_key` and `netbird_api_token`
+  in `~/.config/sandcat/settings.json`.
 - `--capability` - Enable the capability-runtime sidecar (requires `--netbird`).
   Adds a `capability-runtime` compose service, mounts a shared Unix socket volume
   into the agent container, and installs `capability-mcp-bridge` for Cursor MCP.
@@ -200,30 +202,42 @@ Options:
 
 ## Dynamic networking (NetBird)
 
-When initialized with `--netbird`, sandcat enrolls `wg-client` as a NetBird peer.
-The NetBird client daemon runs inside the existing `NET_ADMIN` container and manages
-`wt0` — a second WireGuard interface alongside `wg0`. Removing a peer from the
-NetBird management server causes the daemon to drop it from `wt0` within seconds,
-removing the agent's route to that endpoint without restarting any container.
+When initialized with `--netbird`, sandcat enrolls **mitmproxy** as a NetBird peer.
+The NetBird client daemon runs inside the mitmproxy container and manages `wt0` — a
+second WireGuard interface for the overlay mesh. Agent traffic always flows:
 
-All NetBird traffic (control plane and data plane) routes through `wg0` → mitmproxy,
-maintaining the full inspection guarantee. `wg-client` remains the only container
-with `NET_ADMIN`.
+```
+agent → wg0 (wg-client kill switch) → mitmproxy (L7 inspect + secrets) → internet
+                                                                        ↘ wt0 (leased mesh)
+```
+
+This design eliminates the routing collision that occurred when NetBird ran on `wg-client`
+alongside `wg0` (WireGuard-in-WireGuard). wg-client is now a pure tunnel shim with no
+NetBird involvement.
 
 The NetBird client binary is pinned by version and per-arch sha256 in
-[`templates/devcontainer/sandcat/netbird.env`](templates/devcontainer/sandcat/netbird.env)
-(the same pattern as [`images/mitmproxy-pass/pass-cli.env`](../images/mitmproxy-pass/pass-cli.env)).
-`sandcat init` injects these as compose build args for `wg-client` automatically.
+[`templates/devcontainer/sandcat/netbird.env`](templates/devcontainer/sandcat/netbird.env).
+`sandcat init --netbird` injects these as compose build args for `Dockerfile.mitmproxy`
+automatically. NetBird is downloaded and checksum-verified in a throwaway builder stage,
+then copied into a final image built `FROM $BASE_IMAGE`.
+
+`BASE_IMAGE` defaults to `mitmproxy/mitmproxy:latest`. When a secret provider is also
+selected, `sandcat init` sets it to that provider's variant
+(`ghcr.io/virtuslab/sandcat-mitmproxy-pass` or `-op`), so the proxy ends up with **both**
+NetBird and the provider CLI. Combining `--netbird` with `--secret-provider` therefore
+keeps `pass://` and `op://` references resolvable.
+
 To build the image manually:
 
 ```bash
 cd cli/templates/devcontainer/sandcat
 set -a; . netbird.env; set +a
-docker build -f Dockerfile.wg-client \
+docker build -f Dockerfile.mitmproxy \
   --build-arg NETBIRD_VERSION \
   --build-arg NETBIRD_SHA256_AMD64 \
   --build-arg NETBIRD_SHA256_ARM64 \
-  -t wg-client-test .
+  --build-arg BASE_IMAGE=ghcr.io/virtuslab/sandcat-mitmproxy-pass:latest \
+  -t mitmproxy-netbird-test .
 ```
 
 ### Setup
@@ -233,10 +247,10 @@ NetBird uses **two separate credentials**. Both go in `~/.config/sandcat/setting
 
 | Setting key | Used for | Where to get it |
 |-------------|----------|-----------------|
-| `netbird_enrollment_key` | Enrolling `wg-client` as a mesh peer (`NB_SETUP_KEY`) | NetBird dashboard → **Setup Keys** |
+| `netbird_enrollment_key` | Enrolling mitmproxy as a mesh peer (`NB_SETUP_KEY`) | NetBird dashboard → **Setup Keys** |
 | `netbird_api_token` | `sandcat netbird` CLI commands on your host | NetBird dashboard → **API Keys** (Personal Access Token) |
 | `netbird_management_url` | Host-side management API (`sandcat netbird`, browser) | `http://localhost:33073` for local template |
-| `netbird_enrollment_management_url` | wg-client enrollment URL (container cannot use `localhost`) | See [local self-hosted](#local-self-hosted-sandcat-template) below |
+| `netbird_enrollment_management_url` | mitmproxy enrollment URL (container cannot use `localhost`) | See [local self-hosted](#local-self-hosted-sandcat-template) below |
 
 **Before `sandcat netbird status` works**, you must complete steps 1–4 below.
 Container enrollment (`netbird_enrollment_key`) is separate from host CLI control
@@ -330,10 +344,11 @@ colima status -j | jq -r '.network.gateway_address'
 docker run --rm alpine getent ahostsv4 host.docker.internal | awk '{print $1; exit}'
 ```
 
-Use that IP in `netbird_enrollment_management_url`, then recreate wg-client:
+Use that IP in `netbird_enrollment_management_url`, then recreate mitmproxy to
+re-enroll:
 
 ```bash
-sandcat run --force-recreate wg-client
+sandcat run --force-recreate mitmproxy
 ```
 
 Sandcat also syncs `~/.config/sandcat/netbird-server/config.yaml` `exposedAddress` to
@@ -342,7 +357,7 @@ sync (or when you change the enrollment IP):
 
 ```bash
 sandcat netbird server start --force-recreate netbird-server
-sandcat run --force-recreate wg-client
+sandcat run --force-recreate mitmproxy
 ```
 
 ### Remote self-hosted (NetBird quickstart)
@@ -389,7 +404,7 @@ sandcat netbird server stop
 # List current peers
 sandcat netbird status
 
-# Remove a peer (wg-client drops the route within one daemon poll interval)
+# Remove a peer (mitmproxy drops the route within one daemon poll interval)
 sandcat netbird peer remove --peer-id <peer-id>
 
 # Add a network route served by a peer
@@ -522,7 +537,7 @@ Network capabilities in `capability-catalog.json` (mounted as `CAPABILITY_CATALO
 }
 ```
 
-- `peer_id`, `network` — required NetBird identifiers for the binding
+- `peer_id`, `network` — required NetBird identifiers for the binding. `peer_id` refers to the **mitmproxy** NetBird peer (hostname `sandcat-proxy`).
 - `route_id` — optional; if omitted, `enable_binding` creates a route via the NetBird API and stores the returned id
 - `sync_mode` — optional; defaults to `route_enable`. Use `peer_remove` only when revoke must delete the peer (legacy Phase 3 behavior)
 
@@ -532,10 +547,16 @@ Tool capabilities (`type: "tool"`) do not use `sync_mode` or binding fields.
 
 Replace placeholders in `capability-catalog.json` before leasing `reach_api`:
 
-1. `sandcat netbird status` — copy peer ID serving your test network
+1. Find the mitmproxy peer ID (the stack's sole mesh participant):
+   ```bash
+   docker compose exec mitmproxy netbird status --json | jq -r '.id'
+   ```
+   Or look for hostname `sandcat-proxy` in the NetBird dashboard.
 2. `sandcat netbird route list` (or NetBird dashboard) — copy route ID if pre-provisioned
 3. Re-init or edit `.devcontainer/sandcat/capability-catalog.json`
 4. Restart capability-runtime: `docker compose restart capability-runtime`
+
+**Migration note:** If you previously used a `wg-client` peer as `peer_id` in your catalog, replace it with the mitmproxy peer ID. Remove the old `wg-client` peer from the NetBird dashboard.
 
 ## Proxy-peer gateway (Phase 3e)
 

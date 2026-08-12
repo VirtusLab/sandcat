@@ -28,6 +28,12 @@ class NetworkBinding:
     route_id: str | None
     sync_mode: SyncMode = field(default=SyncMode.ROUTE_ENABLE)
     dns_label: str | None = field(default=None)
+    # When set, peer_id is resolved at lease-grant time by matching this hostname
+    # against the NetBird peer list (peer["name"] or peer["hostname"]). Only the
+    # peer_id is updated — network stays as-is (unlike dns_label which also
+    # rewrites network to the peer's mesh IP). Useful for router peers where the
+    # peer_id is unknown at catalog-bake time but the hostname (e.g. sandcat-proxy)
+    # is stable.
     peer_hostname: str | None = field(default=None)
     revoke_close_policy: RevocationClosePolicy | None = field(default=None)
     revoke_drain_seconds: int | None = field(default=None)

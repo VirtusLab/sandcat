@@ -592,25 +592,32 @@ Cursor CLI support is available via `sandcat init --agent cursor`.
 ```mermaid
 flowchart LR
     agent["<b>agent</b><br/><i>no NET_ADMIN</i><br/>your code runs here"]
-    wg["<b>wg-client</b><br/><i>NET_ADMIN</i><br/>WireGuard + iptables"]
-    mitm["<b>mitmproxy</b><br/><i>mitmweb</i><br/>network rules &amp;<br/>secret substitution"]
+    wg["<b>wg-client</b><br/><i>NET_ADMIN</i><br/>WireGuard + iptables<br/>kill switch + dnsmasq"]
+    mitm["<b>mitmproxy</b><br/><i>NET_ADMIN (when NetBird enabled)</i><br/>network rules &amp; secret sub<br/>NetBird mesh peer (wt0)"]
     inet(("internet"))
+    mesh(("NetBird mesh"))
 
     agent -- "network_mode:<br/>shares net namespace" --- wg
-    wg -- "WireGuard<br/>tunnel" --> mitm
-    mitm -- "allowed<br/>requests" --> inet
+    wg -- "WireGuard wg0<br/>(all egress)" --> mitm
+    mitm -- "allowed requests" --> inet
+    mitm -. "leased mesh route<br/>(optional, via wt0)" .-> mesh
 
     style agent fill:#e8f4fd,stroke:#4a90d9
     style wg fill:#fdf2e8,stroke:#d9904a
     style mitm fill:#e8fde8,stroke:#4ad94a
+    style mesh fill:#fde8f8,stroke:#d94ab0
 ```
 
-- **mitmproxy** runs `mitmweb --mode wireguard`, creating a WireGuard server and
-  storing key pairs in `wireguard.conf`.
+- **mitmproxy** runs `mitmweb --mode wireguard`, acting as both the WireGuard
+  server for the inspection tunnel and (when NetBird is enabled) as the sole
+  NetBird mesh peer for the stack. All agent traffic is inspected here; mesh
+  destinations are reached via mitmproxy's `wt0` interface after Layer 1 allows
+  them and Layer 2 (capability-runtime) grants the NetBird route.
 - **wg-client** is a dedicated networking container that derives a WireGuard
-  client config from those keys, sets up the tunnel with `wg` and `ip` commands,
-  and adds iptables kill-switch rules. Only this container has `NET_ADMIN`. No
-  user code runs here.
+  client config from the keys written by mitmproxy, sets up `wg0`, and adds
+  iptables kill-switch rules. It also runs `dnsmasq` to split DNS (Docker
+  sibling names stay local; everything else goes through the tunnel). Only this
+  container has `NET_ADMIN`. No user code or NetBird runs here.
 - **App containers** share `wg-client`'s network namespace via `network_mode`.
   They inherit the tunnel and firewall rules but cannot modify them (no
   `NET_ADMIN`). They install the mitmproxy CA cert into the system trust store
@@ -687,7 +694,7 @@ sequenceDiagram
     W->>W: Derive WireGuard client keys
     W->>W: Create wg0 interface + routing
     W->>W: Set up iptables kill switch
-    W->>W: Configure DNS via tunnel
+    W->>W: Configure dnsmasq (split DNS via tunnel)
     Note over W: healthcheck passes<br/>(/tmp/wg-ready exists)
 
     Note over A: starts after wg-client is healthy

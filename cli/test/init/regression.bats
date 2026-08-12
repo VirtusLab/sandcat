@@ -24,6 +24,19 @@ assert_proxy_service() {
 
 	yq -e '.services.mitmproxy.image == "mitmproxy/mitmproxy:latest"' "$compose_file"
 
+	# Project settings are mounted from the included sandcat/compose-proxy.yml,
+	# where the relative path resolves against that file's own directory. This
+	# asserts on the effective config so an off-by-one ".." shows up here.
+	PROJECT_DIR="$PROJECT_DIR" yq -e '
+		.services.mitmproxy.volumes[] |
+		select(
+			.type == "bind" and
+			.source == (env(PROJECT_DIR) + "/.sandcat") and
+			.target == "/config/project" and
+			.read_only == true
+		)
+	' "$compose_file"
+
 	# FIXME vscode startup fails with capabilities dropped
 	# yq -e '.services.mitmproxy.cap_drop[] | select(. == "ALL")' "$compose_file"
 }

@@ -33,7 +33,7 @@ _Avoid_: conflating with Phase 3b sidecar work; per-request mitmproxy L7 allowli
 Controlled experiments baseline vs treatment; metrics and ablations. **DRAFT spec:** `docs/superpowers/specs/2026-06-23-capability-comparative-evaluation-phase4-design.md`. Does not implement new enforcement — measures Phases 0–3c.
 
 **Physical Revocation**:
-Removing reachability by deleting a NetBird peer or route, causing `wg-client` to drop the WireGuard route via `wg syncconf`.
+Removing reachability by deleting a NetBird peer or route, causing `mitmproxy` to drop the WireGuard route on `wt0` via the NetBird daemon.
 
 _Avoid_: network kill switch (too vague)
 
@@ -50,6 +50,9 @@ The link between a network capability and concrete NetBird identifiers (`peer_id
 - **Logical Revocation** triggers **Physical Revocation** via `NetBirdRevocationBackend` (`disable_binding` by default; `peer_remove` when catalog `sync_mode` requires)
 - **Logical Grant (lease)** triggers **Physical Enable** via `grant_binding` → `enable_binding`
 - **Physical Revocation** outside the runtime triggers **Logical Revocation** via `RouteDisappearanceWatcher`
+- **Logical Revocation** triggers an **L7 Revocation Push** to mitmproxy carrying the host patterns from the **Network Binding** and the capability's **Revocation Close Policy**
+- Each network capability in the catalog has at most one **Revocation Close Policy**; if absent, `drain_deadline` (30s) is the default
+- **Network Rule Enable Flag** is evaluated before **L7 Revocation Push** — a statically disabled rule blocks traffic regardless of runtime lease state
 
 ## Example dialogue
 
@@ -57,7 +60,7 @@ The link between a network capability and concrete NetBird identifiers (`peer_id
 > **Domain expert:** "Only if revocation or expiry also drives **Logical Revocation**, which then calls NetBird to remove the peer/route. Expiry alone today returns the capability to Visible or Declared per base policy — physical removal is explicit."
 
 **Capability Control Plane**:
-The trusted process that owns `CapabilityRuntime` state, NetBird revocation credentials, and the route watcher. Runs in a dedicated compose sidecar (`capability-runtime` service), not inside the agent or `wg-client`.
+The trusted process that owns `CapabilityRuntime` state, NetBird revocation credentials, and the route watcher. Runs in a dedicated compose sidecar (`capability-runtime` service), not inside the agent, `wg-client`, or `mitmproxy`.
 
 _Avoid_: capability daemon (when meaning the agent), in-process runtime (PoC only)
 
@@ -79,9 +82,43 @@ _Avoid_: client-provided agent_id, multi-agent per container (Phase 3b)
 > **Dev:** "Should the agent call the runtime over REST?"
 > **Domain expert:** "No. The agent speaks **Capability MCP** for check/lease/discover. Work tools speak their own MCP servers. REST is only for NetBird management behind the trusted sidecar."
 
+**L7 Revocation Push**:
+The mechanism by which capability-runtime notifies mitmproxy of a revocation
+event in real time. capability-runtime connects to a Unix socket exposed by
+the mitmproxy addon and sends a typed revoke command carrying the host patterns
+to close and the `RevocationClosePolicy` to apply. Replaces the previous
+file-polling approach for zero-delay enforcement.
+
+_Avoid_: policy refresh, rule reload, file sidecar (for this real-time path)
+
+**Revocation Close Policy**:
+A typed per-capability field (`immediate | drain | drain_deadline | deny_new`)
+that controls how mitmproxy closes in-flight connections when the capability is
+revoked. `immediate` = RST now; `drain` = complete in-flight response then
+close; `drain_deadline` = drain up to N seconds then RST; `deny_new` = deny
+new requests/streams, let existing ones finish. See ADR-0001.
+
+_Avoid_: kill mode, close strategy, shutdown policy
+
+**Mitmproxy Revocation Socket**:
+The Unix socket file exposed by the mitmproxy addon inside the `mitmproxy-config`
+shared volume, used exclusively by capability-runtime to push `L7 Revocation Push`
+events. Not accessible to the agent or wg-client.
+
+_Avoid_: mitmweb API (that is the UI surface, not this socket)
+
+**Network Rule Enable Flag**:
+An optional `"enabled": true|false` boolean on a `settings.json` network rule.
+When `false`, the rule is skipped during policy evaluation as if it were absent,
+without removing the rule definition from the file. Default when absent: `true`.
+Distinct from `L7 Revocation Push` — this is a static config-time switch, not
+a runtime revocation.
+
+_Avoid_: rule toggle, runtime disable (use "L7 Revocation Push" for runtime)
+
 ## Flagged ambiguities
 
-- NetBird **implementation** runs inside `wg-client` (`wt0` overlay); the original plan described a separate `netbird` sync sidecar for `wg0` — these are different layers.
+- NetBird **implementation** runs inside `mitmproxy` (`wt0` overlay); the original plan described a separate `netbird` sync sidecar for `wg0` — these are different layers. An earlier design had NetBird on `wg-client`, which caused a routing collision (WireGuard-in-WireGuard). The fix moves NetBird to mitmproxy so all traffic flows `wg0 → mitmproxy → internet or wt0 mesh` without a second WireGuard stack inside `wg-client`.
 - Phase 3b plan is formal and **implemented** (Tasks 1–8): `docs/superpowers/plans/2026-06-23-capability-sandcat-phase3b.md`.
 - Phase 3c NetBird policy sync is **implemented** — supersedes the deprecated L7 policy design.
 - **DEPRECATED:** `docs/superpowers/specs/2026-06-23-capability-dynamic-l7-policy-phase3c-design.md` — per-request mitmproxy L7 allowlist from bundle; replaced by NetBird policy sync spec above.

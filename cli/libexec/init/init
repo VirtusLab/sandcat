@@ -419,6 +419,44 @@ init() {
 				' "$user_settings"
 			fi
 		}
+		# Asks for an address the mitmproxy container can dial when the chosen
+		# management URL is localhost-only. Without this the compose file gets no
+		# NB_MANAGEMENT_URL and netbird silently enrolls against the cloud
+		# default, which rejects a self-hosted setup key.
+		prompt_netbird_enrollment_url() {
+			local host_ip mgmt_port default_url entered_url
+			host_ip=$(netbird_detect_docker_host_ip)
+			mgmt_port="${netbird_management_url##*:}"
+			mgmt_port="${mgmt_port%%/*}"
+			if [[ ! "$mgmt_port" =~ ^[0-9]+$ ]]; then
+				mgmt_port="33073"
+			fi
+			default_url=""
+			if [[ -n "$host_ip" ]]; then
+				default_url="http://${host_ip}:${mgmt_port}"
+			fi
+
+			echo "    $netbird_management_url is not reachable from inside the container." | info
+			echo "    Enter an address the container can dial (your Docker host's LAN IP)." | info
+			while true; do
+				if [[ -n "$default_url" ]]; then
+					entered_url=$(read_line "Enrollment URL [$default_url]:")
+					entered_url="${entered_url:-$default_url}"
+				else
+					entered_url=$(read_line "Enrollment URL (e.g. http://192.168.1.10:${mgmt_port}):")
+				fi
+				if [[ -n "$entered_url" ]]; then
+					break
+				fi
+				echo "Enrollment URL is required for a localhost management server" | error
+			done
+
+			if [[ -f "$user_settings" ]]; then
+				enrollment_url="$entered_url" yq -i -o json '
+					.netbird_enrollment_management_url = strenv(enrollment_url)
+				' "$user_settings"
+			fi
+		}
 		if [[ -f "$user_settings" ]]; then
 			yq -i -o json '
 				.netbird_enrollment_key = (.netbird_enrollment_key // "") |
@@ -501,14 +539,23 @@ init() {
 				netbird_management_url=$(read_line "Management URL [http://localhost:33073]:")
 				netbird_management_url="${netbird_management_url:-http://localhost:33073}"
 				persist_netbird_management_url "$netbird_management_url"
+				if [[ -z "$(netbird_enrollment_management_url_from "$netbird_management_url")" ]]; then
+					prompt_netbird_enrollment_url
+				fi
 				;;
 			quickstart)
 				netbird_selfhosted_quickstart="true"
 				_print_netbird_selfhosted_install_hint
-				netbird_management_url=$(read_line "Management URL [https://netbird.example.com]:")
-				if [[ -n "$netbird_management_url" ]]; then
-					persist_netbird_management_url "$netbird_management_url"
-				fi
+				# Quickstart is self-hosted by definition; an empty URL would
+				# silently enroll against NetBird cloud.
+				while true; do
+					netbird_management_url=$(read_line "Management URL (e.g. https://netbird.example.com):")
+					if [[ -n "$netbird_management_url" ]]; then
+						break
+					fi
+					echo "URL is required for a self-hosted quickstart server" | error
+				done
+				persist_netbird_management_url "$netbird_management_url"
 				;;
 			esac
 		fi

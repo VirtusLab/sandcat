@@ -1160,6 +1160,51 @@ class TestConfigLoading:
         content = env_path.read_text()
         assert content.startswith('export K=')
 
+    def test_netbird_dns_domain_emitted_when_env_var_set(
+        self, addon_cls, tmp_path, monkeypatch
+    ):
+        monkeypatch.setenv("NETBIRD_DNS_DOMAIN", "netbird.selfhosted")
+        settings = {"env": {}}
+        p = tmp_path / "settings.json"
+        p.write_text(json.dumps(settings))
+        env_path = tmp_path / "sandcat.env"
+        addon = addon_cls()
+        with patch(f"{_COMMON}.SETTINGS_PATHS", [str(p)]), \
+             patch(f"{_COMMON}.SANDCAT_ENV_PATH", str(env_path)):
+            addon.load(MagicMock())
+        content = env_path.read_text()
+        assert 'export SANDCAT_NETBIRD_DNS_DOMAIN="netbird.selfhosted"' in content
+
+    def test_netbird_dns_domain_not_emitted_when_env_var_absent(
+        self, addon_cls, tmp_path, monkeypatch
+    ):
+        monkeypatch.delenv("NETBIRD_DNS_DOMAIN", raising=False)
+        settings = {"env": {}}
+        p = tmp_path / "settings.json"
+        p.write_text(json.dumps(settings))
+        env_path = tmp_path / "sandcat.env"
+        addon = addon_cls()
+        with patch(f"{_COMMON}.SETTINGS_PATHS", [str(p)]), \
+             patch(f"{_COMMON}.SANDCAT_ENV_PATH", str(env_path)):
+            addon.load(MagicMock())
+        content = env_path.read_text()
+        assert "SANDCAT_NETBIRD_DNS_DOMAIN" not in content
+
+    def test_netbird_dns_domain_custom_value(
+        self, addon_cls, tmp_path, monkeypatch
+    ):
+        monkeypatch.setenv("NETBIRD_DNS_DOMAIN", "nb.corp.example.com")
+        settings = {"env": {}}
+        p = tmp_path / "settings.json"
+        p.write_text(json.dumps(settings))
+        env_path = tmp_path / "sandcat.env"
+        addon = addon_cls()
+        with patch(f"{_COMMON}.SETTINGS_PATHS", [str(p)]), \
+             patch(f"{_COMMON}.SANDCAT_ENV_PATH", str(env_path)):
+            addon.load(MagicMock())
+        content = env_path.read_text()
+        assert 'export SANDCAT_NETBIRD_DNS_DOMAIN="nb.corp.example.com"' in content
+
 
 # ---------------------------------------------------------------------------
 # Shell escaping — applies regardless of variant.

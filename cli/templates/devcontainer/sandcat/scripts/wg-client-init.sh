@@ -20,9 +20,10 @@ DNSMASQ_CONF="/etc/dnsmasq-sandcat.conf"
 # inherit the resolv.conf this script writes for wg-client. We publish it here
 # for sibling app-init scripts to copy into their own /etc/resolv.conf.
 SHARED_RESOLV_CONF="/run/sandcat/resolv.conf"
-
-# NetBird mesh DNS domain for split-DNS forwarding (may be overridden per deployment).
-NETBIRD_DNS_DOMAIN="${NETBIRD_DNS_DOMAIN:-netbird.selfhosted}"
+# NetBird peer DNS records published by mitmproxy-init.sh into the shared volume.
+# Format: dnsmasq-compatible address= and server= lines, one per line.
+NETBIRD_PEERS_CONF="/mitmproxy-config/netbird-peers.conf"
+DNSMASQ_PID_FILE="/run/sandcat/dnsmasq.pid"
 
 # Poll a command until it returns success or a timeout is hit.
 #
@@ -133,73 +134,77 @@ write_resolv_conf() {
     } > "$resolv_conf"
 }
 
-# Extract the first NetBird nameserver IP from `netbird status --json`.
-# Outputs the IP on stdout and returns 0, or outputs nothing and returns 0 if
-# DNS is not configured (caller must treat empty output as "not available").
+# Append NetBird peer DNS records published by mitmproxy-init.sh into the
+# dnsmasq config and restart dnsmasq so the running process picks them up.
 #
-# The NetBird management server pushes nameserver groups to enrolled peers;
-# the JSON path tried here matches the structure emitted by NetBird >= 0.28.
-netbird_dns_nameserver_ip() {
-    local ns_json
-    ns_json=$(netbird status --json 2>/dev/null) || return 0
-
-    local ip
-    ip=$(printf '%s' "$ns_json" | jq -r '
-        first(
-            (.nameservers // .dns // [])[]
-            | (.servers // .ips // [])[]
-            | select(type == "string" and length > 0)
-        ) // empty
-    ' 2>/dev/null) || true
-
-    # Validate: accept only bare IPv4 or IPv6 addresses (no newlines, no paths,
-    # no dnsmasq option syntax). Rejects anything that would inject config lines.
-    if [[ -n "$ip" ]]; then
-        # IPv4: four dotted octets; IPv6: colon-hex (including ::1 and full forms)
-        if [[ "$ip" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]] \
-            || [[ "$ip" =~ ^[0-9a-fA-F:]+$ && "$ip" == *:* ]]; then
-            printf '%s\n' "$ip"
-        else
-            echo "wg-client: netbird_dns_nameserver_ip: discarding non-IP value from JSON: ${ip@Q}" >&2
-        fi
-    fi
-    return 0
-}
-
-# Append a NetBird domain-scoped DNS forward to the dnsmasq config and
-# reload dnsmasq (SIGHUP) so queries for $NETBIRD_DNS_DOMAIN resolve via
-# the NetBird nameserver instead of the catch-all upstream.
+# mitmproxy-init.sh writes dnsmasq-compatible local=, host-record=, address=,
+# and server= lines to $NETBIRD_PEERS_CONF in the shared mitmproxy-config
+# volume whenever peer state changes. This function merges any new lines into
+# the main dnsmasq config, then restarts dnsmasq. SIGHUP is not enough here:
+# dnsmasq often keeps serving stale data after address=/host-record= lines are
+# appended post-start (and the old pgrep-based reload silently no-oped anyway).
 #
-# Safe to call when NetBird DNS is not configured: logs one line and exits
-# cleanly (does not modify the config).
+# Idempotent and safe to call repeatedly: lines already in the config are
+# skipped, and the function returns 0 if the source file does not exist yet
+# (NetBird disabled or mitmproxy still enrolling).
 #
 # Args:
 #   $1 - path to the dnsmasq config file to update
-patch_dnsmasq_for_netbird() {
+restart_dnsmasq() {
     local conf="$1"
 
-    local ns_ip
-    ns_ip=$(netbird_dns_nameserver_ip)
-
-    if [[ -z "$ns_ip" ]]; then
-        echo "wg-client: NetBird DNS nameserver not available (Nameservers: 0/0); skipping forward for ${NETBIRD_DNS_DOMAIN}." >&2
-        return 0
+    if [[ -f "$DNSMASQ_PID_FILE" ]]; then
+        local dnsmasq_pid
+        dnsmasq_pid=$(tr -d '[:space:]' <"$DNSMASQ_PID_FILE" 2>/dev/null) || true
+        if [[ -n "$dnsmasq_pid" ]] && kill -0 "$dnsmasq_pid" 2>/dev/null; then
+            kill "$dnsmasq_pid" 2>/dev/null || true
+            local attempt=0
+            while dnsmasq-ready && [[ "$attempt" -lt 25 ]]; do
+                sleep 0.2
+                attempt=$((attempt + 1))
+            done
+        fi
+        rm -f "$DNSMASQ_PID_FILE"
     fi
 
-    local forward_line="server=/${NETBIRD_DNS_DOMAIN}/${ns_ip}"
+    mkdir -p "$(dirname "$DNSMASQ_PID_FILE")"
+    dnsmasq --conf-file="$conf" --pid-file="$DNSMASQ_PID_FILE"
+    wait_until 25 0.2 \
+        "dnsmasq did not start after NetBird DNS restart" \
+        dnsmasq-ready
+    echo "wg-client: dnsmasq restarted for NetBird DNS records." >&2
+}
 
-    # Idempotent: only write if line is not already present.
-    if ! grep -qF "$forward_line" "$conf" 2>/dev/null; then
-        printf '%s\n' "$forward_line" >> "$conf"
-        echo "wg-client: added dnsmasq forward: $forward_line"
-    fi
+patch_dnsmasq_from_netbird_volume() {
+    local conf="$1"
+    local peers_conf="$NETBIRD_PEERS_CONF"
+    local peers_stamp="${conf}.netbird-peers.stamp"
 
-    # Reload dnsmasq to pick up the new domain forward.
-    local dnsmasq_pid
-    dnsmasq_pid=$(pgrep -x dnsmasq 2>/dev/null | head -1 || true)
-    if [[ -n "$dnsmasq_pid" ]]; then
-        kill -HUP "$dnsmasq_pid"
-        echo "wg-client: dnsmasq (pid $dnsmasq_pid) reloaded for NetBird DNS forward."
+    [[ -f "$peers_conf" ]] || return 0
+
+    local peers_mtime=0
+    peers_mtime=$(stat -c %Y "$peers_conf" 2>/dev/null || echo 0)
+    local recorded_mtime=0
+    [[ -f "$peers_stamp" ]] && recorded_mtime=$(tr -d '[:space:]' <"$peers_stamp" 2>/dev/null || echo 0)
+
+    local reload_needed=false
+    local line
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        [[ -n "$line" ]] || continue
+        # Accept only known dnsmasq directives to prevent config injection.
+        [[ "$line" =~ ^(local|host-record|address|server)= ]] || continue
+        if ! grep -qF "$line" "$conf" 2>/dev/null; then
+            printf '%s\n' "$line" >> "$conf"
+            echo "wg-client: added dnsmasq record from NetBird volume: $line" >&2
+            reload_needed=true
+        fi
+    done < "$peers_conf"
+
+    # Restart when lines were added OR when the volume file changed but dnsmasq
+    # never picked up a prior merge (e.g. SIGHUP/pgrep reload silently failed).
+    if [[ "$reload_needed" == true ]] || [[ "$peers_mtime" != "$recorded_mtime" ]]; then
+        restart_dnsmasq "$conf"
+        printf '%s\n' "$peers_mtime" > "$peers_stamp"
     fi
 }
 
@@ -333,7 +338,11 @@ main() {
     #   - 127.0.0.11 traffic uses the lo interface (ACCEPT-ed),
     #   - upstream queries go via wg0 (ACCEPT-ed).
     write_dnsmasq_conf "$DNS_CONF" "$DNSMASQ_CONF" "${search_domains[@]}"
-    dnsmasq --conf-file="$DNSMASQ_CONF"
+    # Merge any NetBird records already on the volume before the first dnsmasq
+    # start so boot-time resolution works even when mitmproxy enrolled first.
+    patch_dnsmasq_from_netbird_volume "$DNSMASQ_CONF" 2>/dev/null || true
+    mkdir -p "$(dirname "$DNSMASQ_PID_FILE")"
+    dnsmasq --conf-file="$DNSMASQ_CONF" --pid-file="$DNSMASQ_PID_FILE"
 
     # dnsmasq daemonizes after parsing its config; verify it actually bound
     # to 127.0.0.1:53 before we point /etc/resolv.conf at it. Without this
@@ -349,295 +358,14 @@ main() {
     mkdir -p "$(dirname "$SHARED_RESOLV_CONF")"
     write_resolv_conf "$SHARED_RESOLV_CONF" "${search_domains[@]}"
 
-    # Host routing/iptables for local NetBird enrollment (literal host IP in URL).
-    configure_netbird_host_management_access "$docker_gateway"
-
-    # ── NetBird overlay mesh (optional) ─────────────────────────────────────────
-    # Enroll and start the NetBird daemon if NB_SETUP_KEY is set. wt0 is created
-    # by the daemon in this network namespace alongside wg0. fwmark 51821 ensures
-    # wt0 traffic routes through wg0 → mitmproxy (not eth0 directly).
-    trust_mitmproxy_ca "/mitmproxy-config/mitmproxy-ca-cert.pem"
-    start_netbird "wt0"
-    set_netbird_fwmark "wt0"
-    supervise_netbird_daemon "wt0" &
-
-    # Forward NetBird mesh DNS domain via the local dnsmasq instance so that
-    # FQDNs like peer-proxy.netbird.selfhosted resolve inside the agent. This
-    # is a best-effort call: if the nameserver is not yet published (dashboard
-    # DNS not enabled or NetBird not fully enrolled), it logs and continues.
-    patch_dnsmasq_for_netbird "$DNSMASQ_CONF"
+    # Apply any NetBird peer DNS records already published by mitmproxy.
+    # Best-effort: file may not exist yet if mitmproxy is still enrolling.
+    patch_dnsmasq_from_netbird_volume "$DNSMASQ_CONF" 2>/dev/null || true
 
     # Signal readiness to containers waiting on the healthcheck.
     touch /tmp/wg-ready
 
     supervise_dnsmasq "$DNSMASQ_CONF"
-}
-
-# Trust the mitmproxy CA cert so the netbird daemon can verify TLS connections
-# to the NetBird management and signal servers. Those connections transit wg0 →
-# mitmproxy just like all other outbound traffic; without this step the daemon
-# would reject the MITM certificate and fail to enroll.
-# Args:
-#   $1 - Path to the mitmproxy CA cert (from the mitmproxy-config volume)
-#   $2 - System CA directory (default: /usr/local/share/ca-certificates)
-trust_mitmproxy_ca() {
-    local ca_cert="$1"
-    local ca_dir="${2:-/usr/local/share/ca-certificates}"
-    [[ -f "$ca_cert" ]] || return 0
-    cp "$ca_cert" "$ca_dir/mitmproxy.crt"
-    update-ca-certificates --fresh >/dev/null 2>&1
-}
-
-# Extracts the host from an http(s) management URL.
-# Args:
-#   $1 - URL (e.g. http://192.168.5.2:33073)
-netbird_management_url_host() {
-    local url=$1
-
-    [[ "$url" =~ ^https?://([^/:]+) ]] || return 1
-    printf '%s' "${BASH_REMATCH[1]}"
-}
-
-# Returns 0 when the URL host is a literal IPv4 address.
-# Args:
-#   $1 - Hostname or IP
-netbird_management_url_host_is_literal_ipv4() {
-    local host=$1
-    [[ "$host" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]
-}
-
-# Extracts the TCP port from an http(s) management URL. Defaults to 443/80.
-# Args:
-#   $1 - URL (e.g. http://192.168.5.2:33073)
-netbird_management_url_port() {
-    local url=$1
-    if [[ "$url" =~ :([0-9]+)(/|$|\?) ]]; then
-        printf '%s' "${BASH_REMATCH[1]}"
-        return 0
-    fi
-    if [[ "$url" =~ ^https:// ]]; then
-        printf '443'
-    else
-        printf '80'
-    fi
-}
-
-# Returns 0 when the Docker host is off the bridge subnet and must be reached
-# via the bridge gateway (e.g. Colima host 192.168.5.2 on sandcat 172.23.0.0/16).
-# Args:
-#   $1 - Resolved host IPv4
-#   $2 - Docker bridge gateway IPv4
-netbird_host_route_uses_gateway() {
-    local host_ip=$1
-    local docker_gateway=$2
-
-    [[ -n "$host_ip" && -n "$docker_gateway" ]] || return 1
-    [[ "$host_ip" != "$docker_gateway" ]]
-}
-
-# Allow enrollment against a NetBird management server on the Docker host.
-# wg-client routes most traffic through wg0; management traffic to a literal
-# host IP must bypass mitmproxy via eth0. Re-apply after netbird service start
-# (it may add routing rules that steal host-bound traffic).
-# Args:
-#   $1 - Docker bridge gateway IP
-configure_netbird_host_management_access() {
-    local docker_gateway=$1
-    local mgmt_url="${NB_MANAGEMENT_URL:-}"
-    local host_ip port
-
-    [[ -n "${NB_SETUP_KEY:-}" ]] || return 0
-    [[ -n "$docker_gateway" ]] || return 0
-
-    host_ip=$(netbird_management_url_host "$mgmt_url") || return 0
-    netbird_management_url_host_is_literal_ipv4 "$host_ip" || return 0
-
-    port=$(netbird_management_url_port "$mgmt_url")
-
-    if netbird_host_route_uses_gateway "$host_ip" "$docker_gateway"; then
-        echo "[wg-client] Allowing NetBird management traffic to ${host_ip}:${port} via eth0 (via ${docker_gateway})." >&2
-    else
-        echo "[wg-client] Allowing NetBird management traffic to ${host_ip}:${port} via eth0." >&2
-    fi
-
-    # Prefer main table for host management (sandcat policy routing uses 51820 → wg0).
-    ip -4 rule add to "${host_ip}/32" lookup main priority 50 2>/dev/null || true
-    if netbird_host_route_uses_gateway "$host_ip" "$docker_gateway"; then
-        ip -4 route add "${host_ip}/32" via "${docker_gateway}" dev eth0 table main 2>/dev/null || true
-        ip -4 route add "${host_ip}/32" via "${docker_gateway}" dev eth0 table 51820 2>/dev/null || true
-    else
-        ip -4 route add "${host_ip}/32" dev eth0 table main 2>/dev/null || true
-        ip -4 route add "${host_ip}/32" dev eth0 table 51820 2>/dev/null || true
-    fi
-
-    iptables -C OUTPUT -o eth0 -d "$host_ip" -p tcp --dport "$port" -j ACCEPT 2>/dev/null \
-        || iptables -I OUTPUT 1 -o eth0 -d "$host_ip" -p tcp --dport "$port" -j ACCEPT
-    iptables -C OUTPUT -o eth0 -d "$host_ip" -p udp --dport 3478 -j ACCEPT 2>/dev/null \
-        || iptables -I OUTPUT 1 -o eth0 -d "$host_ip" -p udp --dport 3478 -j ACCEPT
-}
-
-# Verifies HTTP reachability to a self-hosted management server on the Docker host.
-netbird_verify_host_management_reachable() {
-    local mgmt_url="${NB_MANAGEMENT_URL:-}"
-    local host_ip port check_url
-
-    host_ip=$(netbird_management_url_host "$mgmt_url") || return 0
-    netbird_management_url_host_is_literal_ipv4 "$host_ip" || return 0
-
-    port=$(netbird_management_url_port "$mgmt_url")
-    command -v curl >/dev/null 2>&1 || return 0
-
-    check_url="${mgmt_url%/}/api/instance"
-    wait_until 15 1 \
-        "[wg-client] Cannot reach NetBird management at ${mgmt_url} from wg-client; is netbird-server running on the host (port ${port})?" \
-        curl -sf --max-time 5 "$check_url" >/dev/null
-}
-
-# Writes /var/lib/netbird/default.json so the daemon keeps the enrollment URL
-# instead of switching to localhost after the server registers the peer.
-netbird_prepare_local_management_profile() {
-    local mgmt_url="${NB_MANAGEMENT_URL:-}"
-    local host profile_file="/var/lib/netbird/default.json"
-
-    [[ -n "${NB_SETUP_KEY:-}" ]] || return 0
-    host=$(netbird_management_url_host "$mgmt_url") || return 0
-    netbird_management_url_host_is_literal_ipv4 "$host" || return 0
-
-    mkdir -p "$(dirname "$profile_file")"
-    if [[ -f "$profile_file" ]] && command -v jq >/dev/null 2>&1; then
-        local tmp
-        tmp=$(mktemp)
-        jq --arg url "$mgmt_url" '.ManagementURL = $url | .AdminURL = $url' "$profile_file" >"$tmp"
-        mv "$tmp" "$profile_file"
-        return 0
-    fi
-
-    cat >"$profile_file" <<EOF
-{
-  "ManagementURL": "$mgmt_url",
-  "AdminURL": "$mgmt_url",
-  "WgIface": "wt0",
-  "IFaceBlackList": ["docker", "br-", "veth", "wg0"],
-  "BlockInbound": false,
-  "BlockLANAccess": false,
-  "RosenpassEnabled": false,
-  "PrivateKey": ""
-}
-EOF
-}
-
-# Exports NetBird daemon env vars for local host-IP enrollment.
-netbird_export_service_env() {
-    local mgmt_url="${NB_MANAGEMENT_URL:-https://api.netbird.io}"
-    export NB_MANAGEMENT_URL="$mgmt_url"
-    if netbird_management_url_host_is_literal_ipv4 "$(netbird_management_url_host "$mgmt_url" 2>/dev/null)"; then
-        export NB_USE_LEGACY_ROUTING=true
-    fi
-}
-
-netbird_daemon_ready() {
-    netbird status >/dev/null 2>&1
-}
-
-# Starts the NetBird background service (required for client 0.28+).
-ensure_netbird_service() {
-    [[ -n "${NB_SETUP_KEY:-}" ]] || return 0
-    netbird_prepare_local_management_profile
-    netbird_export_service_env
-    if netbird_daemon_ready; then
-        return 0
-    fi
-
-    echo "[wg-client] Starting NetBird service daemon." >&2
-    netbird service run --log-file console &
-
-    wait_until 30 1 \
-        "[wg-client] Timed out waiting for NetBird service daemon" \
-        netbird_daemon_ready
-}
-
-# Enroll this container as a NetBird peer and start the daemon in the background.
-# Does nothing if NB_SETUP_KEY is unset (NetBird disabled for this environment).
-# After the daemon starts it waits until the overlay interface appears.
-# Args:
-#   $1 - WireGuard interface name for the NetBird overlay (default: wt0)
-start_netbird() {
-    local iface="${1:-wt0}"
-    local docker_gateway
-    [[ -n "${NB_SETUP_KEY:-}" ]] || return 0
-
-    docker_gateway=$(ip -4 route show default dev eth0 2>/dev/null | awk '{print $3}')
-
-    ensure_netbird_service
-    configure_netbird_host_management_access "$docker_gateway"
-    netbird_verify_host_management_reachable
-    netbird_prepare_local_management_profile
-    if [[ -f /var/lib/netbird/default.json ]] \
-        && grep -qE 'localhost|127\.0\.0\.1|\[::1\]' /var/lib/netbird/default.json 2>/dev/null; then
-        netbird down 2>/dev/null || true
-    fi
-    netbird_export_service_env
-
-    echo "[wg-client] Enrolling NetBird peer on ${iface}." >&2
-    netbird up \
-        --setup-key "${NB_SETUP_KEY}" \
-        --management-url "${NB_MANAGEMENT_URL:-https://api.netbird.io}" \
-        --interface-name "${iface}"
-
-    wait_until 30 1 \
-        "[wg-client] Timed out waiting for NetBird to bring up ${iface}" \
-        ip link show "${iface}" >/dev/null 2>&1
-}
-
-# Override the WireGuard fwmark on the NetBird interface so its encapsulation
-# packets (fwmark 51821) are NOT exempt from the wg0 policy routing rule
-# (`not fwmark 51820 → table 51820 → wg0`). This ensures NetBird peer traffic
-# transits wg0 → mitmproxy, preserving the inspection guarantee.
-# Must be called after start_netbird has brought the interface up.
-# Args:
-#   $1 - NetBird WireGuard interface name (default: wt0)
-set_netbird_fwmark() {
-    local iface="${1:-wt0}"
-    ip link show "${iface}" >/dev/null 2>&1 || return 0
-    wg set "${iface}" fwmark 51821
-}
-
-# Supervise the NetBird daemon: poll every 10 s and restart if unresponsive.
-# Returns immediately (no-op) if NB_SETUP_KEY is unset.
-# Args:
-#   $1 - NetBird WireGuard interface name (default: wt0)
-supervise_netbird_daemon() {
-    local iface="${1:-wt0}"
-    [[ -n "${NB_SETUP_KEY:-}" ]] || return 0
-
-    while true; do
-        sleep 10
-        if ! netbird_daemon_ready; then
-            echo "[wg-client] NetBird service daemon not responding; restarting." >&2
-            netbird_export_service_env
-            netbird service run --log-file console &
-            wait_until 15 1 \
-                "[wg-client] Timed out waiting for NetBird service daemon" \
-                netbird_daemon_ready || true
-        fi
-        if ! ip link show "${iface}" >/dev/null 2>&1; then
-            echo "[wg-client] NetBird interface ${iface} down; re-enrolling." >&2
-            docker_gateway=$(ip -4 route show default dev eth0 2>/dev/null | awk '{print $3}')
-            configure_netbird_host_management_access "$docker_gateway"
-            netbird_prepare_local_management_profile
-            netbird_export_service_env
-            netbird up \
-                --setup-key "${NB_SETUP_KEY}" \
-                --management-url "${NB_MANAGEMENT_URL:-https://api.netbird.io}" \
-                --interface-name "${iface}" || true
-            set_netbird_fwmark "${iface}" || true
-        fi
-        # Retry the NetBird DNS forward on every iteration. patch_dnsmasq_for_netbird
-        # is idempotent (skips if the line is already present), so this is safe.
-        # Nameservers are pushed from the management server after enrollment;
-        # they may not be available at container start time.
-        patch_dnsmasq_for_netbird "${DNSMASQ_CONF}" 2>/dev/null || true
-    done
 }
 
 # Keep dnsmasq alive in-place. Sibling containers share this container's
@@ -646,14 +374,19 @@ supervise_netbird_daemon() {
 # leave the agent attached to a now-destroyed namespace. Supervising dnsmasq
 # locally — instead of letting the container exit and rely on Docker's
 # restart policy — keeps the namespace intact across dnsmasq crashes.
+#
+# Also picks up NetBird peer DNS records published by mitmproxy on each
+# iteration so that newly enrolled peers resolve without restarting wg-client.
 supervise_dnsmasq() {
     local conf="$1"
     while true; do
         sleep 5
         if ! dnsmasq-ready; then
             echo "[wg-client] dnsmasq not listening; restarting" >&2
-            dnsmasq --conf-file="$conf" || true
+            mkdir -p "$(dirname "$DNSMASQ_PID_FILE")"
+            dnsmasq --conf-file="$conf" --pid-file="$DNSMASQ_PID_FILE" || true
         fi
+        patch_dnsmasq_from_netbird_volume "$conf" 2>/dev/null || true
     done
 }
 

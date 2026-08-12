@@ -73,9 +73,10 @@ request_capability_lease(ref)
   → grant_network_binding
       → enable_binding(sync_mode)    → NetBird management API
   → catalog LEASED                      → route enabled / created
-  → emit physical_sync: enabled         → wg-client: route on wt0
-        │
-        │  (on enable_binding failure: rollback lease, revert catalog)
+  → emit physical_sync: enabled         → mitmproxy: route on wt0
+        │                                 (agent traffic: wg0 → mitmproxy L7
+        │  (on enable_binding failure:       → wt0 → mesh peer)
+        │   rollback lease, revert catalog)
         ▼
 
 Logical revoke (runtime)          Physical path (sandcat)
@@ -84,7 +85,7 @@ revoke_capability(ref, reason)
   → NetBirdRevocationBackend
       → disable_binding(sync_mode)   → NetBird management API
   → catalog REVOKED                     → route disabled (default)
-  → emit physical_revocation            → wg-client drops route on wt0
+  → emit physical_revocation            → mitmproxy drops route on wt0
                                         → peer remains enrolled (route_enable)
 ```
 
@@ -98,7 +99,7 @@ The reverse path handles external physical removal (management server change, `w
 Physical disappearance              Logical reconcile (runtime)
 ──────────────────────              ───────────────────────────
 peer/route gone from NetBird
-  (peers.conf updated, wg syncconf)
+  (mitmproxy wt0 route disappears)
         │
         ▼
 RouteDisappearanceWatcher.poll_once()
@@ -109,6 +110,8 @@ RouteDisappearanceWatcher.poll_once()
 ```
 
 The watcher ensures the runtime catalog stays consistent when reachability disappears outside the runtime — the spec's physical `Revoked` trigger (Phase 3 / idea7). In watcher JSONL events, `physical_trigger` is an alias for the spec's `physical_revocation_reconciled` flag.
+
+**Peer identity:** `binding.peer_id` refers to the **mitmproxy** NetBird peer (hostname `sandcat-proxy`), not `wg-client`. Routes are managed on mitmproxy's `wt0` interface. wg-client has no NetBird enrollment and no `wt0` interface.
 
 ## Sidecar architecture (Phase 3b)
 

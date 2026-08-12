@@ -2,6 +2,8 @@
 
 # shellcheck source=logging.bash
 source "$SCT_LIBDIR/logging.bash"
+# shellcheck source=require.bash
+source "$SCT_LIBDIR/require.bash"
 
 # Parse a Docker ISO-8601 timestamp to epoch seconds (GNU date or BSD date).
 _volume_timestamp_epoch() {
