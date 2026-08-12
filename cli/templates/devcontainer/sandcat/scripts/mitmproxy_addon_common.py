@@ -381,7 +381,22 @@ class SandcatAddon:
             # keeps the CLI happy on the env-var side; mitmproxy's on-the-wire
             # `.replace(placeholder, value)` still swaps the ENTIRE string with
             # the real token, so what actually leaves the sandbox is well-formed.
-            placeholder = entry.get("placeholder") or f"SANDCAT_PLACEHOLDER_{name}"
+            custom = entry.get("placeholder")
+            if custom is not None:
+                if not isinstance(custom, str):
+                    ctx.log.warn(
+                        f"Secret {name!r}: 'placeholder' must be a string, got "
+                        f"{type(custom).__name__}; using default"
+                    )
+                    custom = None
+                elif "SANDCAT_PLACEHOLDER_" not in custom:
+                    ctx.log.warn(
+                        f"Secret {name!r}: custom placeholder must contain "
+                        f"'SANDCAT_PLACEHOLDER_' to prevent false-positive "
+                        f"substitutions; using default"
+                    )
+                    custom = None
+            placeholder = custom or f"SANDCAT_PLACEHOLDER_{name}"
             self._warn_if_value_looks_like_reference(name, entry)
             source = self._secret_source(entry)
             if "pass" in entry and not self._pass_cli_logged_in:
