@@ -5,6 +5,10 @@
       "value": "",
       "placeholder": "gho_SANDCAT_PLACEHOLDER_COPILOT_GITHUB_TOKEN",
       "hosts": ["api.github.com", "*.github.com", "*.githubcopilot.com", "*.githubusercontent.com"]
+    },
+    "GITHUB_TOKEN": {
+      "value": "",
+      "hosts": ["github.com", "*.github.com", "*.githubusercontent.com"]
     }
   },
   "network": [
