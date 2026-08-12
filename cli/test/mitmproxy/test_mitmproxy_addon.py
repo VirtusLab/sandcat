@@ -1143,6 +1143,38 @@ class TestOpSecretResolution:
         content = env_path.read_text()
         assert 'export API_KEY="SANDCAT_PLACEHOLDER_API_KEY"' in content
 
+    def test_secret_uses_default_placeholder_when_not_specified(self, addon_cls, tmp_path):
+        """No `placeholder` field → placeholder defaults to SANDCAT_PLACEHOLDER_<NAME>."""
+        settings = {"secrets": {
+            "FOO": {"op": "op://vault/item/field", "hosts": []},
+        }}
+        p = tmp_path / "settings.json"
+        p.write_text(json.dumps(settings))
+        env_path = tmp_path / "sandcat.env"
+        addon = addon_cls()
+        with patch(f"{_COMMON}.SETTINGS_PATHS", [str(p)]), \
+             patch(f"{_COMMON}.SANDCAT_ENV_PATH", str(env_path)), \
+             patch(f"{_COMMON}.subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0, stdout="real-token\n", stderr="")
+            addon.load(MagicMock())
+        assert addon.secrets["FOO"]["placeholder"] == "SANDCAT_PLACEHOLDER_FOO"
+
+    def test_secret_honors_custom_placeholder_field(self, addon_cls, tmp_path):
+        """`placeholder` field in settings overrides the default SANDCAT_PLACEHOLDER_<NAME>."""
+        settings = {"secrets": {
+            "FOO": {"op": "op://vault/item/field", "hosts": [], "placeholder": "gho_custom_placeholder"},
+        }}
+        p = tmp_path / "settings.json"
+        p.write_text(json.dumps(settings))
+        env_path = tmp_path / "sandcat.env"
+        addon = addon_cls()
+        with patch(f"{_COMMON}.SETTINGS_PATHS", [str(p)]), \
+             patch(f"{_COMMON}.SANDCAT_ENV_PATH", str(env_path)), \
+             patch(f"{_COMMON}.subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0, stdout="real-token\n", stderr="")
+            addon.load(MagicMock())
+        assert addon.secrets["FOO"]["placeholder"] == "gho_custom_placeholder"
+
     def test_op_failure_logs_warning_and_continues(self, addon_cls, tmp_path):
         settings = {"secrets": {
             "BAD": {"op": "op://vault/item/field", "hosts": []},
