@@ -55,6 +55,23 @@ teardown() {
 	[[ -f "$PROJECT_DIR/.devcontainer/sandcat/scripts/proxy-peer-hello.py" ]]
 }
 
+@test "init --proxy-peer registers compose-proxy-peer.yml include" {
+	mkdir -p "$PROJECT_DIR/.sandcat"
+	touch "$PROJECT_DIR/.sandcat/settings.json"
+	stub settings "$PROJECT_DIR/.sandcat/settings.json claude vscode : :"
+
+	run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" \
+		--stacks "" --proxy web --features "" --secret-provider none \
+		--netbird --netbird-server cloud --capability --proxy-peer
+	assert_success
+
+	# Copying the file is not enough: without the include the proxy-peer
+	# service never joins the stack.
+	run yq '[.include[] | select(.path == "sandcat/compose-proxy-peer.yml")] | length' \
+		"$PROJECT_DIR/.devcontainer/compose-all.yml"
+	assert_output "1"
+}
+
 @test "init --netbird --proxy-peer copies settings.proxy-peer.example.json" {
 	mkdir -p "$PROJECT_DIR/.sandcat"
 	touch "$PROJECT_DIR/.sandcat/settings.json"
@@ -66,6 +83,8 @@ teardown() {
 	assert_success
 
 	[[ -f "$PROJECT_DIR/.sandcat/settings.proxy-peer.example.json" ]]
+	# The dns_label FQDN survives a proxy-peer recreate; the mesh IP it replaced
+	# did not, and had to be pasted in by hand after every rebuild.
 	run yq -r '.network[0].host' "$PROJECT_DIR/.sandcat/settings.proxy-peer.example.json"
-	assert_output "REPLACE_PROXY_PEER_MESH_IP"
+	assert_output "peer-proxy.netbird.selfhosted"
 }

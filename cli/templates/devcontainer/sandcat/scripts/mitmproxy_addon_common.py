@@ -48,6 +48,7 @@ import re
 import shlex
 import subprocess
 import sys
+import time
 from fnmatch import fnmatch
 
 from mitmproxy import ctx, dns, http
@@ -277,6 +278,7 @@ class SandcatAddon:
         self._pass_cli_logged_in = self._pass_cli_login_if_needed(has_pass_secrets)
         if has_pass_secrets and self._pass_cli_logged_in:
             self._verify_pat_auth_or_die()
+            self._pass_cli_warmup()
 
         self.env = merged["env"]
         self._load_secrets(merged["secrets"])
@@ -504,6 +506,42 @@ class SandcatAddon:
         return result
 
     @staticmethod
+    def _pass_cli_warmup():
+        """Prime the local vault cache before reading individual items.
+
+        The first ``pass-cli item view`` after login triggers a full vault sync
+        from Proton's servers, which can take 30-60 s on a cold start and exceed
+        the per-item timeout.  Running ``pass-cli vault list`` first forces that
+        sync in one place with a generous timeout so subsequent item reads hit the
+        local cache.  Failures are non-fatal — item reads will attempt the sync
+        themselves and may fail if the network is truly unavailable.
+        """
+        attempts = 3
+        for attempt in range(1, attempts + 1):
+            try:
+                result = subprocess.run(
+                    ["pass-cli", "vault", "list"],
+                    capture_output=True, text=True, timeout=60,
+                )
+                if result.returncode == 0:
+                    ctx.log.info("pass-cli vault cache warmed up")
+                    return
+                ctx.log.warn(
+                    f"pass-cli vault list failed (attempt {attempt}/{attempts}): "
+                    f"{result.stderr.strip()}"
+                )
+            except subprocess.TimeoutExpired:
+                ctx.log.warn(
+                    f"pass-cli vault list timed out (attempt {attempt}/{attempts})"
+                )
+            if attempt < attempts:
+                time.sleep(5)
+        ctx.log.warn(
+            "pass-cli vault warmup failed after all attempts; "
+            "item reads will attempt their own sync"
+        )
+
+    @staticmethod
     def _merge_settings(layers: list[dict]) -> dict:
         """Merge settings from multiple layers (lowest to highest precedence).
 
@@ -699,20 +737,31 @@ class SandcatAddon:
             raise ValueError(
                 f"Secret {name!r}: 'pass' value must start with 'pass://', got {pass_ref!r}"
             )
-        try:
-            result = subprocess.run(
-                ["pass-cli", "item", "view", pass_ref],
-                capture_output=True, text=True, timeout=30,
-            )
-        except FileNotFoundError:
-            raise RuntimeError(
-                f"Secret {name!r}: 'pass-cli' not found. Install Proton Pass CLI to use pass:// references."
-            ) from None
-        if result.returncode != 0:
-            raise RuntimeError(
-                f"Secret {name!r}: 'pass-cli' read failed: {result.stderr.strip()}"
-            )
-        return cls._normalize_secret_value(result.stdout.strip())
+        attempts = 3
+        last_error = None
+        for attempt in range(1, attempts + 1):
+            try:
+                result = subprocess.run(
+                    ["pass-cli", "item", "view", pass_ref],
+                    capture_output=True, text=True, timeout=60,
+                )
+            except FileNotFoundError:
+                raise RuntimeError(
+                    f"Secret {name!r}: 'pass-cli' not found. Install Proton Pass CLI to use pass:// references."
+                ) from None
+            except subprocess.TimeoutExpired:
+                last_error = f"timed out after 60 s (attempt {attempt}/{attempts})"
+                if attempt < attempts:
+                    time.sleep(5)
+                continue
+            if result.returncode == 0:
+                return cls._normalize_secret_value(result.stdout.strip())
+            last_error = result.stderr.strip()
+            if attempt < attempts:
+                time.sleep(5)
+        raise RuntimeError(
+            f"Secret {name!r}: 'pass-cli' read failed after {attempts} attempts: {last_error}"
+        )
 
     @staticmethod
     def _normalize_secret_value(value) -> str:
@@ -957,6 +1006,15 @@ class SandcatAddon:
             lines.append(f"export {name}={shlex.quote(value)}")
         for name, entry in self.secrets.items():
             lines.append(f"export {name}={shlex.quote(entry['placeholder'])}")
+        # Publish the NetBird mesh DNS domain so the agent can form FQDNs like
+        # <peer-name>.$SANDCAT_NETBIRD_DNS_DOMAIN without hard-coding the domain.
+        # Set on the mitmproxy container via NETBIRD_DNS_DOMAIN (injected by
+        # enable_netbird() in composefile.bash). Not emitted when NetBird is disabled.
+        netbird_dns_domain = os.environ.get("NETBIRD_DNS_DOMAIN", "")
+        if netbird_dns_domain:
+            lines.append(
+                f"export SANDCAT_NETBIRD_DNS_DOMAIN={shlex.quote(netbird_dns_domain)}"
+            )
         self._atomic_write_text(SANDCAT_ENV_PATH, "\n".join(lines) + "\n")
 
     def _write_cursor_cli_config(self, merged: dict):

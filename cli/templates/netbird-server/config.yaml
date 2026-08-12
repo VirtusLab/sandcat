@@ -2,7 +2,8 @@
 # when sandcat provisions this template.
 server:
   listenAddress: ":80"
-  exposedAddress: "http://localhost:33073"
+  # customize and parametrize for local development
+  exposedAddress: "http://192.168.5.2:33073"
   stunPorts:
     - 3478
   metricsPort: 9090

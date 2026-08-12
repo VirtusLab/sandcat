@@ -2,6 +2,8 @@
 
 # shellcheck source=constants.bash
 source "$SCT_LIBDIR/constants.bash"
+# shellcheck source=require.bash
+source "$SCT_LIBDIR/require.bash"
 # shellcheck source=stacks.bash
 source "$SCT_LIBDIR/stacks.bash"
 # shellcheck source=agents.bash

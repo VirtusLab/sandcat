@@ -1,140 +1,113 @@
 #!/usr/bin/env bats
-# Tests for NetBird DNS domain forwarding via dnsmasq (Task 2)
+# Tests for volume-based NetBird DNS bridge in wg-client-init.sh.
+#
+# The old netbird_dns_nameserver_ip and patch_dnsmasq_for_netbird functions
+# (which called `netbird status` directly on wg-client) have been replaced by
+# patch_dnsmasq_from_netbird_volume, which reads records published by
+# mitmproxy-init.sh into the shared mitmproxy-config volume.
 
 setup() {
-	load test_helper
-	DNSMASQ_CONF="$BATS_TEST_TMPDIR/dnsmasq.conf"
-	printf '# existing config\nserver=1.1.1.1\n' > "$DNSMASQ_CONF"
+    load test_helper
+    DNSMASQ_CONF="$BATS_TEST_TMPDIR/dnsmasq.conf"
+    NETBIRD_PEERS_CONF="$BATS_TEST_TMPDIR/netbird-peers.conf"
+    DNSMASQ_PID_FILE="$BATS_TEST_TMPDIR/dnsmasq.pid"
+    export NETBIRD_PEERS_CONF DNSMASQ_PID_FILE
+    printf '# existing config\nserver=1.1.1.1\n' > "$DNSMASQ_CONF"
+
+    mkdir -p "$BATS_TEST_TMPDIR/bin"
+    printf '%s\n' '#!/bin/sh' 'exit 0' > "$BATS_TEST_TMPDIR/bin/dnsmasq"
+    printf '%s\n' '#!/bin/sh' 'exit 0' > "$BATS_TEST_TMPDIR/bin/dnsmasq-ready"
+    chmod +x "$BATS_TEST_TMPDIR/bin/dnsmasq" "$BATS_TEST_TMPDIR/bin/dnsmasq-ready"
+    export PATH="$BATS_TEST_TMPDIR/bin:$PATH"
 }
 
 teardown() {
-	unstub_all
+    unstub_all
 }
 
-# ── netbird_dns_nameserver_ip ────────────────────────────────────────────────
+# ── patch_dnsmasq_from_netbird_volume ────────────────────────────────────────
 
-@test "netbird_dns_nameserver_ip returns IP from nameservers[].servers[]" {
-	stub netbird "status --json : printf '{\"nameservers\":[{\"servers\":[\"100.64.0.1\"]}]}'"
+@test "patch_dnsmasq_from_netbird_volume is a no-op when peers file does not exist" {
+    rm -f "$NETBIRD_PEERS_CONF"
+    local before
+    before=$(cat "$DNSMASQ_CONF")
 
-	run netbird_dns_nameserver_ip
-	assert_success
-	assert_output "100.64.0.1"
+    run patch_dnsmasq_from_netbird_volume "$DNSMASQ_CONF"
+    assert_success
+
+    assert_equal "$(cat "$DNSMASQ_CONF")" "$before"
 }
 
-@test "netbird_dns_nameserver_ip returns IP from dns[].servers[]" {
-	stub netbird "status --json : printf '{\"dns\":[{\"servers\":[\"100.64.0.2\"]}]}'"
+@test "patch_dnsmasq_from_netbird_volume appends address= records from volume" {
+    printf 'address=/peer-proxy.netbird.selfhosted/100.64.0.5\n' > "$NETBIRD_PEERS_CONF"
 
-	run netbird_dns_nameserver_ip
-	assert_success
-	assert_output "100.64.0.2"
+    patch_dnsmasq_from_netbird_volume "$DNSMASQ_CONF"
+
+    run grep -c "address=/peer-proxy.netbird.selfhosted/100.64.0.5" "$DNSMASQ_CONF"
+    assert_output "1"
 }
 
-@test "netbird_dns_nameserver_ip returns empty when no nameservers configured" {
-	stub netbird "status --json : printf '{\"nameservers\":[]}'"
+@test "patch_dnsmasq_from_netbird_volume appends server= forward lines from volume" {
+    printf 'server=/netbird.selfhosted/100.64.0.1\n' > "$NETBIRD_PEERS_CONF"
 
-	run netbird_dns_nameserver_ip
-	assert_success
-	assert_output ""
+    patch_dnsmasq_from_netbird_volume "$DNSMASQ_CONF"
+
+    run grep -c "server=/netbird.selfhosted/100.64.0.1" "$DNSMASQ_CONF"
+    assert_output "1"
 }
 
-@test "netbird_dns_nameserver_ip returns empty when netbird status fails" {
-	stub netbird "status --json : return 1"
+@test "patch_dnsmasq_from_netbird_volume is idempotent — does not duplicate records" {
+    printf 'address=/peer-proxy.netbird.selfhosted/100.64.0.5\n' > "$NETBIRD_PEERS_CONF"
 
-	run netbird_dns_nameserver_ip
-	assert_success
-	assert_output ""
+    patch_dnsmasq_from_netbird_volume "$DNSMASQ_CONF"
+    patch_dnsmasq_from_netbird_volume "$DNSMASQ_CONF"
+
+    run grep -c "address=/peer-proxy.netbird.selfhosted/100.64.0.5" "$DNSMASQ_CONF"
+    assert_output "1"
 }
 
-# ── patch_dnsmasq_for_netbird ────────────────────────────────────────────────
+@test "patch_dnsmasq_from_netbird_volume skips lines that are not dnsmasq directives" {
+    printf 'host-record=peer.netbird.selfhosted,100.64.0.5\nsome-random-line\n# comment\n' > "$NETBIRD_PEERS_CONF"
 
-@test "patch_dnsmasq_for_netbird appends forward line when nameserver available" {
-	stub netbird "status --json : printf '{\"nameservers\":[{\"servers\":[\"100.64.0.1\"]}]}'"
+    patch_dnsmasq_from_netbird_volume "$DNSMASQ_CONF"
 
-	patch_dnsmasq_for_netbird "$DNSMASQ_CONF"
+    run grep -c "some-random-line" "$DNSMASQ_CONF"
+    assert_output "0"
 
-	run grep -c "server=/netbird.selfhosted/100.64.0.1" "$DNSMASQ_CONF"
-	assert_success
-	assert_output "1"
+    run grep -c "# comment" "$DNSMASQ_CONF"
+    assert_output "0"
 }
 
-@test "patch_dnsmasq_for_netbird is idempotent — does not duplicate forward line" {
-	printf 'server=/netbird.selfhosted/100.64.0.1\n' >> "$DNSMASQ_CONF"
-	stub netbird "status --json : printf '{\"nameservers\":[{\"servers\":[\"100.64.0.1\"]}]}'"
+@test "patch_dnsmasq_from_netbird_volume handles multiple records" {
+    {
+        printf 'server=/netbird.selfhosted/100.64.0.1\n'
+        printf 'address=/peer-a.netbird.selfhosted/100.64.0.5\n'
+        printf 'address=/peer-b.netbird.selfhosted/100.64.0.6\n'
+    } > "$NETBIRD_PEERS_CONF"
 
-	patch_dnsmasq_for_netbird "$DNSMASQ_CONF"
+    patch_dnsmasq_from_netbird_volume "$DNSMASQ_CONF"
 
-	run grep -c "server=/netbird.selfhosted/100.64.0.1" "$DNSMASQ_CONF"
-	assert_success
-	assert_output "1"
+    run grep -c "address=" "$DNSMASQ_CONF"
+    assert_output "2"
+
+    run grep -c "server=/netbird.selfhosted" "$DNSMASQ_CONF"
+    assert_output "1"
 }
 
-@test "patch_dnsmasq_for_netbird is a no-op when nameserver unavailable" {
-	stub netbird "status --json : printf '{\"nameservers\":[]}'"
-
-	local before
-	before=$(cat "$DNSMASQ_CONF")
-
-	run patch_dnsmasq_for_netbird "$DNSMASQ_CONF"
-	assert_success
-
-	local after
-	after=$(cat "$DNSMASQ_CONF")
-	[[ "$before" == "$after" ]]
+@test "wg-client-init restarts dnsmasq when NetBird peers volume changes" {
+    run grep -F 'peers_mtime' "$WG_CLIENT_INIT"
+    assert_success
+    run grep -F 'restart_dnsmasq "$conf"' "$WG_CLIENT_INIT"
+    assert_success
 }
 
-@test "patch_dnsmasq_for_netbird respects NETBIRD_DNS_DOMAIN override" {
-	NETBIRD_DNS_DOMAIN="nb.corp.internal"
-	stub netbird "status --json : printf '{\"nameservers\":[{\"servers\":[\"10.0.0.53\"]}]}'"
-
-	patch_dnsmasq_for_netbird "$DNSMASQ_CONF"
-
-	run grep "server=/nb.corp.internal/10.0.0.53" "$DNSMASQ_CONF"
-	assert_success
-}
-
-@test "patch_dnsmasq_for_netbird is safe to call repeatedly (late-arriving nameserver)" {
-	# First call: nameserver not yet available → no-op
-	stub netbird "status --json : printf '{\"nameservers\":[]}'"
-	patch_dnsmasq_for_netbird "$DNSMASQ_CONF"
-
-	unstub_all
-
-	# Second call (supervisor retry): nameserver now available → forward added
-	stub netbird "status --json : printf '{\"nameservers\":[{\"servers\":[\"100.64.0.1\"]}]}'"
-	patch_dnsmasq_for_netbird "$DNSMASQ_CONF"
-
-	run grep -c "server=/netbird.selfhosted/100.64.0.1" "$DNSMASQ_CONF"
-	assert_success
-	assert_output "1"
-}
-
-# ── IP validation ────────────────────────────────────────────────────────────
-
-@test "netbird_dns_nameserver_ip rejects malformed value with newline injection" {
-	# JSON returns a string with a newline that would inject a second dnsmasq line
-	stub netbird "status --json : printf '{\"nameservers\":[{\"servers\":[\"100.64.0.1\\nserver=/evil/1.2.3.4\"]}]}'"
-
-	run netbird_dns_nameserver_ip
-	assert_success
-	# Must not contain anything — malformed value discarded
-	refute_output --partial "evil"
-	refute_output --partial "server="
-}
-
-@test "netbird_dns_nameserver_ip rejects hostname (only IPs allowed)" {
-	stub netbird "status --json : printf '{\"nameservers\":[{\"servers\":[\"nameserver.example.com\"]}]}'"
-
-	run netbird_dns_nameserver_ip
-	assert_success
-	# No bare IP should be printed (warning may appear on stderr, captured in output)
-	refute_line --regexp '^[0-9]'
-	refute_line --regexp '^[0-9a-fA-F:]+:[0-9a-fA-F:]'
-}
-
-@test "netbird_dns_nameserver_ip accepts IPv6 address" {
-	stub netbird "status --json : printf '{\"nameservers\":[{\"servers\":[\"fd41:7314:3779::1\"]}]}'"
-
-	run netbird_dns_nameserver_ip
-	assert_success
-	assert_output "fd41:7314:3779::1"
+@test "wg-client-init restarts dnsmasq instead of SIGHUP reload" {
+    run grep -F 'restart_dnsmasq' "$WG_CLIENT_INIT"
+    assert_success
+    run grep -F 'reload_dnsmasq_sighup' "$WG_CLIENT_INIT"
+    assert_failure
+    run grep -F 'pgrep -x dnsmasq' "$WG_CLIENT_INIT"
+    assert_failure
+    run grep -F -- '--pid-file="$DNSMASQ_PID_FILE"' "$WG_CLIENT_INIT"
+    assert_success
 }

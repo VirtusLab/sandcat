@@ -1,7 +1,10 @@
 FROM debian:trixie-slim
 
+# iproute2 and iptables are required by proxy-peer-init.sh for host-bound
+# NetBird management routing (self-hosted NB_MANAGEMENT_URL on the Docker host).
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates curl python3 \
+    && apt-get install -y --no-install-recommends \
+        ca-certificates curl python3 iproute2 iptables \
     && rm -rf /var/lib/apt/lists/*
 
 # Install the NetBird client daemon. The daemon manages wt0 (the NetBird

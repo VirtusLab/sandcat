@@ -1,0 +1,72 @@
+# mitmproxy + NetBird, layered on top of whichever secret-provider image the
+# project selected.
+#
+# The NetBird client is fetched and checksum-verified in a throwaway builder
+# stage, then copied into the final image. That keeps the download tooling out
+# of the runtime image and, more importantly, decouples the NetBird pin from the
+# base: BASE_IMAGE can be the stock mitmproxy image or a provider variant
+# (sandcat-mitmproxy-pass / -op), and the result has both NetBird and the
+# provider CLI. Building FROM the provider image instead of replacing it is what
+# keeps pass:// and op:// references resolvable once NetBird is enabled.
+#
+# BASE_IMAGE is set by enable_netbird()/apply_secret_provider() in
+# cli/lib/composefile.bash; the default matches the no-secret-provider case.
+ARG BASE_IMAGE=mitmproxy/mitmproxy:latest
+
+# Version + per-arch checksums are the single source of truth in netbird.env
+# (sibling to this Dockerfile) and MUST be supplied as build args. No defaults
+# here on purpose, so the pin lives in exactly one place.
+FROM debian:stable-slim AS netbird-build
+
+ARG NETBIRD_VERSION
+ARG NETBIRD_SHA256_AMD64
+ARG NETBIRD_SHA256_ARM64
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates curl \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN test -n "$NETBIRD_VERSION" || { echo "NETBIRD_VERSION build arg is required (source netbird.env)" >&2; exit 1; } \
+    && ARCH=$(dpkg --print-architecture) \
+    && case "$ARCH" in \
+         amd64) NETBIRD_SHA256="$NETBIRD_SHA256_AMD64" ;; \
+         arm64) NETBIRD_SHA256="$NETBIRD_SHA256_ARM64" ;; \
+         *) echo "Unsupported architecture: $ARCH" >&2; exit 1 ;; \
+       esac \
+    && test -n "$NETBIRD_SHA256" \
+    && curl -sSLf -o /tmp/netbird.tar.gz \
+        "https://github.com/netbirdio/netbird/releases/download/v${NETBIRD_VERSION}/netbird_${NETBIRD_VERSION}_linux_${ARCH}.tar.gz" \
+    && echo "${NETBIRD_SHA256}  /tmp/netbird.tar.gz" | sha256sum -c - \
+    && mkdir -p /out \
+    && tar xzf /tmp/netbird.tar.gz -C /out netbird \
+    && chmod +x /out/netbird \
+    && rm /tmp/netbird.tar.gz
+
+FROM ${BASE_IMAGE}
+
+# ca-certificates - update-ca-certificates trusts the mitmproxy CA so the
+#                   NetBird daemon's TLS connections to management/signal
+#                   servers succeed (those connections go out via eth0 directly,
+#                   not wg0, so no MITM interception occurs here)
+# curl            - management-server reachability probe in mitmproxy-init.sh
+# iproute2        - ip route/rule for host management bypass routing
+# iptables        - host management bypass via mangle table (self-hosted NB_MANAGEMENT_URL)
+# jq              - parse `netbird status --json` for DNS peer record publishing
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        ca-certificates curl iproute2 iptables jq \
+    && rm -rf /var/lib/apt/lists/*
+
+# The NetBird client daemon manages wt0 (the NetBird overlay mesh) inside this
+# container, which already holds NET_ADMIN. mitmproxy's WireGuard server mode
+# runs in userspace; wt0 is the separate kernel interface for mesh connectivity.
+COPY --from=netbird-build /out/netbird /usr/local/bin/netbird
+RUN netbird version
+
+COPY scripts/mitmproxy-init.sh /usr/local/bin/mitmproxy-init.sh
+RUN chmod +x /usr/local/bin/mitmproxy-init.sh
+
+# mitmproxy-init.sh runs as root, sets up NetBird, then drops to the
+# mitmproxy user via gosu before executing the mitmweb command passed
+# as arguments (the compose `command:` key).
+ENTRYPOINT ["/usr/local/bin/mitmproxy-init.sh"]
