@@ -563,10 +563,12 @@ copilot "explain this codebase"
    }
    ```
 
-2. **GitHub CLI OAuth token (quick setup):** If you already have `gh` CLI logged in:
+2. **GitHub CLI OAuth token (quick setup):** If you already have `gh` CLI logged in,
+   run this once to write the token directly into `settings.json`:
    ```bash
-   # Edit ~/.config/sandcat/settings.json and set:
-   COPILOT_GITHUB_TOKEN=$(gh auth token)
+   export TKN=$(gh auth token)
+   yq -i -o json '.secrets.COPILOT_GITHUB_TOKEN.value = strenv(TKN)' \
+     ~/.config/sandcat/settings.json
    ```
 
 **Note:** Adding Node.js 22 and Copilot to the base image increases its size by
@@ -574,9 +576,10 @@ approximately 120 MB. The image is built once and cached locally; rebuilds are
 fast.
 
 **VS Code integration:** When the IDE is `vscode`, the bundled `devcontainer.json`
-includes the `GitHub.copilot` extension. It uses the same GitHub account as the
-Copilot CLI (authenticated via the `COPILOT_GITHUB_TOKEN` environment variable) —
-no separate sign-in step is needed.
+includes the `GitHub.copilot` extension. Note that the VS Code extension
+authenticates through VS Code's own GitHub sign-in (not the `COPILOT_GITHUB_TOKEN`
+env var used by the CLI), so you may need to sign in the first time you open the
+extension.
 
 **Placeholder:** Sandcat automatically sets the placeholder to
 `gho_SANDCAT_PLACEHOLDER_COPILOT_GITHUB_TOKEN`. The container sees only the
