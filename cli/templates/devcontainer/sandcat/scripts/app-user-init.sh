@@ -10,6 +10,15 @@ set -e
 # and related tools always write to the expected location.
 export HOME="/home/vscode"
 
+# VS Code's Dev Containers extension reads dev.containers.copyGitConfig
+# from HOST user settings, not from devcontainer.json — so a host
+# ~/.gitconfig may have been copied in even though our template
+# declares copyGitConfig: false (see issue #34). Remove any leftover
+# gitconfig so it can't leak host credential helpers / signing keys
+# or override the env-derived identity we're about to apply.
+# Unconditional and idempotent — `-f` swallows the missing-file case.
+rm -f "$HOME/.gitconfig"
+
 if [ -n "${GIT_USER_NAME:-}" ]; then
     git config --global user.name "$GIT_USER_NAME"
 fi
