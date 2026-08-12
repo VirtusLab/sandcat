@@ -9,7 +9,8 @@
       "name": "reach_api",
       "ref": "cap-reach-api",
       "type": "network",
-      "peer_id": "REPLACE_WITH_NETBIRD_PEER_ID",
+      "peer_id": "",
+      "peer_hostname": "sandcat-proxy",
       "network": "10.8.0.0/24",
       "sync_mode": "route_enable"
     },

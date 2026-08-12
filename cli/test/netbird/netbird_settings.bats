@@ -103,6 +103,24 @@ teardown() {
     assert_output "http://192.168.5.2:33073"
 }
 
+@test "netbird_detect_docker_host_ip extracts the host LAN address on Linux" {
+    stub uname "-s : echo Linux"
+    stub ip "-4 route get 1.1.1.1 : echo '1.1.1.1 via 192.168.1.1 dev eth0 src 192.168.1.50 uid 1000'"
+
+    run netbird_detect_docker_host_ip
+    assert_success
+    assert_output "192.168.1.50"
+}
+
+@test "netbird_detect_docker_host_ip prints nothing when no IPv4 is found" {
+    stub uname "-s : echo Linux"
+    stub ip "-4 route get 1.1.1.1 : echo ''"
+
+    run netbird_detect_docker_host_ip
+    assert_success
+    assert_output ""
+}
+
 @test "netbird_enrollment_url_uses_host_bypass for literal IPv4 enrollment URL" {
     run netbird_enrollment_url_uses_host_bypass "http://192.168.5.2:33073"
     assert_success

@@ -87,6 +87,38 @@ netbird_enrollment_management_url_from() {
 	printf '%s' "$management_url"
 }
 
+# Prints a literal IPv4 address of the Docker host that containers can dial,
+# or nothing when detection fails. Literal IPv4 rather than host.docker.internal
+# so netbird_enrollment_url_uses_host_bypass matches and management traffic is
+# routed off wg0.
+netbird_detect_docker_host_ip() {
+	local ip=""
+	local iface
+
+	case "$(uname -s)" in
+	Darwin)
+		for iface in en0 en1; do
+			ip=$(ipconfig getifaddr "$iface" 2>/dev/null || true)
+			if [[ -n "$ip" ]]; then
+				break
+			fi
+		done
+		;;
+	*)
+		if command -v ip >/dev/null 2>&1; then
+			# Source address the kernel picks for off-link traffic is the
+			# host's LAN address, which containers can route to.
+			ip=$(ip -4 route get 1.1.1.1 2>/dev/null | sed -n 's/.*[[:space:]]src[[:space:]]\([0-9.]*\).*/\1/p' | head -n1)
+		fi
+		;;
+	esac
+
+	if [[ ! "$ip" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
+		return 0
+	fi
+	printf '%s' "$ip"
+}
+
 # Returns 0 when the enrollment URL targets the Docker host by literal IPv4 and
 # wg-client must bypass wg0 for management traffic.
 # Args:
