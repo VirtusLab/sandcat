@@ -409,6 +409,7 @@ EOF
 			cat <<'EOF'
 # Pre-create ~/.copilot so Docker bind-mounts don't create it as root-owned.
 RUN mkdir -p /home/vscode/.copilot
+RUN echo 'alias copilot-yolo="copilot --yolo"' >> /home/vscode/.bashrc
 EOF
 			;;
 		*)

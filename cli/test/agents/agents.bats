@@ -650,10 +650,11 @@ setup() {
 	assert_output --partial "USER vscode"
 }
 
-@test "sct_agent_docker_home_prep_block copilot pre-creates ~/.copilot" {
+@test "sct_agent_docker_home_prep_block copilot pre-creates ~/.copilot and copilot-yolo alias" {
 	run sct_agent_docker_home_prep_block copilot
 	assert_success
 	assert_output --partial "mkdir -p /home/vscode/.copilot"
+	assert_output --partial 'alias copilot-yolo="copilot --yolo"'
 }
 
 @test "sct_agent_user_init_block copilot runs a copilot --version health check" {

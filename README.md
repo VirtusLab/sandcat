@@ -583,6 +583,12 @@ no separate sign-in step is needed.
 placeholder; the real token is injected by mitmproxy only for allowed Copilot
 hosts. No manual configuration is needed.
 
+**Bash alias:** `copilot-yolo` (= `copilot --yolo`) is available in every
+copilot sandbox for parity with `claude-yolo` and `codex-yolo`. `--yolo` is
+equivalent to `--allow-all-tools --allow-all-paths --allow-all-urls` — the
+sandcat network isolation is the security boundary, so bypassing in-container
+permission prompts is the intended workflow.
+
 
 ### 3. Start the sandbox
 
