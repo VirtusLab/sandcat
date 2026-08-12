@@ -1253,9 +1253,14 @@ box:
   `vscode-ssh-auth-*.sock` and `vscode-git-*.sock` from `/tmp` after VS Code
   connects. This is a best-effort measure — the socket path patterns could
   change in future VS Code versions.
-- **Disables git config copying** (`dev.containers.copyGitConfig: false`) to
-  prevent leaking host credential helpers and signing key references into the
-  container.
+- **Disables git config copying** (`dev.containers.copyGitConfig: false` in
+  `devcontainer.json`) to prevent leaking host credential helpers and signing
+  key references into the container. The VS Code Dev Containers extension
+  reads this setting from your **host** user settings, not from
+  `devcontainer.json`, so for full effect also set it in
+  `~/Library/Application Support/Code/User/settings.json` (macOS) or the
+  equivalent for your OS. As a defense-in-depth fallback, `app-user-init.sh`
+  removes any `.gitconfig` that gets copied in anyway.
 - **Enables workspace trust** (`security.workspace.trust.enabled: true`) so VS
   Code prompts before applying workspace settings that container code could have
   modified via the bind-mounted project folder.
