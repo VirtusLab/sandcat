@@ -86,5 +86,36 @@ teardown() {
 	# The dns_label FQDN survives a proxy-peer recreate; the mesh IP it replaced
 	# did not, and had to be pasted in by hand after every rebuild.
 	run yq -r '.network[0].host' "$PROJECT_DIR/.sandcat/settings.proxy-peer.example.json"
-	assert_output "peer-proxy.netbird.selfhosted"
+	assert_output "test-proxy-peer.netbird.selfhosted"
+	refute_output --partial "REPLACE"
+}
+
+@test "init seeds and applies project-scoped NetBird peer names" {
+	mkdir -p "$PROJECT_DIR/.sandcat"
+	touch "$PROJECT_DIR/.sandcat/settings.json"
+	stub settings "$PROJECT_DIR/.sandcat/settings.json claude vscode : :"
+
+	run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" \
+		--stacks "" --proxy web --features "" --secret-provider none \
+		--netbird --netbird-server cloud --capability --proxy-peer
+	assert_success
+
+	run yq -r '.netbird_peer_name_proxy + " " + .netbird_peer_name_proxy_peer' \
+		"$PROJECT_DIR/.sandcat/settings.json"
+	assert_output "test-proxy test-proxy-peer"
+
+	run yq -r '
+		(.capabilities[] | select(.ref == "cap-reach-api") | .peer_hostname) + " " +
+		(.capabilities[] | select(.ref == "cap-reach-proxy") | .dns_label)
+	' "$PROJECT_DIR/.devcontainer/sandcat/capability-catalog.json"
+	assert_output "test-proxy test-proxy-peer.netbird.selfhosted"
+	refute_output --partial "REPLACE"
+
+	run yq -r '.services.mitmproxy.environment[] | select(test("^NB_PEER_NAME="))' \
+		"$PROJECT_DIR/.devcontainer/sandcat/compose-proxy.yml"
+	assert_output "NB_PEER_NAME=test-proxy"
+
+	run yq -r '.services."proxy-peer".hostname' \
+		"$PROJECT_DIR/.devcontainer/sandcat/compose-proxy-peer.yml"
+	assert_output "test-proxy-peer"
 }
