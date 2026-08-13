@@ -59,7 +59,7 @@ services:
     # `dns_servers`) before the addon rewrites it. Wrap the image entrypoint (not
     # the command) so docker-entrypoint.sh still sees `mitmweb` as $1 and drops
     # privileges to the mitmproxy user.
-    entrypoint: ["/bin/sh", "-c", "chown -R mitmproxy:mitmproxy /mitmproxy-public && rm -f /home/mitmproxy/.mitmproxy/dns.conf && (while [ ! -f /home/mitmproxy/.mitmproxy/mitmproxy-ca-cert.pem ]; do sleep 1; done; cp /home/mitmproxy/.mitmproxy/mitmproxy-ca-cert.pem /mitmproxy-public/mitmproxy-ca-cert.pem.tmp && mv /mitmproxy-public/mitmproxy-ca-cert.pem.tmp /mitmproxy-public/mitmproxy-ca-cert.pem) & exec docker-entrypoint.sh \"$@\"", "sh"]
+    entrypoint: ["/bin/sh", "-c", "chown -R mitmproxy:mitmproxy /mitmproxy-public && rm -f /home/mitmproxy/.mitmproxy/dns.conf /mitmproxy-public/mitmproxy-ca-cert.pem && (while [ ! -f /home/mitmproxy/.mitmproxy/mitmproxy-ca-cert.pem ]; do sleep 1; done; cp /home/mitmproxy/.mitmproxy/mitmproxy-ca-cert.pem /mitmproxy-public/mitmproxy-ca-cert.pem.tmp && mv /mitmproxy-public/mitmproxy-ca-cert.pem.tmp /mitmproxy-public/mitmproxy-ca-cert.pem) & exec docker-entrypoint.sh \"$@\"", "sh"]
     command: mitmweb --mode wireguard --web-host 0.0.0.0 --set web_password=mitmproxy --set http2=__MITM_HTTP2__ __AGENT_MITM_STREAMING_FLAGS__ -s /scripts/__AGENT_MITM_ADDON__
     ports:
       - "8081" # mitmweb UI; host port assigned dynamically to avoid conflicts
