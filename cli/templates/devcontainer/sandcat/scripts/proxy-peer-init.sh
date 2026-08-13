@@ -8,7 +8,12 @@ NETBIRD_IFACE="${NETBIRD_IFACE:-wt0}"
 HELLO_PORT="${PROXY_PEER_PORT:-8080}"
 # DNS label used for both `netbird up --hostname` and the post-enrollment
 # PATCH /api/peers/{id}. Must match capability-catalog.json dns_label prefix.
-NB_PEER_NAME="${NB_PEER_NAME:-peer-proxy}"
+NB_PEER_NAME="${NB_PEER_NAME:?NB_PEER_NAME must be set by compose}"
+NETBIRD_PEER_LOG_PREFIX="${NETBIRD_PEER_LOG_PREFIX:-proxy-peer}"
+NETBIRD_PEER_LIFECYCLE_PATH="${NETBIRD_PEER_LIFECYCLE_PATH:-/usr/local/lib/netbird-peer-lifecycle.sh}"
+
+# shellcheck source=/usr/local/lib/netbird-peer-lifecycle.sh
+source "$NETBIRD_PEER_LIFECYCLE_PATH"
 
 wait_until() {
     local max="$1" delay="$2" msg="$3"
@@ -152,67 +157,6 @@ ensure_netbird_service() {
         netbird_daemon_ready
 }
 
-# Set a clean dns_label on this peer via the management API so that its FQDN
-# is <NB_PEER_NAME>.<domain> rather than the auto-generated
-# <NB_PEER_NAME>-<ip-octet>-<ip-octet>.<domain> form.
-#
-# The management server derives the FQDN from the `dns_label` field. By
-# setting it explicitly we get a stable, human-readable name that matches
-# capability-catalog.json regardless of which mesh IP the server assigns.
-#
-# Reads `netbird_api_token` from /config/settings.json when not set in the
-# environment. Skips silently if the token is unavailable — the peer will
-# still work, just with the IP-suffixed FQDN.
-netbird_set_dns_label() {
-    local peer_name="${NB_PEER_NAME:-peer-proxy}"
-    local mgmt_url="${NB_MANAGEMENT_URL:-}"
-    local api_token="${NB_API_TOKEN:-}"
-
-    [[ -n "$mgmt_url" ]] || return 0
-    command -v curl >/dev/null 2>&1 || return 0
-    command -v jq >/dev/null 2>&1 || return 0
-
-    if [[ -z "$api_token" ]] && [[ -f /config/settings.json ]]; then
-        api_token=$(jq -r '.netbird_api_token // empty' /config/settings.json 2>/dev/null || true)
-    fi
-    [[ -n "$api_token" ]] || {
-        echo "[proxy-peer] netbird_api_token not set; skipping dns_label patch (FQDN will include IP suffix)." >&2
-        return 0
-    }
-
-    # Find this peer's ID by matching its current FQDN in the peers list.
-    local current_fqdn peer_id
-    current_fqdn=$(netbird status --json 2>/dev/null | jq -r '.fqdn // empty' 2>/dev/null || true)
-    [[ -n "$current_fqdn" ]] || {
-        echo "[proxy-peer] Could not read local peer FQDN from netbird status; skipping dns_label patch." >&2
-        return 0
-    }
-
-    peer_id=$(curl -sf --max-time 10 \
-        -H "Authorization: Token ${api_token}" \
-        "${mgmt_url%/}/api/peers" 2>/dev/null \
-        | jq -r --arg fqdn "$current_fqdn" '.[] | select(.fqdn == $fqdn) | .id' 2>/dev/null || true)
-
-    [[ -n "$peer_id" ]] || {
-        echo "[proxy-peer] Could not find peer ID for FQDN ${current_fqdn}; skipping dns_label patch." >&2
-        return 0
-    }
-
-    local result
-    result=$(curl -sf --max-time 10 -X PUT \
-        -H "Authorization: Token ${api_token}" \
-        -H "Content-Type: application/json" \
-        -d "{\"dns_label\": \"${peer_name}\"}" \
-        "${mgmt_url%/}/api/peers/${peer_id}" 2>/dev/null) || {
-        echo "[proxy-peer] dns_label PATCH failed for peer ${peer_id}; FQDN may retain IP suffix." >&2
-        return 0
-    }
-
-    local new_fqdn
-    new_fqdn=$(printf '%s' "$result" | jq -r '.fqdn // empty' 2>/dev/null || true)
-    echo "[proxy-peer] dns_label set → FQDN: ${new_fqdn:-${peer_name}.<domain>}" >&2
-}
-
 start_netbird() {
     local iface="${1:-wt0}"
     local docker_gateway
@@ -229,6 +173,7 @@ start_netbird() {
     fi
     netbird_export_service_env
 
+    netbird_replace_same_name_peer_if_needed || return 1
     echo "[proxy-peer] Enrolling NetBird peer on ${iface}." >&2
     netbird up \
         --setup-key "${NB_SETUP_KEY}" \
@@ -260,11 +205,13 @@ supervise_netbird_daemon() {
             configure_netbird_host_management_access "$docker_gateway"
             netbird_prepare_local_management_profile
             netbird_export_service_env
-            netbird up \
-                --setup-key "${NB_SETUP_KEY}" \
-                --management-url "${NB_MANAGEMENT_URL:-https://api.netbird.io}" \
-                --hostname "${NB_PEER_NAME}" \
-                --interface-name "${iface}" || true
+            if netbird_replace_same_name_peer_if_needed; then
+                netbird up \
+                    --setup-key "${NB_SETUP_KEY}" \
+                    --management-url "${NB_MANAGEMENT_URL:-https://api.netbird.io}" \
+                    --hostname "${NB_PEER_NAME}" \
+                    --interface-name "${iface}" || true
+            fi
         fi
     done
 }

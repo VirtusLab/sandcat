@@ -71,6 +71,49 @@ setup() {
     assert_success
 }
 
+@test "NetBird peer images install the shared lifecycle script" {
+    local mitmproxy_dockerfile="$SCT_TEMPLATEDIR/devcontainer/sandcat/Dockerfile.mitmproxy"
+    local proxy_peer_dockerfile="$SCT_TEMPLATEDIR/devcontainer/sandcat/Dockerfile.proxy-peer"
+
+    run grep -F 'COPY scripts/netbird-peer-lifecycle.sh /usr/local/lib/netbird-peer-lifecycle.sh' "$mitmproxy_dockerfile"
+    assert_success
+    run grep -F 'COPY scripts/netbird-peer-lifecycle.sh /usr/local/lib/netbird-peer-lifecycle.sh' "$proxy_peer_dockerfile"
+    assert_success
+    run grep -E 'apt-get install.*|^[[:space:]]+.*jq' "$proxy_peer_dockerfile"
+    assert_success
+    assert_output --partial "jq"
+}
+
+@test "mitmproxy-init replaces a same-name peer before up and labels it after start" {
+    local init="$SCT_TEMPLATEDIR/devcontainer/sandcat/scripts/mitmproxy-init.sh"
+    local replace_line up_line label_line
+
+    run grep -F 'NETBIRD_PEER_LIFECYCLE_PATH="${NETBIRD_PEER_LIFECYCLE_PATH:-/usr/local/lib/netbird-peer-lifecycle.sh}"' "$init"
+    assert_success
+    run grep -F 'source "$NETBIRD_PEER_LIFECYCLE_PATH"' "$init"
+    assert_success
+    replace_line=$(grep -n -m1 'netbird_replace_same_name_peer_if_needed' "$init" | cut -d: -f1)
+    up_line=$(grep -n -m1 'netbird up \\' "$init" | cut -d: -f1)
+    label_line=$(grep -n -m1 'netbird_set_dns_label' "$init" | cut -d: -f1)
+    [[ "$replace_line" -lt "$up_line" ]]
+    [[ "$label_line" -gt "$up_line" ]]
+}
+
+@test "proxy-peer-init replaces a same-name peer before up and labels it after start" {
+    local init="$SCT_TEMPLATEDIR/devcontainer/sandcat/scripts/proxy-peer-init.sh"
+    local replace_line up_line label_line
+
+    run grep -F 'NETBIRD_PEER_LIFECYCLE_PATH="${NETBIRD_PEER_LIFECYCLE_PATH:-/usr/local/lib/netbird-peer-lifecycle.sh}"' "$init"
+    assert_success
+    run grep -F 'source "$NETBIRD_PEER_LIFECYCLE_PATH"' "$init"
+    assert_success
+    replace_line=$(grep -n -m1 'netbird_replace_same_name_peer_if_needed' "$init" | cut -d: -f1)
+    up_line=$(grep -n -m1 'netbird up \\' "$init" | cut -d: -f1)
+    label_line=$(grep -n -m1 'netbird_set_dns_label' "$init" | cut -d: -f1)
+    [[ "$replace_line" -lt "$up_line" ]]
+    [[ "$label_line" -gt "$up_line" ]]
+}
+
 @test "mitmproxy-init continues when NetBird enrollment fails" {
     local init="$SCT_TEMPLATEDIR/devcontainer/sandcat/scripts/mitmproxy-init.sh"
     # Guard against regressing to a hard `start_netbird` under set -e that

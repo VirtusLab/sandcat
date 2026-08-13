@@ -16,7 +16,7 @@
 #   NB_MANAGEMENT_URL     - NetBird management server URL (optional; default
 #                           api.netbird.io; read from settings if absent)
 #   NB_PEER_NAME          - Stable peer hostname in the NetBird management UI
-#                           (default: sandcat-proxy)
+#                           (required; set by compose)
 #   NETBIRD_IFACE         - WireGuard interface name for NetBird mesh
 #                           (default: wt0)
 #   NETBIRD_WG_PORT       - UDP listen port for NetBird's wt0 (default: 51821).
@@ -29,7 +29,7 @@
 set -euo pipefail
 
 NB_MANAGEMENT_URL="${NB_MANAGEMENT_URL:-}"
-NB_PEER_NAME="${NB_PEER_NAME:-sandcat-proxy}"
+NB_PEER_NAME="${NB_PEER_NAME:?NB_PEER_NAME must be set by compose}"
 NETBIRD_IFACE="${NETBIRD_IFACE:-wt0}"
 # mitmproxy --mode wireguard binds UDP 51820; NetBird must use another port or
 # mitmweb/mitmdump fails with "Failed to bind UDP socket to 0.0.0.0:51820".
@@ -39,6 +39,11 @@ NETBIRD_DNS_DOMAIN="${NETBIRD_DNS_DOMAIN:-netbird.selfhosted}"
 # wg-client reads this file and appends the records to its dnsmasq config so
 # that NetBird FQDNs (e.g. peer-proxy.netbird.selfhosted) resolve for agents.
 NETBIRD_DNS_CONF_PATH="${NETBIRD_DNS_CONF_PATH:-/home/mitmproxy/.mitmproxy/netbird-peers.conf}"
+NETBIRD_PEER_LOG_PREFIX="${NETBIRD_PEER_LOG_PREFIX:-mitmproxy}"
+NETBIRD_PEER_LIFECYCLE_PATH="${NETBIRD_PEER_LIFECYCLE_PATH:-/usr/local/lib/netbird-peer-lifecycle.sh}"
+
+# shellcheck source=/usr/local/lib/netbird-peer-lifecycle.sh
+source "$NETBIRD_PEER_LIFECYCLE_PATH"
 
 wait_until() {
     local max="$1" delay="$2" msg="$3"
@@ -215,6 +220,7 @@ start_netbird() {
     fi
     netbird_export_service_env
 
+    netbird_replace_same_name_peer_if_needed || return 1
     echo "[mitmproxy] Enrolling NetBird peer on ${iface} as '${NB_PEER_NAME}' (WG port ${NETBIRD_WG_PORT})." >&2
     if ! netbird up \
         --setup-key "${NB_SETUP_KEY}" \
@@ -252,12 +258,14 @@ supervise_netbird_daemon() {
             configure_netbird_host_management_access "$docker_gateway"
             netbird_prepare_local_management_profile
             netbird_export_service_env
-            netbird up \
-                --setup-key "${NB_SETUP_KEY}" \
-                --management-url "${NB_MANAGEMENT_URL:-https://api.netbird.io}" \
-                --hostname "${NB_PEER_NAME}" \
-                --interface-name "${iface}" \
-                --wireguard-port "${NETBIRD_WG_PORT}" || true
+            if netbird_replace_same_name_peer_if_needed; then
+                netbird up \
+                    --setup-key "${NB_SETUP_KEY}" \
+                    --management-url "${NB_MANAGEMENT_URL:-https://api.netbird.io}" \
+                    --hostname "${NB_PEER_NAME}" \
+                    --interface-name "${iface}" \
+                    --wireguard-port "${NETBIRD_WG_PORT}" || true
+            fi
         fi
     done
 }
@@ -380,6 +388,7 @@ main() {
     if [[ -n "${NB_SETUP_KEY:-}" ]]; then
         echo "[mitmproxy] NB_SETUP_KEY is set (${#NB_SETUP_KEY} chars); enrolling NetBird mesh." >&2
         if start_netbird "$NETBIRD_IFACE"; then
+            netbird_set_dns_label
             publish_netbird_dns 2>/dev/null || true
             supervise_netbird_daemon "$NETBIRD_IFACE" &
             supervise_netbird_dns_publish &
