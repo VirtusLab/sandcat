@@ -37,7 +37,7 @@ NETBIRD_WG_PORT="${NETBIRD_WG_PORT:-51821}"
 NETBIRD_DNS_DOMAIN="${NETBIRD_DNS_DOMAIN:-netbird.selfhosted}"
 # Path in the mitmproxy-config volume where peer DNS records are published.
 # wg-client reads this file and appends the records to its dnsmasq config so
-# that NetBird FQDNs (e.g. peer-proxy.netbird.selfhosted) resolve for agents.
+# that NetBird FQDNs (e.g. myproject-proxy-peer.netbird.selfhosted) resolve for agents.
 NETBIRD_DNS_CONF_PATH="${NETBIRD_DNS_CONF_PATH:-/home/mitmproxy/.mitmproxy/netbird-peers.conf}"
 NETBIRD_PEER_LOG_PREFIX="${NETBIRD_PEER_LOG_PREFIX:-mitmproxy}"
 NETBIRD_PEER_LIFECYCLE_PATH="${NETBIRD_PEER_LIFECYCLE_PATH:-/usr/local/lib/netbird-peer-lifecycle.sh}"
@@ -314,8 +314,8 @@ publish_netbird_dns() {
         # host-record= gives an exact FQDN mapping; address= also covers subdomains.
         printf 'host-record=%s,%s\n' "$fqdn" "$ip" >> "$peer_records"
         printf 'address=/%s/%s\n' "$fqdn" "$ip" >> "$peer_records"
-        # Alias without auto-generated IP suffix (e.g. peer-proxy.netbird.selfhosted
-        # in addition to peer-proxy-100-64-0-5.netbird.selfhosted).
+        # Alias without auto-generated IP suffix (e.g. myproject-proxy-peer.netbird.selfhosted
+        # in addition to myproject-proxy-peer-100-64-0-5.netbird.selfhosted).
         local hostname="${fqdn%.${NETBIRD_DNS_DOMAIN}}"
         if [[ "$hostname" =~ ^(.+)-[0-9]{1,3}-[0-9]{1,3}$ ]]; then
             local alias_fqdn="${BASH_REMATCH[1]}.${NETBIRD_DNS_DOMAIN}"

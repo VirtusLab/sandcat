@@ -39,11 +39,11 @@ teardown() {
 }
 
 @test "patch_dnsmasq_from_netbird_volume appends address= records from volume" {
-    printf 'address=/peer-proxy.netbird.selfhosted/100.64.0.5\n' > "$NETBIRD_PEERS_CONF"
+    printf 'address=/test-proxy-peer.netbird.selfhosted/100.64.0.5\n' > "$NETBIRD_PEERS_CONF"
 
     patch_dnsmasq_from_netbird_volume "$DNSMASQ_CONF"
 
-    run grep -c "address=/peer-proxy.netbird.selfhosted/100.64.0.5" "$DNSMASQ_CONF"
+    run grep -c "address=/test-proxy-peer.netbird.selfhosted/100.64.0.5" "$DNSMASQ_CONF"
     assert_output "1"
 }
 
@@ -57,12 +57,12 @@ teardown() {
 }
 
 @test "patch_dnsmasq_from_netbird_volume is idempotent — does not duplicate records" {
-    printf 'address=/peer-proxy.netbird.selfhosted/100.64.0.5\n' > "$NETBIRD_PEERS_CONF"
+    printf 'address=/test-proxy-peer.netbird.selfhosted/100.64.0.5\n' > "$NETBIRD_PEERS_CONF"
 
     patch_dnsmasq_from_netbird_volume "$DNSMASQ_CONF"
     patch_dnsmasq_from_netbird_volume "$DNSMASQ_CONF"
 
-    run grep -c "address=/peer-proxy.netbird.selfhosted/100.64.0.5" "$DNSMASQ_CONF"
+    run grep -c "address=/test-proxy-peer.netbird.selfhosted/100.64.0.5" "$DNSMASQ_CONF"
     assert_output "1"
 }
 
