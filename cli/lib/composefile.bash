@@ -433,6 +433,7 @@ enable_proxy_peer() {
 # Args:
 #   $1 - Path to compose-proxy.yml
 #   $2 - Optional NetBird management server URL
+#   $3 - NetBird peer hostname for mitmproxy (required for project-scoped naming)
 enable_netbird() {
 	require yq
 	# shellcheck source=netbird.bash
@@ -440,7 +441,13 @@ enable_netbird() {
 
 	local compose_file=$1
 	local netbird_management_url=${2:-}
+	local peer_name=${3:-}
 	local enrollment_url
+
+	[[ -n "$peer_name" ]] || {
+		echo "enable_netbird: peer name (\$3) is required (e.g. myapp-sandbox-proxy)" >&2
+		return 1
+	}
 
 	# Switch mitmproxy from image: to build: using Dockerfile.mitmproxy.
 	# Idempotent: skip if a build section is already present.
@@ -551,6 +558,27 @@ enable_netbird() {
 			echo "  Then re-run: sandcat init --netbird ..." | warning
 		fi
 	fi
+
+	# Replace any prior NB_PEER_NAME=* then set the project-scoped value.
+	peer_name="$peer_name" yq -i '
+		.services.mitmproxy.environment = (
+			(.services.mitmproxy.environment // [])
+			| map(select(test("^NB_PEER_NAME=") | not))
+		) + ["NB_PEER_NAME=" + env(peer_name)]
+	' "$compose_file"
+
+	local has_api_token
+	has_api_token=$(yq '[(.services.mitmproxy.environment // [])[] | select(. == "NB_API_TOKEN")] | length' "$compose_file")
+	if [[ "$has_api_token" -eq 0 ]]; then
+		yq -i '.services.mitmproxy.environment = ((.services.mitmproxy.environment // []) + ["NB_API_TOKEN"])' "$compose_file"
+	fi
+
+	local has_state_vol
+	has_state_vol=$(yq '[(.services.mitmproxy.volumes // [])[] | select(. == "netbird-mitmproxy-state:/var/lib/netbird")] | length' "$compose_file")
+	if [[ "$has_state_vol" -eq 0 ]]; then
+		yq -i '.services.mitmproxy.volumes += ["netbird-mitmproxy-state:/var/lib/netbird"]' "$compose_file"
+	fi
+	yq -i '.volumes."netbird-mitmproxy-state" = (.volumes."netbird-mitmproxy-state" // {})' "$compose_file"
 
 	# Inject pinned NetBird build args (version + per-arch checksums) from netbird.env.
 	apply_netbird_build_args "$compose_file" "mitmproxy"
