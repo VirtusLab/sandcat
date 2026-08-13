@@ -10,7 +10,7 @@
       "ref": "cap-reach-api",
       "type": "network",
       "peer_id": "",
-      "peer_hostname": "sandcat-proxy",
+      "peer_hostname": "REPLACE_PEER_HOSTNAME",
       "network": "10.8.0.0/24",
       "sync_mode": "route_enable"
     },
@@ -18,7 +18,7 @@
       "name": "reach_proxy",
       "ref": "cap-reach-proxy",
       "type": "network",
-      "dns_label": "peer-proxy.netbird.selfhosted",
+      "dns_label": "REPLACE_DNS_LABEL",
       "peer_id": "peer-placeholder",
       "network": "0.0.0.0/32",
       "sync_mode": "route_enable",

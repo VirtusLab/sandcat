@@ -81,6 +81,36 @@ netbird_ensure_peer_name_settings() {
 	' "$settings_file"
 }
 
+netbird_apply_peer_names_to_catalog() {
+	local catalog_file=$1
+	local peer_name_proxy=$2
+	local peer_name_proxy_peer=$3
+	local dns_domain=${4:-netbird.selfhosted}
+	require yq
+
+	local fqdn
+	fqdn=$(netbird_peer_fqdn "$peer_name_proxy_peer" "$dns_domain")
+
+	peer_name_proxy="$peer_name_proxy" fqdn="$fqdn" yq -i -o json '
+		(.capabilities[] | select(.ref == "cap-reach-api") | .peer_hostname) = env(peer_name_proxy) |
+		(.capabilities[] | select(.ref == "cap-reach-proxy") | .dns_label) = env(fqdn)
+	' "$catalog_file"
+}
+
+netbird_apply_peer_names_to_layer1_example() {
+	local settings_file=$1
+	local peer_name_proxy_peer=$2
+	local dns_domain=${3:-netbird.selfhosted}
+	require yq
+
+	local fqdn
+	fqdn=$(netbird_peer_fqdn "$peer_name_proxy_peer" "$dns_domain")
+
+	fqdn="$fqdn" yq -i -o json '
+		(.network[] | select(.action == "allow") | .host) = env(fqdn)
+	' "$settings_file"
+}
+
 # Export NB_SETUP_KEY from settings when not already set in the environment.
 # Used before docker compose so wg-client receives the enrollment key on create.
 export_netbird_compose_env() {
