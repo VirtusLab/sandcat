@@ -30,7 +30,7 @@ teardown() {
     "connected": 1,
     "details": [
       {
-        "fqdn": "peer-proxy.netbird.selfhosted",
+        "fqdn": "test-proxy-peer.netbird.selfhosted",
         "netbirdIp": "100.79.176.190",
         "status": "Connected"
       }
@@ -45,8 +45,8 @@ JSON
 	run cat "$NETBIRD_DNS_CONF_PATH"
 	assert_success
 	assert_output --partial "local=/netbird.selfhosted/"
-	assert_output --partial "host-record=peer-proxy.netbird.selfhosted,100.79.176.190"
-	assert_output --partial "address=/peer-proxy.netbird.selfhosted/100.79.176.190"
+	assert_output --partial "host-record=test-proxy-peer.netbird.selfhosted,100.79.176.190"
+	assert_output --partial "address=/test-proxy-peer.netbird.selfhosted/100.79.176.190"
 }
 
 @test "publish_netbird_dns still accepts legacy peers.details[].ip" {
@@ -55,7 +55,7 @@ JSON
   "peers": {
     "details": [
       {
-        "fqdn": "peer-proxy.netbird.selfhosted",
+        "fqdn": "test-proxy-peer.netbird.selfhosted",
         "ip": "100.64.0.5"
       }
     ]
@@ -68,7 +68,7 @@ JSON
 
 	run cat "$NETBIRD_DNS_CONF_PATH"
 	assert_success
-	assert_output --partial "address=/peer-proxy.netbird.selfhosted/100.64.0.5"
+	assert_output --partial "address=/test-proxy-peer.netbird.selfhosted/100.64.0.5"
 }
 
 @test "publish_netbird_dns strips CIDR suffix from netbirdIp" {
@@ -77,7 +77,7 @@ JSON
   "peers": {
     "details": [
       {
-        "fqdn": "peer-proxy.netbird.selfhosted",
+        "fqdn": "test-proxy-peer.netbird.selfhosted",
         "netbirdIp": "100.79.176.190/16"
       }
     ]
@@ -90,7 +90,7 @@ JSON
 
 	run cat "$NETBIRD_DNS_CONF_PATH"
 	assert_success
-	assert_output --partial "address=/peer-proxy.netbird.selfhosted/100.79.176.190"
+	assert_output --partial "address=/test-proxy-peer.netbird.selfhosted/100.79.176.190"
 	run grep -F '100.79.176.190/16' "$NETBIRD_DNS_CONF_PATH"
 	assert_failure
 }
@@ -101,7 +101,7 @@ JSON
   "peers": {
     "details": [
       {
-        "fqdn": "peer-proxy.netbird.selfhosted",
+        "fqdn": "test-proxy-peer.netbird.selfhosted",
         "status": "Connected"
       }
     ]

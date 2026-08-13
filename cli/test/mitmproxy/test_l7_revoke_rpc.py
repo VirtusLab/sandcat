@@ -34,7 +34,7 @@ def test_host_matches_cidr():
 
 def test_host_matches_dns_label_exact():
     assert host_matches_revoke_pattern(
-        "peer-proxy.netbird.selfhosted", "peer-proxy.netbird.selfhosted"
+        "test-proxy-peer.netbird.selfhosted", "test-proxy-peer.netbird.selfhosted"
     ) is True
 
 

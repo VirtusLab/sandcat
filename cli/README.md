@@ -537,7 +537,7 @@ Network capabilities in `capability-catalog.json` (mounted as `CAPABILITY_CATALO
 }
 ```
 
-- `peer_id`, `network` — required NetBird identifiers for the binding. `peer_id` refers to the **mitmproxy** NetBird peer (hostname `sandcat-proxy`).
+- `peer_id`, `network` — required NetBird identifiers for the binding. `peer_id` refers to the **mitmproxy** NetBird peer (hostname `{project}-proxy`, e.g. `myproject-proxy` when initialized with `--name myproject`).
 - `route_id` — optional; if omitted, `enable_binding` creates a route via the NetBird API and stores the returned id
 - `sync_mode` — optional; defaults to `route_enable`. Use `peer_remove` only when revoke must delete the peer (legacy Phase 3 behavior)
 
@@ -551,7 +551,7 @@ Replace placeholders in `capability-catalog.json` before leasing `reach_api`:
    ```bash
    docker compose exec mitmproxy netbird status --json | jq -r '.id'
    ```
-   Or look for hostname `sandcat-proxy` in the NetBird dashboard.
+   Or look for hostname `{project}-proxy` (e.g. `myproject-proxy`) in the NetBird dashboard.
 2. `sandcat netbird route list` (or NetBird dashboard) — copy route ID if pre-provisioned
 3. Re-init or edit `.devcontainer/sandcat/capability-catalog.json`
 4. Restart capability-runtime: `docker compose restart capability-runtime`
@@ -566,7 +566,7 @@ control model for agent egress:
 
 ```
 Layer 1 — static mitmproxy baseline (always on)
-  deny-by-default; only proxy-peer FQDN (peer-proxy.netbird.selfhosted):8080 allowed
+  deny-by-default; only proxy-peer FQDN ({project}-proxy-peer.netbird.selfhosted):8080 allowed
 
 Layer 2 — dynamic NetBird lease/revoke (capability-runtime)
   lease enables route to proxy-peer; revoke or quota exhaustion disables it
@@ -591,14 +591,21 @@ sandcat compose up -d
 
 Init copies the Layer 1 template from
 [`templates/settings-proxy-peer.json`](templates/settings-proxy-peer.json) to
-`.sandcat/settings.proxy-peer.example.json`. The template uses a stable NetBird FQDN:
+`.sandcat/settings.proxy-peer.example.json`. Init also writes project-scoped peer
+names into `.sandcat/settings.json`:
+
+- `netbird_peer_name_proxy` — mitmproxy peer (default `{project}-proxy`)
+- `netbird_peer_name_proxy_peer` — proxy-peer gateway (default `{project}-proxy-peer`)
+
+The template uses a stable NetBird FQDN placeholder that init rewrites to
+`{project}-proxy-peer.netbird.selfhosted`:
 
 ```json
 {
   "network": [
     {
       "action": "allow",
-      "host": "peer-proxy.netbird.selfhosted",
+      "host": "myproject-proxy-peer.netbird.selfhosted",
       "port": 8080,
       "comment": "Layer 1 NetBird DNS mode: stable FQDN survives proxy-peer recreate."
     }
@@ -608,25 +615,25 @@ Init copies the Layer 1 template from
 
 ### Operator merge workflow (NetBird DNS mode — recommended)
 
-The default template targets `peer-proxy.netbird.selfhosted` — no manual IP
+The default template targets `{project}-proxy-peer.netbird.selfhosted` — no manual IP
 editing required after proxy-peer recreate, as long as the NetBird peer name
-stays stable.
+stays stable (override via `netbird_peer_name_proxy_peer` in `.sandcat/settings.json`).
 
 **One-time dashboard prerequisite:** enable DNS / Nameservers for group **All**
 in the NetBird management dashboard. This publishes the nameserver to enrolled
-peers so that `peer-proxy.netbird.selfhosted` resolves inside the agent.
+peers so that `myproject-proxy-peer.netbird.selfhosted` resolves inside the agent.
 
 1. Merge the example into project settings:
    - **Copy:** `cp .sandcat/settings.proxy-peer.example.json .sandcat/settings.json`
    - **Merge:** add the `network` array from the example into your existing `.sandcat/settings.json`
 2. `sandcat restart-proxy` — reload mitmproxy with the Layer 1 profile.
-3. Verify DNS inside wg-client: `getent hosts peer-proxy.netbird.selfhosted`
+3. Verify DNS inside wg-client: `getent hosts myproject-proxy-peer.netbird.selfhosted`
 
-`capability-catalog.json` already has `dns_label: "peer-proxy.netbird.selfhosted"` for `cap-reach-proxy`. No IP to update after recreate.
+`capability-catalog.json` already has `dns_label: "myproject-proxy-peer.netbird.selfhosted"` for `cap-reach-proxy` (set by init from `netbird_peer_name_proxy_peer`). No IP to update after recreate.
 
 ```bash
 sandcat capability lease --ref cap-reach-proxy --justification "need gateway access"
-sandcat run curl -sf http://peer-proxy.netbird.selfhosted:8080/hello   # succeeds while leased
+sandcat run curl -sf http://myproject-proxy-peer.netbird.selfhosted:8080/hello   # succeeds while leased
 sandcat capability revoke --ref cap-reach-proxy --reason done
 ```
 
