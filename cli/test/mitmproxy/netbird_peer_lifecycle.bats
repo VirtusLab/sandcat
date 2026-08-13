@@ -47,6 +47,17 @@ teardown() {
 	assert_output --partial "netbird_api_token"
 }
 
+@test "netbird_mgmt_delete_peer_by_name deletes matched peer by id" {
+	export NB_API_TOKEN="tok"
+	stub curl \
+		"-sf --max-time 10 -H 'Authorization: Token tok' http://mgmt.test:33073/api/peers : echo '[{\"id\":\"abc\",\"name\":\"myapp-sandbox-proxy\"}]'" \
+		"-sf --max-time 10 -X DELETE -H 'Authorization: Token tok' http://mgmt.test:33073/api/peers/abc : :"
+
+	run netbird_mgmt_delete_peer_by_name "myapp-sandbox-proxy"
+
+	assert_success
+}
+
 @test "replacement fails when multiple management peers match the name" {
 	export NB_API_TOKEN="tok"
 	stub curl \
