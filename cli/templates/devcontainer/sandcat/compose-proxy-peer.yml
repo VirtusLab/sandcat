@@ -7,17 +7,14 @@ services:
         NETBIRD_VERSION: ${NETBIRD_VERSION}
         NETBIRD_SHA256_AMD64: ${NETBIRD_SHA256_AMD64}
         NETBIRD_SHA256_ARM64: ${NETBIRD_SHA256_ARM64}
-    # Fixed hostname so `netbird up --hostname` and the dns_label API patch
-    # produce a clean FQDN (peer-proxy.netbird.selfhosted) rather than the
-    # auto-generated peer-proxy-<ip-octet>-<ip-octet>.netbird.selfhosted form.
-    hostname: peer-proxy
+    # hostname and NB_PEER_NAME are set by enable_proxy_peer() from the
+    # project-scoped peer name so dns_label matches capability-catalog.json.
     cap_add:
       - NET_ADMIN
     environment:
       - NB_SETUP_KEY
       - NB_MANAGEMENT_URL
-      # Peer display name and DNS label; matches the dns_label in capability-catalog.json.
-      - NB_PEER_NAME=peer-proxy
+      - NB_API_TOKEN
       - PROXY_PEER_PORT=8080
     volumes:
       # Read-only user settings; used to read netbird_api_token for the
