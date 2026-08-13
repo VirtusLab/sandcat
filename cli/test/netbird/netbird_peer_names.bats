@@ -43,6 +43,18 @@ teardown() {
 	assert_output "myapp-sandbox-proxy-peer"
 }
 
+@test "netbird_ensure_peer_name_settings refills empty string keys" {
+	cat >"$SETTINGS" <<'JSON'
+{"netbird_peer_name_proxy": "", "netbird_peer_name_proxy_peer": ""}
+JSON
+	netbird_ensure_peer_name_settings "$SETTINGS" "myapp-sandbox"
+
+	run yq -r '.netbird_peer_name_proxy' "$SETTINGS"
+	assert_output "myapp-sandbox-proxy"
+	run yq -r '.netbird_peer_name_proxy_peer' "$SETTINGS"
+	assert_output "myapp-sandbox-proxy-peer"
+}
+
 @test "netbird_ensure_peer_name_settings preserves non-empty overrides" {
 	cat >"$SETTINGS" <<'JSON'
 {"netbird_peer_name_proxy": "custom-proxy", "netbird_peer_name_proxy_peer": "custom-proxy-peer"}
