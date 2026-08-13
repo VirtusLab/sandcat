@@ -282,6 +282,17 @@ teardown() {
 	yq -e '.volumes | has("netbird-mitmproxy-state")' "$COMPOSE_FILE"
 }
 
+@test "enable_netbird copies the peer lifecycle script into the build context" {
+	mkdir -p "$BATS_TEST_TMPDIR/scripts"
+
+	enable_netbird "$COMPOSE_FILE" "" "myapp-sandbox-proxy"
+
+	run cmp \
+		"$SCT_TEMPLATEDIR/devcontainer/sandcat/scripts/netbird-peer-lifecycle.sh" \
+		"$BATS_TEST_TMPDIR/scripts/netbird-peer-lifecycle.sh"
+	assert_success
+}
+
 @test "enable_netbird fails when peer name argument is empty" {
 	run enable_netbird "$COMPOSE_FILE" "" ""
 	assert_failure

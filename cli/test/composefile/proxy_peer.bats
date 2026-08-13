@@ -46,6 +46,15 @@ setup() {
 		"$COMPOSE_DIR/sandcat/compose-proxy-peer.yml"
 }
 
+@test "enable_proxy_peer copies the peer lifecycle script into the build context" {
+	enable_proxy_peer "$COMPOSE_DIR" "myapp-sandbox-proxy-peer"
+
+	run cmp \
+		"$SCT_TEMPLATEDIR/devcontainer/sandcat/scripts/netbird-peer-lifecycle.sh" \
+		"$COMPOSE_DIR/sandcat/scripts/netbird-peer-lifecycle.sh"
+	assert_success
+}
+
 @test "enable_proxy_peer fails when peer name argument is empty" {
 	run enable_proxy_peer "$COMPOSE_DIR" ""
 	assert_failure

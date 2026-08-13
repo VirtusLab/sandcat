@@ -4,7 +4,7 @@ FROM debian:trixie-slim
 # NetBird management routing (self-hosted NB_MANAGEMENT_URL on the Docker host).
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-        ca-certificates curl python3 iproute2 iptables \
+        ca-certificates curl python3 iproute2 iptables jq \
     && rm -rf /var/lib/apt/lists/*
 
 # Install the NetBird client daemon. The daemon manages wt0 (the NetBird
@@ -32,6 +32,7 @@ RUN test -n "$NETBIRD_VERSION" || { echo "NETBIRD_VERSION build arg is required 
     && rm /tmp/netbird.tar.gz \
     && netbird version
 
+COPY scripts/netbird-peer-lifecycle.sh /usr/local/lib/netbird-peer-lifecycle.sh
 COPY scripts/proxy-peer-init.sh /usr/local/bin/proxy-peer-init.sh
 COPY scripts/proxy-peer-hello.py /usr/local/bin/proxy-peer-hello.py
 RUN chmod +x /usr/local/bin/proxy-peer-init.sh

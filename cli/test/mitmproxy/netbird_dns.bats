@@ -3,6 +3,8 @@
 
 setup() {
 	load "$BATS_TEST_DIRNAME/../wg-client/test_helper"
+	export NB_PEER_NAME="test-proxy"
+	export NETBIRD_PEER_LIFECYCLE_PATH="$SCT_TEMPLATEDIR/devcontainer/sandcat/scripts/netbird-peer-lifecycle.sh"
 	# Re-source mitmproxy-init after wg-client helper (which sources wg-client-init).
 	# shellcheck source=../../templates/devcontainer/sandcat/scripts/mitmproxy-init.sh
 	source "$SCT_TEMPLATEDIR/devcontainer/sandcat/scripts/mitmproxy-init.sh"

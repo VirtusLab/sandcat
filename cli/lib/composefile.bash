@@ -415,10 +415,7 @@ enable_proxy_peer() {
 	cp "$SCT_TEMPLATEDIR/devcontainer/sandcat/Dockerfile.proxy-peer" "$compose_dir/sandcat/"
 	cp "$SCT_TEMPLATEDIR/devcontainer/sandcat/scripts/proxy-peer-init.sh" "$compose_dir/sandcat/scripts/"
 	cp "$SCT_TEMPLATEDIR/devcontainer/sandcat/scripts/proxy-peer-hello.py" "$compose_dir/sandcat/scripts/"
-	local lifecycle_src="$SCT_TEMPLATEDIR/devcontainer/sandcat/scripts/netbird-peer-lifecycle.sh"
-	if [[ -f "$lifecycle_src" ]]; then
-		cp "$lifecycle_src" "$compose_dir/sandcat/scripts/"
-	fi
+	cp "$SCT_TEMPLATEDIR/devcontainer/sandcat/scripts/netbird-peer-lifecycle.sh" "$compose_dir/sandcat/scripts/"
 	apply_netbird_build_args "$dst" "proxy-peer"
 
 	peer_name="$peer_name" yq -i '
@@ -481,6 +478,10 @@ enable_netbird() {
 		echo "enable_netbird: peer name (\$3) is required (e.g. myapp-sandbox-proxy)" >&2
 		return 1
 	}
+
+	mkdir -p "$(dirname "$compose_file")/scripts"
+	cp "$SCT_TEMPLATEDIR/devcontainer/sandcat/scripts/netbird-peer-lifecycle.sh" \
+		"$(dirname "$compose_file")/scripts/"
 
 	# Switch mitmproxy from image: to build: using Dockerfile.mitmproxy.
 	# Idempotent: skip if a build section is already present.
