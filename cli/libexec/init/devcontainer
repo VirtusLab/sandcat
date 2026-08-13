@@ -149,12 +149,29 @@ devcontainer() {
 
 	apply_secret_provider "$devcontainer_dir/sandcat/compose-proxy.yml" "$secret_provider"
 
+	local project_settings="$project_path/$SCT_PROJECT_DIR/settings.json"
+	local dns_domain="netbird.selfhosted"
+	local peer_name_proxy=""
+	local peer_name_proxy_peer=""
+	if [[ "$netbird" == "true" || "$proxy_peer" == "true" ]]; then
+		# shellcheck source=../../lib/netbird.bash
+		source "$SCT_LIBDIR/netbird.bash"
+		mkdir -p "$project_path/$SCT_PROJECT_DIR"
+		netbird_ensure_peer_name_settings "$project_settings" "$project_name"
+		peer_name_proxy=$(yq -r '.netbird_peer_name_proxy // ""' "$project_settings")
+		peer_name_proxy_peer=$(yq -r '.netbird_peer_name_proxy_peer // ""' "$project_settings")
+	fi
+
 	if [[ "$netbird" == "true" ]]; then
 		if ! declare -f enable_netbird &>/dev/null; then
 			# shellcheck source=../../lib/composefile.bash
 			source "$SCT_LIBDIR/composefile.bash"
 		fi
-		enable_netbird "$devcontainer_dir/sandcat/compose-proxy.yml" "$netbird_management_url"
+		enable_netbird "$devcontainer_dir/sandcat/compose-proxy.yml" \
+			"$netbird_management_url" "$peer_name_proxy"
+		netbird_apply_peer_names_to_catalog \
+			"$devcontainer_dir/sandcat/capability-catalog.json" \
+			"$peer_name_proxy" "$peer_name_proxy_peer" "$dns_domain"
 	fi
 
 	if [[ "$capability" == "true" ]]; then
@@ -175,10 +192,13 @@ RUN pip install --no-cache-dir /tmp/capability-runtime && rm -rf /tmp/capability
 	fi
 
 	if [[ "$proxy_peer" == "true" ]]; then
-		enable_proxy_peer "$devcontainer_dir"
-		mkdir -p "$project_path/.sandcat"
+		enable_proxy_peer "$devcontainer_dir" "$peer_name_proxy_peer"
+		mkdir -p "$project_path/$SCT_PROJECT_DIR"
 		cp "$SCT_TEMPLATEDIR/settings-proxy-peer.json" \
-			"$project_path/.sandcat/settings.proxy-peer.example.json"
+			"$project_path/$SCT_PROJECT_DIR/settings.proxy-peer.example.json"
+		netbird_apply_peer_names_to_layer1_example \
+			"$project_path/$SCT_PROJECT_DIR/settings.proxy-peer.example.json" \
+			"$peer_name_proxy_peer" "$dns_domain"
 	fi
 
 	customize_compose_file "$rel_settings_file" "$compose_file" "$agent" "$ide" "$project_name"
