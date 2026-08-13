@@ -73,6 +73,21 @@ netbird_mgmt_delete_peer_by_id() {
 		"${NB_MANAGEMENT_URL%/}/api/peers/${peer_id}" >/dev/null
 }
 
+netbird_mgmt_delete_peer_by_name() {
+	local peer_name=$1
+	local peer_id
+
+	netbird_resolve_api_token >/dev/null || {
+		netbird_peer_log "netbird_api_token / NB_API_TOKEN required to delete management peer '${peer_name}'"
+		return 1
+	}
+
+	peer_id=$(netbird_mgmt_find_peer_id_by_name "$peer_name") || return 1
+	[[ -n "$peer_id" ]] || return 0
+
+	netbird_mgmt_delete_peer_by_id "$peer_id"
+}
+
 netbird_replace_same_name_peer_if_needed() {
 	local peer_name="${NB_PEER_NAME:?NB_PEER_NAME is required}"
 	local peer_id
