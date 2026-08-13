@@ -74,3 +74,27 @@ JSON
 	run yq -r '.netbird_peer_name_proxy' "$SETTINGS"
 	assert_output "myapp-sandbox-proxy"
 }
+
+@test "netbird_apply_peer_names_to_catalog sets peer_hostname and dns_label" {
+	local catalog="$BATS_TEST_TMPDIR/capability-catalog.json"
+	cp "$SCT_TEMPLATEDIR/devcontainer/sandcat/capability-catalog.json" "$catalog"
+
+	netbird_apply_peer_names_to_catalog \
+		"$catalog" "myapp-sandbox-proxy" "myapp-sandbox-proxy-peer" "netbird.selfhosted"
+
+	run yq -r '.capabilities[] | select(.ref == "cap-reach-api") | .peer_hostname' "$catalog"
+	assert_output "myapp-sandbox-proxy"
+	run yq -r '.capabilities[] | select(.ref == "cap-reach-proxy") | .dns_label' "$catalog"
+	assert_output "myapp-sandbox-proxy-peer.netbird.selfhosted"
+}
+
+@test "netbird_apply_peer_names_to_layer1_example sets allow host FQDN" {
+	local example="$BATS_TEST_TMPDIR/settings.proxy-peer.example.json"
+	cp "$SCT_TEMPLATEDIR/settings-proxy-peer.json" "$example"
+
+	netbird_apply_peer_names_to_layer1_example \
+		"$example" "myapp-sandbox-proxy-peer" "netbird.selfhosted"
+
+	run yq -r '.network[] | select(.action == "allow") | .host' "$example"
+	assert_output "myapp-sandbox-proxy-peer.netbird.selfhosted"
+}
