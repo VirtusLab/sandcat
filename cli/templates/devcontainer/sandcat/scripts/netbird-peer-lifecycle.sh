@@ -34,30 +34,39 @@ netbird_resolve_api_token() {
 netbird_mgmt_find_peer_id_by_name() {
 	local peer_name=$1
 	local management_url="${NB_MANAGEMENT_URL:?NB_MANAGEMENT_URL is required}"
-	local token
-	token=$(netbird_resolve_api_token 2>/dev/null || true)
+	local token peers matches match_count
+	token=$(netbird_resolve_api_token) || {
+		netbird_peer_log "netbird_api_token / NB_API_TOKEN required to query management peers"
+		return 1
+	}
 
-	curl -sf --max-time 10 \
+	peers=$(curl -sf --max-time 10 \
 		-H "Authorization: Token ${token}" \
-		"${management_url%/}/api/peers" \
-		| jq -r --arg name "$peer_name" \
-			'first(.[] | select(
+		"${management_url%/}/api/peers") || return 1
+	matches=$(printf '%s' "$peers" \
+		| jq -c --arg name "$peer_name" \
+			'[.[] | select(
 				((.name // "") | ascii_downcase) == ($name | ascii_downcase)
 				or ((.hostname // "") | ascii_downcase) == ($name | ascii_downcase)
 				or ((.dns_label // "") | ascii_downcase) == ($name | ascii_downcase)
-			) | .id) // empty'
+			) | .id]') || return 1
+	match_count=$(printf '%s' "$matches" | jq 'length') || return 1
+	if ((match_count > 1)); then
+		netbird_peer_log "multiple management peers match '${peer_name}'; refusing ambiguous replacement"
+		return 1
+	fi
+
+	printf '%s' "$matches" | jq -r '.[0] // empty'
 }
 
-netbird_mgmt_delete_peer_by_name() {
-	local peer_name=$1
-	local token peer_id
+netbird_mgmt_delete_peer_by_id() {
+	local peer_id=$1
+	local token
 
 	token=$(netbird_resolve_api_token) || {
-		netbird_peer_log "netbird_api_token / NB_API_TOKEN required to replace existing peer '${peer_name}'"
+		netbird_peer_log "netbird_api_token / NB_API_TOKEN required to delete management peer '${peer_id}'"
 		return 1
 	}
-	peer_id=$(netbird_mgmt_find_peer_id_by_name "$peer_name" || true)
-	[[ -n "$peer_id" ]] || return 0
 
 	curl -sf --max-time 10 -X DELETE \
 		-H "Authorization: Token ${token}" \
@@ -73,18 +82,18 @@ netbird_replace_same_name_peer_if_needed() {
 		return 0
 	fi
 
-	peer_id=$(netbird_mgmt_find_peer_id_by_name "$peer_name" || true)
+	peer_id=$(netbird_mgmt_find_peer_id_by_name "$peer_name") || return 1
 	if [[ -z "$peer_id" ]]; then
 		netbird_peer_log "no existing management peer named '${peer_name}' — will enroll fresh"
 		return 0
 	fi
 
 	netbird_peer_log "replace existing management peer '${peer_name}' (id=${peer_id}) before enroll"
-	netbird_mgmt_delete_peer_by_name "$peer_name"
+	netbird_mgmt_delete_peer_by_id "$peer_id"
 }
 
 netbird_set_dns_label() {
-	local peer_name="${NB_PEER_NAME:-peer-proxy}"
+	local peer_name="${NB_PEER_NAME:?NB_PEER_NAME is required}"
 	local management_url="${NB_MANAGEMENT_URL:-}"
 	local token current_fqdn peer_id result new_fqdn payload
 

@@ -32,7 +32,6 @@ teardown() {
 	export NB_API_TOKEN="tok"
 	stub curl \
 		"-sf --max-time 10 -H 'Authorization: Token tok' http://mgmt.test:33073/api/peers : echo '[{\"id\":\"abc\",\"name\":\"myapp-sandbox-proxy\"}]'" \
-		"-sf --max-time 10 -H 'Authorization: Token tok' http://mgmt.test:33073/api/peers : echo '[{\"id\":\"abc\",\"name\":\"myapp-sandbox-proxy\"}]'" \
 		"-sf --max-time 10 -X DELETE -H 'Authorization: Token tok' http://mgmt.test:33073/api/peers/abc : :"
 
 	run netbird_replace_same_name_peer_if_needed
@@ -42,13 +41,21 @@ teardown() {
 }
 
 @test "replacement fails loudly when the API token is missing" {
-	stub curl \
-		"-sf --max-time 10 -H 'Authorization: Token ' http://mgmt.test:33073/api/peers : echo '[{\"id\":\"abc\",\"hostname\":\"myapp-sandbox-proxy\"}]'"
-
 	run netbird_replace_same_name_peer_if_needed
 
 	assert_failure
 	assert_output --partial "netbird_api_token"
+}
+
+@test "replacement fails when multiple management peers match the name" {
+	export NB_API_TOKEN="tok"
+	stub curl \
+		"-sf --max-time 10 -H 'Authorization: Token tok' http://mgmt.test:33073/api/peers : echo '[{\"id\":\"abc\",\"name\":\"myapp-sandbox-proxy\"},{\"id\":\"def\",\"hostname\":\"MYAPP-SANDBOX-PROXY\"}]'"
+
+	run netbird_replace_same_name_peer_if_needed
+
+	assert_failure
+	assert_output --partial "multiple management peers"
 }
 
 @test "peer lookup matches name hostname and dns_label case-insensitively" {
@@ -88,4 +95,13 @@ teardown() {
 
 	assert_success
 	assert_output --partial "skipping dns_label"
+}
+
+@test "dns_label update requires an explicit peer name" {
+	unset NB_PEER_NAME
+
+	run netbird_set_dns_label
+
+	assert_failure
+	assert_output --partial "NB_PEER_NAME"
 }
