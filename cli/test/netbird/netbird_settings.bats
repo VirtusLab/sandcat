@@ -63,6 +63,24 @@ teardown() {
     [[ "$NB_SETUP_KEY" == "from-env" ]]
 }
 
+@test "export_netbird_compose_env exports API token from user settings" {
+    echo '{"netbird_api_token": "api-token-456"}' > "$HOME/.config/sandcat/settings.json"
+    unset NB_API_TOKEN
+
+    export_netbird_compose_env
+
+    [[ "$NB_API_TOKEN" == "api-token-456" ]]
+}
+
+@test "export_netbird_compose_env does not override existing NB_API_TOKEN" {
+    echo '{"netbird_api_token": "from-settings"}' > "$HOME/.config/sandcat/settings.json"
+    export NB_API_TOKEN="from-env"
+
+    export_netbird_compose_env
+
+    [[ "$NB_API_TOKEN" == "from-env" ]]
+}
+
 @test "export_netbird_management_url exports management URL from user settings" {
     echo '{"netbird_management_url": "https://management.example.com"}' > "$HOME/.config/sandcat/settings.json"
     unset NB_MANAGEMENT_URL

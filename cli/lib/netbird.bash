@@ -38,6 +38,49 @@ netbird_read_setting() {
 	printf '%s' "$value"
 }
 
+netbird_default_peer_name_proxy() {
+	local project_name=$1
+	printf '%s-proxy' "$project_name"
+}
+
+netbird_default_peer_name_proxy_peer() {
+	local project_name=$1
+	printf '%s-proxy-peer' "$project_name"
+}
+
+netbird_peer_fqdn() {
+	local peer_name=$1
+	local dns_domain=${2:-netbird.selfhosted}
+	printf '%s.%s' "$peer_name" "$dns_domain"
+}
+
+# Fills netbird_peer_name_proxy / netbird_peer_name_proxy_peer when absent or empty.
+# Does not overwrite non-empty values (operator overrides).
+# Args:
+#   $1 - path to a JSON settings file (usually .sandcat/settings.json)
+#   $2 - compose project name (e.g. myapp-sandbox)
+netbird_ensure_peer_name_settings() {
+	local settings_file=$1
+	local project_name=$2
+	require yq
+
+	mkdir -p "$(dirname "$settings_file")"
+	[[ -f "$settings_file" ]] || printf '%s\n' '{}' >"$settings_file"
+
+	local proxy peer
+	proxy=$(netbird_default_peer_name_proxy "$project_name")
+	peer=$(netbird_default_peer_name_proxy_peer "$project_name")
+
+	proxy="$proxy" peer="$peer" yq -i -o json '
+		.netbird_peer_name_proxy = (
+			.netbird_peer_name_proxy | select(. != null and . != "") // env(proxy)
+		) |
+		.netbird_peer_name_proxy_peer = (
+			.netbird_peer_name_proxy_peer | select(. != null and . != "") // env(peer)
+		)
+	' "$settings_file"
+}
+
 # Export NB_SETUP_KEY from settings when not already set in the environment.
 # Used before docker compose so wg-client receives the enrollment key on create.
 export_netbird_compose_env() {
@@ -46,6 +89,13 @@ export_netbird_compose_env() {
 		enrollment_key=$(netbird_read_setting netbird_enrollment_key)
 		if [[ -n "$enrollment_key" ]]; then
 			export NB_SETUP_KEY="$enrollment_key"
+		fi
+	fi
+	if [[ -z "${NB_API_TOKEN:-}" ]]; then
+		local api_token
+		api_token=$(netbird_read_setting netbird_api_token)
+		if [[ -n "$api_token" ]]; then
+			export NB_API_TOKEN="$api_token"
 		fi
 	fi
 	netbird_sync_local_server_exposed_address
