@@ -45,8 +45,10 @@ import json
 import logging
 import os
 import re
+import shutil
 import subprocess
 import sys
+import time
 from fnmatch import fnmatch
 
 from mitmproxy import ctx, dns, http
@@ -65,11 +67,13 @@ SETTINGS_PATHS = [
     "/config/project/settings.json",        # project: .sandcat/settings.json
     "/config/project/settings.local.json",  # local:   .sandcat/settings.local.json
 ]
-SANDCAT_ENV_PATH = "/home/mitmproxy/.mitmproxy/sandcat.env"
-CURSOR_CLI_CONFIG_PATH = "/home/mitmproxy/.mitmproxy/cursor-cli-config.json"
-# Sidecar file consumed by wg-client to override /etc/resolv.conf nameservers.
-# One IPv4/IPv6 address per line; empty or missing file means "use defaults".
-# (glibc/musl resolvers reject hostnames in `nameserver` directives.)
+# Agent-visible files land in the mitmproxy-public volume — mounted RO
+# in the agent container as /mitmproxy-config/. See issue #25 for why we
+# split the private CA volume from the agent-facing files.
+SANDCAT_ENV_PATH = "/mitmproxy-public/sandcat.env"
+CURSOR_CLI_CONFIG_PATH = "/mitmproxy-public/cursor-cli-config.json"
+# Read by wg-client (trusted, sees the private volume) — stays where it
+# already was; no need to duplicate into the public volume.
 SANDCAT_DNS_CONF_PATH = "/home/mitmproxy/.mitmproxy/dns.conf"
 # Sidecar file consumed by wg-client-init.sh. `IP<TAB>hostname` per line.
 # ALWAYS written by the addon (empty file when nothing configured) so
@@ -120,6 +124,7 @@ class SandcatAddon:
             # Write an empty dns.conf so wg-client treats it as "no overrides"
             # (falling back to defaults) AND so the file's presence still
             # signals "addon has loaded" for the mitmproxy healthcheck.
+            self._seed_public_ca_cert()
             self._write_dns_conf()
             self._write_cursor_cli_config({})
             # Truncate extra_hosts too, so a stale file from a previous run
@@ -143,6 +148,7 @@ class SandcatAddon:
         self._load_secrets(merged["secrets"])
         self._load_network_rules(merged["network"])
         self._load_dns_servers(merged["dns_servers"])
+        self._seed_public_ca_cert()
         self._write_placeholders_env()
         self._write_cursor_cli_config(merged)
         self._write_dns_conf()
@@ -548,6 +554,26 @@ class SandcatAddon:
                 continue
             cleaned.append(stripped)
         self.dns_servers = cleaned
+
+    def _seed_public_ca_cert(self):
+        """Copy the public CA cert to the mitmproxy-public volume so the
+        agent container (which sees only the public volume post-split) can
+        trust mitmproxy's TLS. mitmproxy generates the CA lazily on first
+        TLS setup; usually ready by the time load() runs, but retry a few
+        times in case timing varies. See issue #25.
+        """
+        src = "/home/mitmproxy/.mitmproxy/mitmproxy-ca-cert.pem"
+        dst = "/mitmproxy-public/mitmproxy-ca-cert.pem"
+        for _ in range(10):
+            if os.path.isfile(src):
+                os.makedirs(os.path.dirname(dst), exist_ok=True)
+                shutil.copy(src, dst)
+                ctx.log.info(f"Seeded public CA cert to {dst}")
+                return
+            time.sleep(1)
+        ctx.log.warn(
+            f"CA cert not present at {src} after 10s — agent may see no cert"
+        )
 
     def _write_dns_conf(self):
         """Write nameservers for wg-client to consume.

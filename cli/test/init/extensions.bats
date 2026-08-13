@@ -266,3 +266,30 @@ teardown() {
 	yq -e '.services.agent.environment[] | select(. == "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1")' \
 		"$BATS_TEST_TMPDIR/compose-all.yml"
 }
+
+@test "compose-proxy.yml declares mitmproxy-public volume" {
+	yq -e '.volumes | has("mitmproxy-public")' \
+		"$SCT_TEMPLATEDIR/devcontainer/sandcat/compose-proxy.yml"
+}
+
+@test "compose-proxy.yml mounts mitmproxy-public writable in mitmproxy" {
+	yq -e '.services.mitmproxy.volumes[] | select(. == "mitmproxy-public:/mitmproxy-public")' \
+		"$SCT_TEMPLATEDIR/devcontainer/sandcat/compose-proxy.yml"
+}
+
+@test "compose-proxy.yml healthcheck gates on public CA cert" {
+	local check
+	check=$(yq -r '.services.mitmproxy.healthcheck.test | join(" ")' \
+		"$SCT_TEMPLATEDIR/devcontainer/sandcat/compose-proxy.yml")
+	[[ "$check" == *"/mitmproxy-public/mitmproxy-ca-cert.pem"* ]]
+}
+
+@test "compose-all.yml mounts agent from mitmproxy-public (not mitmproxy-config)" {
+	yq -e '.services.agent.volumes[] | select(. == "mitmproxy-public:/mitmproxy-config:ro")' \
+		"$SCT_TEMPLATEDIR/devcontainer/compose-all.yml"
+
+	# Regression guard: the old private mount MUST NOT exist on agent.
+	run yq -e '.services.agent.volumes[] | select(. == "mitmproxy-config:/mitmproxy-config:ro")' \
+		"$SCT_TEMPLATEDIR/devcontainer/compose-all.yml"
+	[ "$status" -ne 0 ]
+}
