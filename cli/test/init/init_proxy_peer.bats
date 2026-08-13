@@ -119,3 +119,56 @@ teardown() {
 		"$PROJECT_DIR/.devcontainer/sandcat/compose-proxy-peer.yml"
 	assert_output "test-proxy-peer"
 }
+
+@test "init preserves existing NetBird peer name overrides through enable paths" {
+	mkdir -p "$PROJECT_DIR/.sandcat"
+	cat >"$PROJECT_DIR/.sandcat/settings.json" <<'JSON'
+{"netbird_peer_name_proxy": "custom-proxy", "netbird_peer_name_proxy_peer": "custom-proxy-peer"}
+JSON
+	stub settings "$PROJECT_DIR/.sandcat/settings.json claude vscode : :"
+
+	# shellcheck source=../../lib/composefile.bash
+	source "$SCT_LIBDIR/composefile.bash"
+	eval "$(declare -f enable_netbird | sed '1s/enable_netbird/_real_enable_netbird/')"
+	eval "$(declare -f enable_proxy_peer | sed '1s/enable_proxy_peer/_real_enable_proxy_peer/')"
+	enable_netbird() {
+		printf '%s\n' "$3" >"$BATS_TEST_TMPDIR/enable_netbird_peer_arg"
+		_real_enable_netbird "$@"
+	}
+	enable_proxy_peer() {
+		printf '%s\n' "$2" >"$BATS_TEST_TMPDIR/enable_proxy_peer_arg"
+		_real_enable_proxy_peer "$@"
+	}
+
+	run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" \
+		--stacks "" --proxy web --features "" --secret-provider none \
+		--netbird --netbird-server cloud --capability --proxy-peer
+	assert_success
+
+	run cat "$BATS_TEST_TMPDIR/enable_netbird_peer_arg"
+	assert_output "custom-proxy"
+	run cat "$BATS_TEST_TMPDIR/enable_proxy_peer_arg"
+	assert_output "custom-proxy-peer"
+
+	run yq -r '.netbird_peer_name_proxy + " " + .netbird_peer_name_proxy_peer' \
+		"$PROJECT_DIR/.sandcat/settings.json"
+	assert_output "custom-proxy custom-proxy-peer"
+
+	run yq -r '
+		(.capabilities[] | select(.ref == "cap-reach-api") | .peer_hostname) + " " +
+		(.capabilities[] | select(.ref == "cap-reach-proxy") | .dns_label)
+	' "$PROJECT_DIR/.devcontainer/sandcat/capability-catalog.json"
+	assert_output "custom-proxy custom-proxy-peer.netbird.selfhosted"
+	refute_output --partial "REPLACE"
+
+	run yq -r '.services.mitmproxy.environment[] | select(test("^NB_PEER_NAME="))' \
+		"$PROJECT_DIR/.devcontainer/sandcat/compose-proxy.yml"
+	assert_output "NB_PEER_NAME=custom-proxy"
+
+	run yq -r '.services."proxy-peer".hostname' \
+		"$PROJECT_DIR/.devcontainer/sandcat/compose-proxy-peer.yml"
+	assert_output "custom-proxy-peer"
+
+	run yq -r '.network[0].host' "$PROJECT_DIR/.sandcat/settings.proxy-peer.example.json"
+	assert_output "custom-proxy-peer.netbird.selfhosted"
+}
