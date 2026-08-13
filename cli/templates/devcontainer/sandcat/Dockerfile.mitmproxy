@@ -63,6 +63,7 @@ RUN apt-get update \
 COPY --from=netbird-build /out/netbird /usr/local/bin/netbird
 RUN netbird version
 
+COPY scripts/netbird-peer-lifecycle.sh /usr/local/lib/netbird-peer-lifecycle.sh
 COPY scripts/mitmproxy-init.sh /usr/local/bin/mitmproxy-init.sh
 RUN chmod +x /usr/local/bin/mitmproxy-init.sh
 
