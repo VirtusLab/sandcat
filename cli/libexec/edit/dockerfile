@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# shellcheck source=../../lib/betteropts/betteropts.sh
+source "$SCT_LIBDIR/betteropts/betteropts.sh"
 # shellcheck source=../../lib/logging.bash
 source "$SCT_LIBDIR/logging.bash"
 # shellcheck source=../../lib/select.bash
@@ -10,6 +12,10 @@ source "$SCT_LIBDIR/path.bash"
 
 # Opens the Dockerfile.app in the default editor.
 dockerfile() {
+	summary "Opens the Dockerfile.app in your editor."
+
+	betteropts_parse "$@"
+
 	local repo_root
 	repo_root="$(find_repo_root)"
 

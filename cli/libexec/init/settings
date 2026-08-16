@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# shellcheck source=../../lib/betteropts/betteropts.sh
+source "$SCT_LIBDIR/betteropts/betteropts.sh"
 # shellcheck source=../../lib/logging.bash
 source "$SCT_LIBDIR/logging.bash"
 # shellcheck source=../../lib/require.bash
@@ -9,14 +11,19 @@ source "$SCT_LIBDIR/require.bash"
 source "$SCT_LIBDIR/constants.bash"
 
 # Creates a network settings file for the proxy.
-# Args:
-#   $1 - Path to the settings file
-#   $@ - Service names to include (e.g., claude, copilot, vscode, jetbrains, github)
 # Outputs:
 #   Creates a JSON settings file from template
+# shellcheck disable=SC2154 # populated by betteropts_parse
 settings() {
-	local settings_file=$1
-	shift
+	summary "Creates a network settings file for the proxy."
+
+	argument settings_file required \
+		help="Path to the settings file"
+
+	argument services variadic \
+		help="Service names to include (e.g., claude, copilot, vscode, jetbrains, github)"
+
+	betteropts_parse "$@"
 
 	require yq
 

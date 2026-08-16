@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# shellcheck source=../../lib/betteropts/betteropts.sh
+source "$SCT_LIBDIR/betteropts/betteropts.sh"
 # shellcheck source=../../lib/logging.bash
 source "$SCT_LIBDIR/logging.bash"
 # shellcheck source=../../lib/composefile.bash
@@ -10,78 +12,49 @@ source "$SCT_LIBDIR/devcontainer.bash"
 
 # Sets up a Devcontainer configuration for an agent.
 # Copies devcontainer template files and customizes the compose-all.yml.
-# Args:
-#   --settings-file - Path to the settings file (relative to project directory)
-#   --project-path - Path to the project directory
-#   --agent - The agent name (e.g., "claude")
-#   --ide - The IDE name (e.g., "vscode", "jetbrains", "none") (optional)
+# shellcheck disable=SC2154 # populated by betteropts_parse
 devcontainer() {
-	local settings_file=""
-	local project_path=""
-	local agent=""
-	local ide=""
-	local name=""
-	local stacks=""
-	local proxy_mode="web"
-	local secret_provider="none"
+	summary "Sets up a Devcontainer configuration for an agent."
 
-	while [[ $# -gt 0 ]]
-	do
-		case $1 in
-		--settings-file|--project-path|--agent|--ide|--name|--stacks|--proxy|--secret-provider)
-			if [[ $# -lt 2 ]]; then
-				echo "Option $1 requires a value" | error
-				return 1
-			fi
-			;;
-		esac
-		case $1 in
-		--settings-file)
-			settings_file="$2"
-			shift 2
-			;;
-		--project-path)
-			project_path="$2"
-			shift 2
-			;;
-		--agent)
-			agent="$2"
-			shift 2
-			;;
-		--ide)
-			ide="$2"
-			shift 2
-			;;
-		--name)
-			name="$2"
-			shift 2
-			;;
-		--stacks)
-			stacks="$2"
-			shift 2
-			;;
-		--proxy)
-			proxy_mode="$2"
-			shift 2
-			;;
-		--secret-provider)
-			secret_provider="$2"
-			shift 2
-			;;
-		--1password)
-			secret_provider="1password"
-			shift 1
-			;;
-		*)
-			echo "Unknown option: $1" | error
-			return 1
-			;;
-		esac
-	done
+	description "
+Copies devcontainer template files and customizes the compose-all.yml.
+"
 
-	: "${settings_file?Missing required parameter: --settings-file}"
-	: "${project_path?Missing required parameter: --project-path}"
-	: "${agent?Missing required parameter: --agent}"
+	option settings_file --settings-file VALUE \
+		required \
+		help="Path to the settings file (relative to project directory)"
+
+	option project_path --project-path VALUE \
+		required \
+		help="Path to the project directory"
+
+	option agent --agent VALUE \
+		required \
+		help="The agent name (e.g., claude)"
+
+	option ide --ide VALUE \
+		help="The IDE name (e.g., vscode, jetbrains, none)"
+
+	option name --name VALUE \
+		help="Project name for Docker Compose"
+
+	option stacks --stacks VALUE \
+		help="Space-separated list of resolved development stacks"
+
+	option proxy_mode --proxy VALUE \
+		default="web" \
+		help="Proxy UI mode: web or tui"
+
+	option secret_provider --secret-provider VALUE \
+		default="none" \
+		help="Secret backend: none, 1password, protonpass"
+
+	flag onepassword_alias --1password \
+		help="Deprecated; same as --secret-provider 1password"
+
+	betteropts_parse "$@"
+
+	"$onepassword_alias" && secret_provider="1password"
 
 	local devcontainer_dir="$project_path/.devcontainer"
 	local compose_file="$devcontainer_dir/compose-all.yml"

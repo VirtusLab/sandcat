@@ -8,42 +8,142 @@
 # shellcheck disable=2292
 if [ -z "${BASH_VERSION-}" ] ||
 	[[ -z "${BASH_VERSINFO-}" ]] ||
-	((BASH_VERSINFO[0] < 3 || (BASH_VERSINFO[0] == 3 && BASH_VERSINFO[1] < 2)))
+	((BASH_VERSINFO[0] < 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] < 2)))
 then
-	echo "$0: this program needs to be run by Bash >= 3.2" >&2
+	echo "$0: this program needs to be run by Bash >= 4.2" >&2
 	exit 1
 fi
 
 set -euo pipefail
+shopt -s inherit_errexit lastpipe
+
+sandcat_modules() {
+	find "$SCT_LIBEXECDIR" \
+		-mindepth 1 \
+		-maxdepth 1 \
+		-type d \
+		-print |
+		while IFS= read -r
+		do
+			basename -- "$REPLY"
+		done |
+		sort
+}
+
+sandcat_commands() {
+	local module="$1"
+
+	[[ -d "$SCT_LIBEXECDIR/$module" ]] || return 0
+
+	find "$SCT_LIBEXECDIR/$module" \
+		-mindepth 1 \
+		-maxdepth 1 \
+		-type f \
+		\( -perm -100 -o -perm -010 -o -perm -001 \) \
+		-print |
+		while IFS= read -r
+		do
+			basename -- "$REPLY"
+		done |
+		sort
+}
+
+sandcat_compgen() {
+	local -a words=("$@")
+	local cur="${words[$((${#words[@]} - 1))]}"
+
+	case "${#words[@]}" in
+	1 | 2)
+		local -a modules
+		sandcat_modules |
+			readarray -t modules
+		compgen -W "${modules[*]}" -- "$cur"
+		;;
+	3)
+		local module="${words[1]}"
+		local -a commands
+		sandcat_commands "$module" |
+			readarray -t commands
+		compgen -W "${commands[*]}" -- "$cur"
+		;;
+	*)
+		local module="${words[1]}" command="${words[2]}"
+		# Delegates to the leaf's own betteropts --__complete implementation
+		# (the native completion wire protocol), unfiltered - the shell's
+		# compgen/complete machinery does the prefix filtering.
+		"$SCT_LIBEXECDIR/$module/$command" --__complete -- "${words[@]:3}" 2>/dev/null || true
+		;;
+	esac
+}
+
+sandcat_completion_script() {
+	local target_shell="$1"
+	if [[ "$target_shell" != "bash" ]]
+	then
+		echo "Unsupported shell: $target_shell (only bash is supported)" >&2
+		return 1
+	fi
+	cat <<EOF
+_sandcat_completions() {
+	local line
+	COMPREPLY=()
+	while IFS=\$'\n' read -r line
+	do
+		COMPREPLY+=("\$line")
+	done < <("$SCT_BIN" --__complete "\${COMP_WORDS[@]}" 2>/dev/null)
+}
+complete -F _sandcat_completions -o nosort sandcat
+EOF
+}
+
+# Prints the shortest name that still invokes $1: its basename if the bare
+# name on $PATH resolves back to $1, otherwise $1 unchanged.
+sandcat_resolve_bin() {
+	local bin="$1"
+	local name_on_path
+	name_on_path="$(command -v -- "$(basename -- "$bin")" 2>/dev/null)" || true
+	# shellcheck disable=SC2312
+	if [[ -n "$name_on_path" ]] &&
+		[[ "$(readlink -f -- "$name_on_path")" == "$(readlink -f -- "$bin")" ]]
+	then
+		basename -- "$bin"
+	else
+		echo "$bin"
+	fi
+}
 
 main() {
+	# shellcheck disable=SC2312
 	SCT_ROOT="$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")/.."
 	export SCT_ROOT
 	export SCT_LIBDIR="$SCT_ROOT/lib"
 	export SCT_LIBEXECDIR="$SCT_ROOT/libexec"
 	export SCT_TEMPLATEDIR="$SCT_ROOT/templates"
 
-	# shellcheck source=../lib/compat.bash
-	source "$SCT_LIBDIR/compat.bash"
+	SCT_BIN="$(sandcat_resolve_bin "${BASH_SOURCE[0]}")"
+	export SCT_BIN
+
+	if [[ "${1:-}" == "--__complete" ]]
+	then
+		shift
+		sandcat_compgen "$@"
+		exit 0
+	fi
+
+	if [[ "${1:-}" == "--completion" ]]
+	then
+		sandcat_completion_script "${2:-bash}"
+		exit 0
+	fi
 
 	local -a modules
-	mapfile -t modules < <(
-		find "$SCT_LIBEXECDIR" \
-			-mindepth 1 \
-			-maxdepth 1 \
-			-type d \
-			-print |
-			while IFS= read -r
-			do
-				basename -- "$REPLY"
-			done |
-			sort
-	)
+	# shellcheck disable=SC2312
+	mapfile -t modules < <(sandcat_modules)
 
 	local -r usage="
-Usage: ${BASH_SOURCE[0]} <$(IFS='|'; echo "${modules[*]}")> [command] [args...]
+Usage: $SCT_BIN <$(IFS='|'; echo "${modules[*]}")> [command] [args...]
 
-To list available commands use: ${BASH_SOURCE[0]} <module> help
+To list available commands use: $SCT_BIN <module> help
 "
 
 	if [[ $# -lt 1 ]] || [[ "$1" == "--help" ]] || [[ "$1" == "-h" ]]
@@ -75,17 +175,8 @@ To list available commands use: ${BASH_SOURCE[0]} <module> help
 	if [[ "$command" == "help" ]] || [[ "$command" == "--help" ]] || [[ "$command" == "-h" ]]
 	then
 		echo "Commands in $module:" >&2
-		find "$SCT_LIBEXECDIR/$module" \
-			-maxdepth 1 \
-			-type f \
-			-perm -0100 \
-			-print |
-			while IFS= read -r
-			do
-				echo -n '  '
-				basename -- "$REPLY"
-			done |
-			sort >&2
+		sandcat_commands "$module" |
+			sed 's/^/  /' >&2
 		exit 0
 	fi
 
@@ -113,4 +204,7 @@ To list available commands use: ${BASH_SOURCE[0]} <module> help
 	exec "$exec" "$@"
 }
 
-main "$@"
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]
+then
+	main "$@"
+fi

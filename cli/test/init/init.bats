@@ -28,14 +28,16 @@ teardown() {
 @test "init rejects invalid --agent value" {
 	run init --name my-project --agent "invalid" --path "$PROJECT_DIR"
 	assert_failure
-	assert_output --partial "Invalid agent: invalid"
+	assert_output --partial "Invalid value:"
+	assert_output --partial "--agent invalid (choices: claude, cursor)"
 }
 
 
 @test "init rejects invalid --ide value" {
 	run init --agent claude --ide "invalid" --name test --path "$PROJECT_DIR"
 	assert_failure
-	assert_output --partial "Invalid IDE: invalid (expected: vscode jetbrains none)"
+	assert_output --partial "Invalid value:"
+	assert_output --partial "--ide invalid (choices: vscode, jetbrains, none)"
 }
 
 @test "init accepts valid --ide value" {
@@ -148,7 +150,8 @@ EOF
 @test "init rejects invalid --secret-provider value" {
 	run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" --stacks "" --proxy web --features "" --secret-provider invalid
 	assert_failure
-	assert_output --partial "Invalid secret provider: invalid (expected: none 1password protonpass)"
+	assert_output --partial "Invalid value:"
+	assert_output --partial "--secret-provider invalid (choices: none, 1password, protonpass)"
 }
 
 @test "init rejects combining --1password and --secret-provider" {
@@ -433,7 +436,11 @@ EOF
 		"--settings-file .sandcat/settings.json --project-path * --agent claude --ide vscode --name test --stacks * --proxy web --secret-provider none : :" \
 		"--settings-file .sandcat/settings.json --project-path * --agent claude --ide vscode --name test --stacks * --proxy web --secret-provider none : :"
 
-	init --agent claude --ide vscode --name test --path "$PROJECT_DIR" --stacks "" --features "" --secret-provider none >/dev/null
+	# Each `init` call re-declares its betteropts schema, which is process-
+	# global state - `run` forks a subshell, keeping the first call's schema
+	# from leaking into the second.
+	run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" --stacks "" --features "" --secret-provider none
+	assert_success
 	run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" --stacks "" --features "" --secret-provider none
 	assert_success
 	assert_output --partial "Gitignore:        Sandcat block already present"
@@ -501,8 +508,9 @@ EOF
 		"--settings-file .sandcat/settings.json --project-path * --agent claude --ide vscode --name test --stacks * --proxy web --secret-provider none : :" \
 		"--settings-file .sandcat/settings.json --project-path * --agent claude --ide vscode --name test --stacks * --proxy web --secret-provider none : :"
 
-	# First init adds block.
-	init --agent claude --ide vscode --name test --path "$PROJECT_DIR" --stacks "" --features "" --secret-provider none >/dev/null
+	# First init adds block. `run`: see the idempotent-re-init test above.
+	run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" --stacks "" --features "" --secret-provider none
+	assert_success
 	grep -qxF "# Sandcat" "$PROJECT_DIR/.gitignore"
 	grep -qxF "# /Sandcat" "$PROJECT_DIR/.gitignore"
 
@@ -528,7 +536,9 @@ EOF
 		"--settings-file .sandcat/settings.json --project-path * --agent claude --ide vscode --name test --stacks * --proxy web --secret-provider none : :" \
 		"--settings-file .sandcat/settings.json --project-path * --agent claude --ide vscode --name test --stacks * --proxy web --secret-provider none : :"
 
-	init --agent claude --ide vscode --name test --path "$PROJECT_DIR" --stacks "" --features "" --secret-provider none >/dev/null
+	# `run`: see the idempotent-re-init test above.
+	run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" --stacks "" --features "" --secret-provider none
+	assert_success
 
 	# Env-var opt-out also removes.
 	SANDCAT_GITIGNORE=false run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" --stacks "" --features "" --secret-provider none

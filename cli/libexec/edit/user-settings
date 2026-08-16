@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# shellcheck source=../../lib/betteropts/betteropts.sh
+source "$SCT_LIBDIR/betteropts/betteropts.sh"
 # shellcheck source=../../lib/logging.bash
 source "$SCT_LIBDIR/logging.bash"
 # shellcheck source=../../lib/select.bash
@@ -11,6 +13,10 @@ source "$SCT_LIBDIR/constants.bash"
 # Opens the user-level settings file (~/.config/sandcat/settings.json) in the
 # default editor.
 user-settings() {
+	summary "Opens the user-level settings file in your editor."
+
+	betteropts_parse "$@"
+
 	local user_settings
 	user_settings="$(sct_home)/settings.json"
 

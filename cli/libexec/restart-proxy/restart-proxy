@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# shellcheck source=../../lib/betteropts/betteropts.sh
+source "$SCT_LIBDIR/betteropts/betteropts.sh"
 # shellcheck source=../../lib/logging.bash
 source "$SCT_LIBDIR/logging.bash"
 # shellcheck source=../../lib/require.bash
@@ -10,6 +12,10 @@ source "$SCT_LIBDIR/path.bash"
 
 # Restarts the mitmproxy and wg-client services to pick up settings changes.
 restart-proxy() {
+	summary "Restarts the mitmproxy and wg-client services to pick up settings changes."
+
+	betteropts_parse "$@"
+
 	require docker
 
 	local compose_file

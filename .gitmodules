@@ -10,3 +10,6 @@
 [submodule "cli/support/bats-mock"]
 	path = cli/support/bats-mock
 	url = https://github.com/buildkite-plugins/bats-mock
+[submodule "cli/lib/betteropts"]
+	path = cli/lib/betteropts
+	url = https://github.com/VirtusLab/betteropts/

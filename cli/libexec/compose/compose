@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# shellcheck source=../../lib/betteropts/betteropts.sh
+source "$SCT_LIBDIR/betteropts/betteropts.sh"
 # shellcheck source=../../lib/require.bash
 source "$SCT_LIBDIR/require.bash"
 # shellcheck source=../../lib/path.bash
@@ -8,13 +10,21 @@ source "$SCT_LIBDIR/path.bash"
 
 # Helper that automatically locates the docker compose file
 # All arguments are passed to docker compose
+# shellcheck disable=SC2154 # populated by betteropts_parse
 compose() {
+	summary "Runs docker compose with the project's compose file automatically located."
+
+	argument compose_args passthrough \
+		help="Arguments forwarded to docker compose"
+
+	betteropts_parse "$@"
+
 	require docker
 
 	local compose_file
 	compose_file="$(find_compose_file)"
 
-	exec docker compose -f "$compose_file" "$@"
+	exec docker compose -f "$compose_file" "${compose_args[@]}"
 }
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]
