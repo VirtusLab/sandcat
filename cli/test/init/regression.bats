@@ -35,6 +35,12 @@ assert_agent_service() {
 
 	yq -e '.services.agent.network_mode == "service:wg-client"' "$compose_file"
 
+	yq -e '.services.agent.security_opt[] | select(. == "no-new-privileges")' "$compose_file"
+
+	yq -e '.services.agent.depends_on | has("wg-client")' "$compose_file"
+
+	yq -e '.services.agent.command[] | select(. == "infinity")' "$compose_file"
+
 	# FIXME vscode startup fails with capabilities dropped
 	# yq -e '.services.agent.cap_drop[] | select(. == "ALL")' "$compose_file"
 }
@@ -83,6 +89,12 @@ assert_common_volumes() {
 	yq -e '
 		.services.agent.volumes[] |
 		select(.type == "volume" and .source == "mitmproxy-public" and .target == "/mitmproxy-config" and .read_only == true)
+	' "$compose_file"
+
+	# Volume: wg-runtime (read-only)
+	yq -e '
+		.services.agent.volumes[] |
+		select(.type == "volume" and .source == "wg-runtime" and .target == "/run/sandcat" and .read_only == true)
 	' "$compose_file"
 }
 
