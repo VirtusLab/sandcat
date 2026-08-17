@@ -20,9 +20,10 @@ This repository contains:
   `Dockerfile.wg-client`, `compose-proxy.yml`, and `scripts/` that perform the
   network filtering & secret substitution
 * template application and dev container configuration under
-  `cli/templates/devcontainer/`: `Dockerfile.app`, `compose-all.yml`,
-  `devcontainer.json`. This should be fine-tuned for each project and specific
-  development stack, to install required tools and dependencies.
+  `cli/templates/devcontainer/`: `Dockerfile.app`, `compose-agent.yml`,
+  `compose-all.yml`, `devcontainer.json`. This should be fine-tuned for each
+  project and specific development stack, to install required tools and
+  dependencies.
 
 Sandcat can be used as a devcontainer setup, or standalone, providing a shell
 for secure development.
@@ -562,12 +563,13 @@ multiple sandboxes are running in parallel.
 
 ### Customizing the generated files
 
-**`compose-all.yml`** — `network_mode: "service:wg-client"` routes all traffic
+**`sandcat/compose-agent.yml`** — `network_mode: "service:wg-client"` routes all traffic
 through the WireGuard tunnel. The `mitmproxy-config` volume gives your container
 access to the CA cert, env vars, and secret placeholders. The agent-specific
 config bind-mounts (for example `~/.claude/*` or `~/.cursor/*`) forward host
-customizations — remove any mount whose
-source does not exist on your host.
+customizations — remove any mount whose source does not exist on your host.
+`compose-all.yml` holds only the user-customizable entries merged over this
+constant base.
 
 **`Dockerfile.app`** — installs everything the sandbox needs via
 [devbox](https://www.jetify.com/devbox), a wrapper over Nix. Stack
