@@ -61,14 +61,18 @@ jobs:
         with:
           images: ghcr.io/virtuslab/sandcat-mitmproxy-pass
           # Tag policy: schedule builds publish only `latest` (tracking
-          # channel). Everything else that isn't a PR (push to master,
-          # workflow_dispatch) publishes the pinned version + sha as
-          # immutable tags. PRs keep their existing ref tag and are never
-          # pushed (see the `push:` condition below).
+          # channel). The pinned <version> tag is immutable and can only be
+          # published from master — a push (hard-restricted to master by the
+          # trigger above) or a workflow_dispatch run explicitly on master —
+          # so a manual dispatch from a feature branch can never overwrite
+          # it. Off-master dispatch still gets a sha + branch-name tag (never
+          # tagless, never colliding with the canonical tag). PRs keep their
+          # existing ref tag and are never pushed (see `push:` below).
           tags: |
             type=raw,value=latest,enable=${{ github.event_name == 'schedule' }}
-            type=raw,value=${{ env.MITMPROXY_VERSION }},enable=${{ github.event_name != 'schedule' && github.event_name != 'pull_request' }}
+            type=raw,value=${{ env.MITMPROXY_VERSION }},enable=${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master') }}
             type=sha,enable=${{ github.event_name != 'schedule' && github.event_name != 'pull_request' }}
+            type=ref,event=branch,enable=${{ github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/master' }}
             type=ref,event=pr,enable=${{ github.event_name == 'pull_request' }}
 
       - name: Build and push Docker image
