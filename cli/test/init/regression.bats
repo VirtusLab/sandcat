@@ -22,7 +22,7 @@ teardown() {
 assert_proxy_service() {
 	local compose_file=$1
 
-	yq -e '.services.mitmproxy.image == "mitmproxy/mitmproxy:latest"' "$compose_file"
+	yq -e '.services.mitmproxy.image == "mitmproxy/mitmproxy:'"$SCT_MITMPROXY_VERSION"'"' "$compose_file"
 
 	# FIXME vscode startup fails with capabilities dropped
 	# yq -e '.services.mitmproxy.cap_drop[] | select(. == "ALL")' "$compose_file"

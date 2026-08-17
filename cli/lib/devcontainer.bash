@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+# shellcheck source=constants.bash
+source "$SCT_LIBDIR/constants.bash"
 # shellcheck source=stacks.bash
 source "$SCT_LIBDIR/stacks.bash"
 # shellcheck source=agents.bash
@@ -288,5 +290,6 @@ customize_agent_templates() {
 		"$devcontainer_dir/sandcat/compose-proxy.yml" \
 		"__AGENT_MITM_ADDON__"           "$mitm_addon_file" \
 		"__MITM_HTTP2__"                 "$mitm_http2" \
-		"__AGENT_MITM_STREAMING_FLAGS__" "$mitm_streaming_flags"
+		"__AGENT_MITM_STREAMING_FLAGS__" "$mitm_streaming_flags" \
+		"__MITMPROXY_VERSION__"          "$SCT_MITMPROXY_VERSION"
 }

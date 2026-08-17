@@ -109,14 +109,14 @@ apply_secret_provider() {
 		return 0
 		;;
 	1password)
-		yq -i '
-			.services.mitmproxy.image = "ghcr.io/virtuslab/sandcat-mitmproxy-op:latest" |
+		mitm_ver="$SCT_MITMPROXY_VERSION" yq -i '
+			.services.mitmproxy.image = "ghcr.io/virtuslab/sandcat-mitmproxy-op:" + env(mitm_ver) |
 			.services.mitmproxy.environment = ["OP_SERVICE_ACCOUNT_TOKEN"]
 		' "$compose_file"
 		;;
 	protonpass)
-		yq -i '
-			.services.mitmproxy.image = "ghcr.io/virtuslab/sandcat-mitmproxy-pass:latest" |
+		mitm_ver="$SCT_MITMPROXY_VERSION" yq -i '
+			.services.mitmproxy.image = "ghcr.io/virtuslab/sandcat-mitmproxy-pass:" + env(mitm_ver) |
 			.services.mitmproxy.environment = ["PROTON_PASS_PERSONAL_ACCESS_TOKEN"]
 		' "$compose_file"
 		;;
