@@ -94,6 +94,23 @@ docker build \
 
 PAT detection relies on the wording of `pass-cli info` output. Because the binary is pinned by version **and** sha256, that output cannot change without a deliberate bump. A contract test (`TestPassCliPatContract`) locks the detection regex against golden samples tagged with `PASS_CLI_VERSION`. When you bump `pass-cli.env`, you must also re-capture those samples — see [`cli/test/mitmproxy/fixtures/pass-cli/README.md`](test/mitmproxy/fixtures/pass-cli/README.md) — or CI will fail.
 
+##### Bumping the pinned mitmproxy version
+
+The mitmproxy container image version is pinned in two places to ensure consistency and enable reproducible builds:
+
+- **`cli/lib/constants.bash`** — `SCT_MITMPROXY_VERSION` (used by the CLI)
+- **`images/mitmproxy.env`** — `MITMPROXY_VERSION` (used by Docker build)
+
+To bump the pinned mitmproxy version:
+
+1. Edit both files above to the same new version (e.g., `13.0.0`)
+2. Push the changes to a branch
+3. The contract test `mitmproxy_version.bats` will verify the two values match; CI will fail if they diverge
+4. Merge to master — the image build workflows are triggered by changes to `images/mitmproxy.env` and publish new versioned `ghcr.io/virtuslab/sandcat-mitmproxy` tags
+5. The weekly cron job rebuilds only the `latest` tag from upstream mitmproxy and never touches versioned tags
+
+Generated projects reference the pinned version from the CLI-side constant, so projects created with `sandcat init` always use the stable versioned image.
+
 Note: Cursor agent support uses placeholder-based API key substitution and
 Sandcat-managed CLI settings (`cursor.cli` in settings — permissions, model,
 network flags). Put the API key in `secrets.CURSOR_API_KEY`, not in
