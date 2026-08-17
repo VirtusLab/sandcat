@@ -41,6 +41,9 @@ setup() {
 	assert_output --partial "RTK_INSTALL_DIR=/usr/local/bin"
 	assert_output --partial "USER root"
 	assert_output --partial "USER vscode"
+	# Verify the URL is pinned to a 40-character hex commit SHA (not master branch)
+	# Uses grep to check for the SHA pattern: rtk-ai/rtk/[40-hex-chars]/install.sh
+	grep -qE "rtk-ai/rtk/[0-9a-f]{40}/install.sh" <<<"$output"
 }
 
 @test "sct_rtk_docker_install_block emits nothing when disabled" {
