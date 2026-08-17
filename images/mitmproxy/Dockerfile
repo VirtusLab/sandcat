@@ -6,9 +6,18 @@
 # `op read`, authenticated with OP_SERVICE_ACCOUNT_TOKEN.
 #
 # Published as ghcr.io/virtuslab/sandcat-mitmproxy-op.
-# Rebuilt weekly to track mitmproxy:latest.
+#
+# Dual-channel tag policy: versioned tags (e.g. 12.2.3) are built from master
+# pushes against the pin in images/mitmproxy.env and are immutable. The
+# `latest` tag is rebuilt weekly from upstream mitmproxy:latest as a
+# best-effort tracking channel — it is NOT what pinned installs resolve to.
+#
+# MITMPROXY_VERSION has no default on purpose: the pin lives in exactly one
+# place (images/mitmproxy.env) and MUST be supplied as a build arg (the build
+# workflow sources that file; see images/mitmproxy.env for all consumers).
+ARG MITMPROXY_VERSION
 
-FROM mitmproxy/mitmproxy:latest
+FROM mitmproxy/mitmproxy:${MITMPROXY_VERSION}
 
 ARG OP_CLI_VERSION=2.30.3
 

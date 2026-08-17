@@ -5,10 +5,12 @@ on:
     branches: [master]
     paths:
       - 'images/mitmproxy/**'
+      - 'images/mitmproxy.env'
       - '.github/workflows/build-mitmproxy-image.yml'
   pull_request:
     paths:
       - 'images/mitmproxy/**'
+      - 'images/mitmproxy.env'
       - '.github/workflows/build-mitmproxy-image.yml'
   schedule:
     - cron: '0 6 * * 1' # Weekly Monday 6am — rebuild against latest mitmproxy
@@ -35,16 +37,34 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Load pinned mitmproxy version
+        # Single source of truth — also consumed by the CLI (SCT_MITMPROXY_VERSION
+        # in cli/lib/constants.bash) and the contract test that checks they match.
+        if: github.event_name != 'schedule'
+        run: grep '^MITMPROXY_VERSION=' images/mitmproxy.env >> "$GITHUB_ENV"
+
+      - name: Use latest mitmproxy for the scheduled tracking build
+        # Scheduled builds intentionally bypass the pin to track upstream
+        # mitmproxy:latest; they publish only the `latest` tag, never a
+        # version tag, so this can't be mistaken for the pinned image.
+        if: github.event_name == 'schedule'
+        run: echo "MITMPROXY_VERSION=latest" >> "$GITHUB_ENV"
+
       - name: Extract metadata
         id: meta
         uses: docker/metadata-action@v5
         with:
           images: ghcr.io/virtuslab/sandcat-mitmproxy-op
+          # Tag policy: schedule builds publish only `latest` (tracking
+          # channel). Everything else that isn't a PR (push to master,
+          # workflow_dispatch) publishes the pinned version + sha as
+          # immutable tags. PRs keep their existing ref tag and are never
+          # pushed (see the `push:` condition below).
           tags: |
-            type=ref,event=branch
-            type=ref,event=pr
-            type=sha
-            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=latest,enable=${{ github.event_name == 'schedule' }}
+            type=raw,value=${{ env.MITMPROXY_VERSION }},enable=${{ github.event_name != 'schedule' && github.event_name != 'pull_request' }}
+            type=sha,enable=${{ github.event_name != 'schedule' && github.event_name != 'pull_request' }}
+            type=ref,event=pr,enable=${{ github.event_name == 'pull_request' }}
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
@@ -55,6 +75,8 @@ jobs:
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            MITMPROXY_VERSION=${{ env.MITMPROXY_VERSION }}
           # Skip cache on scheduled builds to pick up upstream mitmproxy:latest changes
           cache-from: ${{ github.event_name != 'schedule' && 'type=gha' || '' }}
           cache-to: type=gha,mode=max
