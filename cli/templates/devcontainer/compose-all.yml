@@ -1,38 +1,13 @@
 include:
   - path: sandcat/compose-proxy.yml
+  # Constant (non-user-editable) parts of the agent service — image build,
+  # security hardening (no-new-privileges), network wiring through
+  # wg-client, dependency ordering. The `services.agent` entries below are
+  # merged OVER that base by Docker Compose.
+  - path: sandcat/compose-agent.yml
 
 services:
-  agent:
-    build:
-      context: .
-      dockerfile: Dockerfile.app
-    # We set `no-new-privileges` to true to "disable container processes from
-    # gaining new privileges."
-    # https://docs.docker.com/reference/cli/docker/container/run/#security-opt
-    # https://docs.docker.com/reference/compose-file/services/#security_opt
-    # https://www.kernel.org/doc/Documentation/prctl/no_new_privs.txt
-    security_opt:
-      - no-new-privileges
-    # Share wg-client's network namespace so all traffic goes through its
-    # WireGuard tunnel. The app container has no NET_ADMIN capability,
-    # so processes inside cannot modify routing, iptables, or the tunnel.
-    network_mode: "service:wg-client"
-    volumes:
-      # Named volume for the home directory so Claude Code auth state,
-      # shell history, and other user-level config persist across rebuilds.
-      - agent-home:/home/vscode
-      # Agent gets ONLY the public volume. The mitmproxy-config volume is
-      # kept private (mitmproxy + wg-client only) to prevent the untrusted
-      # agent from reading CA private key or WireGuard keys — see issue #25.
-      - mitmproxy-public:/mitmproxy-config:ro
-      # Resolv.conf published by wg-client. We copy it into /etc/resolv.conf
-      # in app-init.sh so DNS goes to wg-client's local dnsmasq instead of
-      # whatever Docker initialized this container's resolv.conf to.
-      - wg-runtime:/run/sandcat:ro
-    command: sleep infinity
-    depends_on:
-      wg-client:
-        condition: service_healthy
-
-volumes:
-  agent-home:
+  # User-customizable parts of the agent service (volumes, environment).
+  # sandcat init populates this section; edit or uncomment entries freely —
+  # the security-critical base stays in sandcat/compose-agent.yml.
+  agent: {}
