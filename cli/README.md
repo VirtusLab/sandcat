@@ -106,10 +106,12 @@ To bump the pinned mitmproxy version:
 1. Edit both files above to the same new version (e.g., `13.0.0`)
 2. Push the changes to a branch
 3. The contract test `mitmproxy_version.bats` will verify the two values match; CI will fail if they diverge
-4. Merge to master — the image build workflows are triggered by changes to `images/mitmproxy.env` and publish new versioned `ghcr.io/virtuslab/sandcat-mitmproxy` tags
+4. Merge to master — the image build workflows are triggered by changes to `images/mitmproxy.env` and publish new versioned `ghcr.io/virtuslab/sandcat-mitmproxy-op` and `ghcr.io/virtuslab/sandcat-mitmproxy-pass` tags
 5. The weekly cron job rebuilds only the `latest` tag from upstream mitmproxy and never touches versioned tags
 
 Generated projects reference the pinned version from the CLI-side constant, so projects created with `sandcat init` always use the stable versioned image.
+
+**Merge-day race:** after merging a bump, wait for both `build-mitmproxy-image.yml` and `build-mitmproxy-pass-image.yml` to finish publishing the new versioned ghcr tags before creating or upgrading a secret-provider (1password/protonpass) project against that version. In the window between merge and publish, `docker compose up` fails loudly with `manifest unknown`; it's safe to retry once the workflows complete. Provider `none` is unaffected since it resolves to the public Docker Hub `mitmproxy/mitmproxy` tag, which already exists.
 
 Note: Cursor agent support uses placeholder-based API key substitution and
 Sandcat-managed CLI settings (`cursor.cli` in settings — permissions, model,
