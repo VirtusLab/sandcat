@@ -113,11 +113,6 @@ Generated projects reference the pinned version from the CLI-side constant, so p
 
 **Merge-day race:** after merging a bump, wait for both `build-mitmproxy-image.yml` and `build-mitmproxy-pass-image.yml` to finish publishing the new versioned ghcr tags before creating or upgrading a secret-provider (1password/protonpass) project against that version. In the window between merge and publish, `docker compose up` fails loudly with `manifest unknown`; it's safe to retry once the workflows complete. Provider `none` is unaffected since it resolves to the public Docker Hub `mitmproxy/mitmproxy` tag, which already exists.
 
-Note: Cursor agent support uses placeholder-based API key substitution and
-Sandcat-managed CLI settings (`cursor.cli` in settings — permissions, model,
-network flags). Put the API key in `secrets.CURSOR_API_KEY`, not in
-`cursor.cli`. See the main README Cursor section for details.
-
 #### `sandcat init devcontainer`
 
 Sets up a devcontainer configuration for an agent. Copies devcontainer template files and customizes the
@@ -132,6 +127,11 @@ Options:
 - `--name` - Project name for Docker Compose (default: `{dir}-sandbox`)
 - `--secret-provider` - `none`, `1password`, or `protonpass` (optional; default `none`)
 - `--1password` - Deprecated alias for `--secret-provider 1password`
+
+Note: Cursor agent support uses placeholder-based API key substitution and
+Sandcat-managed CLI settings (`cursor.cli` in settings — permissions, model,
+network flags). Put the API key in `secrets.CURSOR_API_KEY`, not in
+`cursor.cli`. See the main README Cursor section for details.
 
 #### `sandcat init settings`
 
