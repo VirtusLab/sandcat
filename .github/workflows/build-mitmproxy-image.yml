@@ -41,7 +41,7 @@ jobs:
         # Single source of truth — also consumed by the CLI (SCT_MITMPROXY_VERSION
         # in cli/lib/constants.bash) and the contract test that checks they match.
         if: github.event_name != 'schedule'
-        run: grep '^MITMPROXY_VERSION=' images/mitmproxy.env >> "$GITHUB_ENV"
+        run: grep -m1 '^MITMPROXY_VERSION=' images/mitmproxy.env >> "$GITHUB_ENV"
 
       - name: Use latest mitmproxy for the scheduled tracking build
         # Scheduled builds intentionally bypass the pin to track upstream

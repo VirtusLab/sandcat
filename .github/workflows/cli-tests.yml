@@ -5,10 +5,12 @@ on:
     branches: [master]
     paths:
       - 'cli/**'
+      - 'images/mitmproxy.env'
       - '.github/workflows/cli-tests.yml'
   pull_request:
     paths:
       - 'cli/**'
+      - 'images/mitmproxy.env'
       - '.github/workflows/cli-tests.yml'
   workflow_dispatch:  # Allow manual trigger
 
