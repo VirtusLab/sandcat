@@ -17,10 +17,11 @@ sct_rtk_enabled() {
 # at container start via sct_rtk_user_init_block.
 #
 # The install script URL is pinned to a commit SHA to freeze the fetched
-# shell code and close the arbitrary-code-via-master vector. Note that
-# rtk's install.sh itself downloads a binary release internally, so the
-# binary is not fully pinned until rtk publishes stable releases (today
-# it has only dev-* pre-releases). Revisit when stable releases exist.
+# shell code and close the arbitrary-code-via-master vector. The binary
+# itself is pinned separately via RTK_VERSION, which install.sh verifies
+# with a SHA-256 check against the release's checksums.txt before
+# installing — so both the script and the binary it fetches are pinned.
+# When bumping rtk, update the commit SHA and RTK_VERSION together.
 #
 # Emits an empty output when the feature is disabled so the caller can
 # unconditionally append it to Dockerfile fragments.
@@ -32,7 +33,8 @@ sct_rtk_docker_install_block() {
 # agent-home volume can't mask the binary on upgrade. Disable at init
 # time with `sandcat init --features no-rtk` or `SANDCAT_RTK=false`.
 USER root
-RUN curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/b34be37caf3796b69a50952a28e60e32b5daad43/install.sh | RTK_INSTALL_DIR=/usr/local/bin sh
+RUN curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/b34be37caf3796b69a50952a28e60e32b5daad43/install.sh | \
+    RTK_INSTALL_DIR=/usr/local/bin RTK_VERSION=v0.45.0 sh
 USER vscode
 EOF
 }

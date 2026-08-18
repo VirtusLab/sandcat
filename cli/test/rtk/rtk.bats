@@ -44,6 +44,10 @@ setup() {
 	# Verify the URL is pinned to a 40-character hex commit SHA (not master branch)
 	# Uses grep to check for the SHA pattern: rtk-ai/rtk/[40-hex-chars]/install.sh
 	grep -qE "rtk-ai/rtk/[0-9a-f]{40}/install.sh" <<<"$output"
+	# Guard against dropping the binary pin: RTK_VERSION must be set so
+	# install.sh fetches (and checksum-verifies) a pinned release, not
+	# whatever is currently latest.
+	assert_output --partial "RTK_VERSION=v"
 }
 
 @test "sct_rtk_docker_install_block emits nothing when disabled" {

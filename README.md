@@ -460,7 +460,7 @@ into the container's copy of `hooks.json`.
 
 ```bash
 # Install rtk locally (needed once on the host)
-brew install rtk       # or: curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/master/install.sh | sh
+brew install rtk       # or: curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/b34be37caf3796b69a50952a28e60e32b5daad43/install.sh | RTK_VERSION=v0.45.0 sh
 
 # Register the cursor hook in your host ~/.cursor/hooks.json
 rtk init -g --hook-only --auto-patch --agent cursor
