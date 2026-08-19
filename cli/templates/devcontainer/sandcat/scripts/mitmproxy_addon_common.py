@@ -659,13 +659,28 @@ class SandcatAddon:
             raise ValueError(f"Invalid env var name: {name!r}")
 
     def _write_placeholders_env(self):
-        lines = []
+        # Validate every name up front so the header below is built only
+        # from names that are guaranteed to match _VALID_ENV_NAME (no
+        # whitespace, no shell metacharacters) — safe-by-construction, so no
+        # value content can ever reach it.
+        for name in self.env:
+            self._validate_env_name(name)
+        for name in self.secrets:
+            self._validate_env_name(name)
+
+        # Authoritative names-only header consumed by app-init.sh to report
+        # "Loaded N env var(s)" + names without grepping `export` lines.
+        # shlex.quote below preserves literal newlines in values, so a
+        # multi-line value's continuation line can itself start with
+        # "export " — grepping for that pattern would both miscount and
+        # print a fragment of the value to the startup log. This header is
+        # always a single line: names contain no whitespace.
+        names = list(self.env) + list(self.secrets)
+        lines = [f"# names: {' '.join(names)}"]
         # Non-secret env vars (e.g. git identity) — passed through as-is.
         for name, value in self.env.items():
-            self._validate_env_name(name)
             lines.append(f"export {name}={shlex.quote(value)}")
         for name, entry in self.secrets.items():
-            self._validate_env_name(name)
             lines.append(f"export {name}={shlex.quote(entry['placeholder'])}")
         self._atomic_write_text(SANDCAT_ENV_PATH, "\n".join(lines) + "\n")
 
