@@ -950,8 +950,8 @@ restart-proxy` after changing 1Password items.
    local), merges them according to the precedence rules above, and writes
    `sandcat.env` to the `mitmproxy-config` shared volume
    (`/home/mitmproxy/.mitmproxy/sandcat.env`). This file contains plain env vars
-   (e.g. `export GIT_USER_NAME="Your Name"`) and secret placeholders (e.g.
-   `export ANTHROPIC_API_KEY="SANDCAT_PLACEHOLDER_ANTHROPIC_API_KEY"`).
+   (e.g. `export GIT_USER_NAME='Your Name'`) and secret placeholders (e.g.
+   `export ANTHROPIC_API_KEY=SANDCAT_PLACEHOLDER_ANTHROPIC_API_KEY`).
 3. App containers mount `mitmproxy-config` read-only at `/mitmproxy-config/`.
    The shared entrypoint (`app-init.sh`) sources `sandcat.env` after installing
    the CA cert, so every process gets the env vars and placeholder values.
