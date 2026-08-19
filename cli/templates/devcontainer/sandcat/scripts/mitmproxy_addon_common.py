@@ -45,6 +45,7 @@ import json
 import logging
 import os
 import re
+import shlex
 import subprocess
 import sys
 from fnmatch import fnmatch
@@ -652,17 +653,6 @@ class SandcatAddon:
     # ----------------------------------------------------------- env writer
 
     @staticmethod
-    def _shell_escape(value: str) -> str:
-        """Escape a string for safe inclusion inside double quotes in shell."""
-        return (
-            value.replace("\\", "\\\\")
-                 .replace('"', '\\"')
-                 .replace("$", "\\$")
-                 .replace("`", "\\`")
-                 .replace("\n", "\\n")
-        )
-
-    @staticmethod
     def _validate_env_name(name: str):
         """Raise ValueError if name is not a valid shell variable name."""
         if not _VALID_ENV_NAME.match(name):
@@ -673,10 +663,10 @@ class SandcatAddon:
         # Non-secret env vars (e.g. git identity) — passed through as-is.
         for name, value in self.env.items():
             self._validate_env_name(name)
-            lines.append(f'export {name}="{self._shell_escape(value)}"')
+            lines.append(f"export {name}={shlex.quote(value)}")
         for name, entry in self.secrets.items():
             self._validate_env_name(name)
-            lines.append(f'export {name}="{self._shell_escape(entry["placeholder"])}"')
+            lines.append(f"export {name}={shlex.quote(entry['placeholder'])}")
         self._atomic_write_text(SANDCAT_ENV_PATH, "\n".join(lines) + "\n")
 
     def _write_cursor_cli_config(self, merged: dict):

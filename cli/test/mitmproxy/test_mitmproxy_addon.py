@@ -15,6 +15,7 @@ import importlib
 import json
 import os
 import re
+import shlex
 import sys
 import types
 from pathlib import Path
@@ -896,8 +897,8 @@ class TestConfigLoading:
              patch(f"{_COMMON}.SANDCAT_ENV_PATH", str(env_path)):
             addon.load(MagicMock())
         content = env_path.read_text()
-        assert 'export A="SANDCAT_PLACEHOLDER_A"' in content
-        assert 'export B="SANDCAT_PLACEHOLDER_B"' in content
+        assert "export A=SANDCAT_PLACEHOLDER_A" in content
+        assert "export B=SANDCAT_PLACEHOLDER_B" in content
 
     def test_env_vars_written_to_placeholders_env(self, addon_cls, tmp_path):
         settings = {
@@ -912,9 +913,9 @@ class TestConfigLoading:
              patch(f"{_COMMON}.SANDCAT_ENV_PATH", str(env_path)):
             addon.load(MagicMock())
         content = env_path.read_text()
-        assert 'export GIT_USER_NAME="Alice"' in content
-        assert 'export GIT_USER_EMAIL="alice@example.com"' in content
-        assert 'export K="SANDCAT_PLACEHOLDER_K"' in content
+        assert "export GIT_USER_NAME=Alice" in content
+        assert "export GIT_USER_EMAIL=alice@example.com" in content
+        assert "export K=SANDCAT_PLACEHOLDER_K" in content
 
     def test_env_vars_partial(self, addon_cls, tmp_path):
         settings = {"env": {"EDITOR": "vim"}}
@@ -926,7 +927,7 @@ class TestConfigLoading:
              patch(f"{_COMMON}.SANDCAT_ENV_PATH", str(env_path)):
             addon.load(MagicMock())
         content = env_path.read_text()
-        assert 'export EDITOR="vim"' in content
+        assert "export EDITOR=vim" in content
 
     def test_missing_env_section_omits_vars(self, addon_cls, tmp_path):
         settings = {"secrets": {"K": {"value": "v", "hosts": []}}}
@@ -957,7 +958,7 @@ class TestShellEscaping:
              patch(f"{_COMMON}.SANDCAT_ENV_PATH", str(env_path)):
             addon.load(MagicMock())
         content = env_path.read_text()
-        assert 'export X="val\\"ue"' in content
+        assert "export X='val\"ue'" in content
 
     def test_backslashes_escaped(self, addon_cls, tmp_path):
         settings = {"env": {"X": "a\\b"}}
@@ -969,7 +970,7 @@ class TestShellEscaping:
              patch(f"{_COMMON}.SANDCAT_ENV_PATH", str(env_path)):
             addon.load(MagicMock())
         content = env_path.read_text()
-        assert 'export X="a\\\\b"' in content
+        assert "export X='a\\b'" in content
 
     def test_dollar_and_backtick_escaped(self, addon_cls, tmp_path):
         settings = {"env": {"X": "$(rm -rf /)`cmd`"}}
@@ -981,23 +982,60 @@ class TestShellEscaping:
              patch(f"{_COMMON}.SANDCAT_ENV_PATH", str(env_path)):
             addon.load(MagicMock())
         content = env_path.read_text()
-        assert 'export X="\\$(rm -rf /)\\`cmd\\`"' in content
+        assert "export X='$(rm -rf /)`cmd`'" in content
+        # Round-trip is the real contract: what a shell would actually see
+        # when it sources sandcat.env. The hostile value must come back
+        # byte-for-byte, not just "look escaped" in the raw file text.
+        line = next(l for l in content.splitlines() if l.startswith("export X="))
+        assert shlex.split(line) == ["export", "X=$(rm -rf /)`cmd`"]
 
 
-class TestShellEscapingStaticHelpers:
-    """Static helpers live in the shared library; both variants reuse them."""
+class TestShlexEnvQuoting:
+    """`_write_placeholders_env` quotes via ``shlex.quote``; lock its properties
+    directly (shared by both addon variants — inherited, not overridden)."""
 
-    def test_newlines_escaped(self):
-        assert BaseAddon._shell_escape("line1\nline2") == "line1\\nline2"
+    @staticmethod
+    def _write(tmp_path, value):
+        addon = BaseAddon()
+        addon.env = {"X": value}
+        env_path = tmp_path / "sandcat.env"
+        with patch(f"{_COMMON}.SANDCAT_ENV_PATH", str(env_path)):
+            addon._write_placeholders_env()
+        return env_path.read_text()
 
-    def test_plain_values_unchanged(self):
-        assert BaseAddon._shell_escape("hello world") == "hello world"
-        assert BaseAddon._shell_escape("sk-ant-abc123") == "sk-ant-abc123"
+    def test_safe_value_emitted_bare(self, tmp_path):
+        content = self._write(tmp_path, "sk-ant-abc123")
+        assert content == "export X=sk-ant-abc123\n"
+
+    def test_value_with_spaces_single_quoted(self, tmp_path):
+        content = self._write(tmp_path, "hello world")
+        line = content.splitlines()[0]
+        assert line == "export X='hello world'"
+        assert shlex.split(line) == ["export", "X=hello world"]
+
+    def test_embedded_single_quote_round_trips(self, tmp_path):
+        value = "it's a test"
+        content = self._write(tmp_path, value)
+        assert shlex.split(content) == ["export", f"X={value}"]
+
+    def test_literal_newline_preserved(self, tmp_path):
+        # Regression: the old hand-rolled escaper turned a real newline into
+        # the two-character sequence "\n", corrupting the value. shlex.quote
+        # single-quotes it instead, keeping the newline byte-for-byte.
+        value = "line1\nline2"
+        content = self._write(tmp_path, value)
+        assert shlex.split(content) == ["export", f"X={value}"]
+
+    def test_exclamation_quoted(self, tmp_path):
+        content = self._write(tmp_path, "hello!")
+        line = content.splitlines()[0]
+        assert line == "export X='hello!'"
+        assert shlex.split(line) == ["export", "X=hello!"]
 
     def test_helpers_inherited_by_variants(self):
-        # Sanity: subclasses inherit the same helper from the base.
-        assert ClaudeAddon._shell_escape == BaseAddon._shell_escape
-        assert CursorAddon._shell_escape == BaseAddon._shell_escape
+        # Sanity: subclasses inherit the shared env writer from the base.
+        assert ClaudeAddon._write_placeholders_env == BaseAddon._write_placeholders_env
+        assert CursorAddon._write_placeholders_env == BaseAddon._write_placeholders_env
 
 
 # ---------------------------------------------------------------------------
@@ -1141,7 +1179,7 @@ class TestOpSecretResolution:
             addon.load(MagicMock())
         assert addon.secrets["API_KEY"]["value"] == "resolved-secret"
         content = env_path.read_text()
-        assert 'export API_KEY="SANDCAT_PLACEHOLDER_API_KEY"' in content
+        assert "export API_KEY=SANDCAT_PLACEHOLDER_API_KEY" in content
 
     def test_op_failure_logs_warning_and_continues(self, addon_cls, tmp_path):
         settings = {"secrets": {
@@ -2221,7 +2259,7 @@ class TestCursorDebugFlag:
             addon.load(MagicMock())
         written = env_path.read_text()
         assert "SANDCAT_MITM_DEBUG" not in written
-        assert 'export GIT_USER_NAME="dev"' in written
+        assert "export GIT_USER_NAME=dev" in written
 
     def test_debug_logs_to_stderr_on_request(self, tmp_path, monkeypatch, capsys):
         monkeypatch.delenv("SANDCAT_MITM_DEBUG", raising=False)
