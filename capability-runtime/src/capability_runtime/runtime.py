@@ -400,13 +400,15 @@ class CapabilityRuntime:
         _assert_caller(caller, agent_id)
         # Check capability exists
         state = self.catalog.get_state(capability_ref)
-        # REVOKED is intentionally not leasable from the agent surface: operator
-        # revoke acts as a durable stop until lifecycle state changes externally.
+        # catalog JSON is the declaration; REVOKED is re-leasable from the operator
+        # lease surface without sidecar restart (same as EXPIRED).
+        # Only LEASED is excluded to prevent double-grant.
         leasable = {
             LifecycleState.DECLARED,
             LifecycleState.DISCOVERABLE,
             LifecycleState.VISIBLE,
             LifecycleState.EXPIRED,
+            LifecycleState.REVOKED,
         }
         if state not in leasable:
             raise CapabilityUnknown(capability_ref)
@@ -456,8 +458,13 @@ class CapabilityRuntime:
                 # Attempt to enable the binding via NetBird
                 try:
                     updated_binding = grant_network_binding(self._netbird_backend, binding)
-                    # Update the binding in catalog if route_id changed
-                    if updated_binding.route_id != binding.route_id:
+                    # Persist any resolved fields (peer_id, network, route_id) so
+                    # RouteDisappearanceWatcher tracks the current peer, not a stale one.
+                    if (
+                        updated_binding.peer_id != binding.peer_id
+                        or updated_binding.network != binding.network
+                        or updated_binding.route_id != binding.route_id
+                    ):
                         self.catalog.set_network_binding(capability_ref, updated_binding)
                         binding = updated_binding
                     physical_sync_status = "enabled"
@@ -671,8 +678,11 @@ class CapabilityRuntime:
                     if physical_error is not None:
                         raise physical_error
 
-                self.catalog.set_state(lease.capability_ref, LifecycleState.EXPIRED)
+                # revoke_by_lease before set_state so EXPIRED is the final state
+                # (revoke_by_lease internally calls set_state(REVOKED); we then
+                # overwrite to EXPIRED so re-lease works identically to TTL expiry).
                 self.revocation_manager.revoke_by_lease(lease_id, "quota exhausted")
+                self.catalog.set_state(lease.capability_ref, LifecycleState.EXPIRED)
                 self._bundle_version += 1
                 self._current_bundles[agent_id] = self._bundle_version
 
