@@ -128,10 +128,11 @@ teardown() {
     assert_output --partial "Usage"
 }
 
-@test "netbird server without subcommand prints usage and fails" {
+@test "netbird server is not a subcommand" {
     run bash "$NETBIRD_CMD" server
     assert_failure
-    assert_output --partial "Unknown server subcommand"
+    assert_output --partial "Usage"
+    refute_output --partial "server start"
 }
 
 @test "sandcat netbird status routes subcommand through module dispatcher" {

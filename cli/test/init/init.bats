@@ -203,7 +203,7 @@ teardown() {
 	stub devcontainer \
 		"--settings-file .sandcat/settings.json --project-path * --agent claude --ide vscode --name test --stacks * --proxy web --secret-provider none --netbird : :"
 
-	run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" --stacks "" --proxy web --features "" --secret-provider none --netbird --netbird-server cloud
+	run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" --stacks "" --proxy web --features "" --secret-provider none --netbird
 	assert_success
 }
 
@@ -211,7 +211,7 @@ teardown() {
 	stub settings "$PROJECT_DIR/.sandcat/settings.json claude vscode : :"
 	stub devcontainer ":"
 
-	run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" --stacks "" --proxy web --features "" --secret-provider none --netbird --netbird-server cloud
+	run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" --stacks "" --proxy web --features "" --secret-provider none --netbird
 	assert_success
 	run yq '.netbird_enrollment_key' "$SCT_HOME_DIR/settings.json"
 	assert_output '""'
@@ -221,191 +221,66 @@ teardown() {
 	assert_output '""'
 }
 
-@test "init rejects --netbird-server without --netbird" {
-	run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" --stacks "" --proxy web --features "" --secret-provider none --netbird-server cloud
+@test "init rejects --netbird-management-url without --netbird" {
+	run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" --stacks "" --proxy web --features "" --secret-provider none --netbird-management-url https://netbird.example.com
 	assert_failure
-	assert_output --partial "--netbird-server requires --netbird"
+	assert_output --partial "--netbird-management-url requires --netbird"
 }
 
-@test "init rejects invalid --netbird-server value" {
-	run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" --stacks "" --proxy web --features "" --secret-provider none --netbird --netbird-server invalid
+@test "init treats --netbird-server as an unknown option" {
+	run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" --stacks "" --proxy web --features "" --secret-provider none --netbird --netbird-server cloud
 	assert_failure
-	assert_output --partial "Invalid NetBird server mode: invalid"
+	assert_output --partial "Unknown option: --netbird-server"
 }
 
-@test "init --netbird-server URL persists management server immediately" {
+@test "init --netbird-management-url persists management server immediately" {
 	stub settings "$PROJECT_DIR/.sandcat/settings.json claude vscode : :"
 	stub devcontainer \
 		"--settings-file .sandcat/settings.json --project-path * --agent claude --ide vscode --name test --stacks * --proxy web --secret-provider none --netbird-management-url https://management.example.com --netbird : :"
 
-	run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" --stacks "" --proxy web --features "" --secret-provider none --netbird --netbird-server https://management.example.com
+	run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" --stacks "" --proxy web --features "" --secret-provider none --netbird --netbird-management-url https://management.example.com
 	assert_success
 	run yq -r '.netbird_management_url' "$SCT_HOME_DIR/settings.json"
 	assert_output "https://management.example.com"
 }
 
-@test "init forwards selected netbird management URL to devcontainer args" {
+@test "init forwards --netbird-management-url to devcontainer args" {
 	stub settings "$PROJECT_DIR/.sandcat/settings.json claude vscode : :"
 	stub devcontainer \
 		"--settings-file .sandcat/settings.json --project-path * --agent claude --ide vscode --name test --stacks * --proxy web --secret-provider none --netbird-management-url https://selected.example.com --netbird : :"
 
-	run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" --stacks "" --proxy web --features "" --secret-provider none --netbird --netbird-server https://selected.example.com
+	run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" --stacks "" --proxy web --features "" --secret-provider none --netbird --netbird-management-url https://selected.example.com
 	assert_success
 }
 
-@test "init --netbird-server cloud uses cloud summary and clears management URL" {
+@test "init --netbird without management URL uses cloud summary" {
 	stub settings "$PROJECT_DIR/.sandcat/settings.json claude vscode : :"
 	stub devcontainer \
 		"--settings-file .sandcat/settings.json --project-path * --agent claude --ide vscode --name test --stacks * --proxy web --secret-provider none --netbird : :"
 
-	run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" --stacks "" --proxy web --features "" --secret-provider none --netbird --netbird-server cloud
+	run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" --stacks "" --proxy web --features "" --secret-provider none --netbird
 	assert_success
 	assert_output --partial "Management server: cloud (https://api.netbird.io)"
+	assert_output --partial "docs/examples/netbird-server/"
 	run yq -r '.netbird_management_url' "$SCT_HOME_DIR/settings.json"
 	assert_output ""
 }
 
-@test "init --netbird-server new provisions local template and uses default URL" {
+@test "init interactive netbird existing re-prompts for non-empty URL" {
 	unset -f read_line
-	unset -f provision_netbird_server_template
-
-	stub settings "$PROJECT_DIR/.sandcat/settings.json claude vscode : :"
-	stub devcontainer \
-		"--settings-file .sandcat/settings.json --project-path * --agent claude --ide vscode --name test --stacks * --proxy web --secret-provider none --netbird-management-url http://localhost:33073 --netbird : :"
-	stub provision_netbird_server_template ":"
-	read_line() {
-		echo "read_line should not be called for --netbird-server new" >&2
-		return 88
-	}
-	export -f read_line
-
-	run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" --stacks "" --proxy web --features "" --secret-provider none --netbird --netbird-server new
-	assert_success
-	assert_output --partial "Management server: http://localhost:33073"
-	assert_output --partial "Local template: ~/.config/sandcat/netbird-server/"
-	assert_output --partial "sandcat netbird server start"
-	assert_output --partial "http://localhost:8080"
-	run yq -r '.netbird_management_url' "$SCT_HOME_DIR/settings.json"
-	assert_output "http://localhost:33073"
-}
-
-@test "init --netbird-server quickstart prints install hint without provisioning" {
-	unset -f read_line
-	unset -f provision_netbird_server_template
-
-	stub settings "$PROJECT_DIR/.sandcat/settings.json claude vscode : :"
-	stub devcontainer \
-		"--settings-file .sandcat/settings.json --project-path * --agent claude --ide vscode --name test --stacks * --proxy web --secret-provider none --netbird : :"
-	provision_netbird_server_template() {
-		echo "provision_netbird_server_template should not be called for quickstart" >&2
-		return 88
-	}
-	export -f provision_netbird_server_template
-
-	run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" --stacks "" --proxy web --features "" --secret-provider none --netbird --netbird-server quickstart
-	assert_success
-	assert_output --partial "getting-started.sh"
-	assert_output --partial "selfhosted-quickstart"
-	run yq -r '.netbird_management_url' "$SCT_HOME_DIR/settings.json"
-	assert_output ""
-}
-
-@test "init interactive netbird server new provisions local template" {
-	unset -f read_line
-	unset -f provision_netbird_server_template
-	unset -f netbird_detect_docker_host_ip
-
-	stub settings "$PROJECT_DIR/.sandcat/settings.json claude vscode : :"
-	stub devcontainer \
-		"--settings-file .sandcat/settings.json --project-path * --agent claude --ide vscode --name test --stacks * --proxy web --secret-provider none --netbird-management-url http://localhost:33073 --netbird : :"
-	stub provision_netbird_server_template ":"
-	stub netbird_detect_docker_host_ip "echo 192.168.1.50"
-	stub read_line \
-		"'>' : echo 3" \
-		"'Management URL [http://localhost:33073]:' : echo ''" \
-		"'Enrollment URL [http://192.168.1.50:33073]:' : echo ''"
-
-	run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" --stacks "" --proxy web --features "" --secret-provider none --netbird
-	assert_success
-	assert_output --partial "3) self-hosted — local template (localhost)"
-	assert_output --partial "Local template: ~/.config/sandcat/netbird-server/"
-	run yq -r '.netbird_management_url' "$SCT_HOME_DIR/settings.json"
-	assert_output "http://localhost:33073"
-}
-
-@test "init interactive netbird server new persists container-reachable enrollment URL" {
-	unset -f read_line
-	unset -f provision_netbird_server_template
-	unset -f netbird_detect_docker_host_ip
-
-	stub settings "$PROJECT_DIR/.sandcat/settings.json claude vscode : :"
-	stub devcontainer \
-		"--settings-file .sandcat/settings.json --project-path * --agent claude --ide vscode --name test --stacks * --proxy web --secret-provider none --netbird-management-url http://localhost:33073 --netbird : :"
-	stub provision_netbird_server_template ":"
-	stub netbird_detect_docker_host_ip "echo 192.168.1.50"
-	stub read_line \
-		"'>' : echo 3" \
-		"'Management URL [http://localhost:33073]:' : echo ''" \
-		"'Enrollment URL [http://192.168.1.50:33073]:' : echo ''"
-
-	run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" --stacks "" --proxy web --features "" --secret-provider none --netbird
-	assert_success
-	# localhost resolves to the container itself; without this setting
-	# enable_netbird emits no NB_MANAGEMENT_URL and netbird enrolls against cloud.
-	run yq -r '.netbird_enrollment_management_url' "$SCT_HOME_DIR/settings.json"
-	assert_output "http://192.168.1.50:33073"
-}
-
-@test "init interactive netbird quickstart prints install hint and accepts URL" {
-	unset -f read_line
-	unset -f provision_netbird_server_template
-
-	stub settings "$PROJECT_DIR/.sandcat/settings.json claude vscode : :"
-	stub devcontainer \
-		"--settings-file .sandcat/settings.json --project-path * --agent claude --ide vscode --name test --stacks * --proxy web --secret-provider none --netbird-management-url https://netbird.example.com --netbird : :"
-	stub read_line \
-		"'>' : echo 4" \
-		"'Management URL (e.g. https://netbird.example.com):' : echo 'https://netbird.example.com'"
-
-	run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" --stacks "" --proxy web --features "" --secret-provider none --netbird
-	assert_success
-	assert_output --partial "4) self-hosted — NetBird quickstart (VM + domain)"
-	assert_output --partial "getting-started.sh"
-	run yq -r '.netbird_management_url' "$SCT_HOME_DIR/settings.json"
-	assert_output "https://netbird.example.com"
-}
-
-@test "init interactive netbird quickstart re-prompts for non-empty URL" {
-	unset -f read_line
-
-	stub settings "$PROJECT_DIR/.sandcat/settings.json claude vscode : :"
-	stub devcontainer \
-		"--settings-file .sandcat/settings.json --project-path * --agent claude --ide vscode --name test --stacks * --proxy web --secret-provider none --netbird-management-url https://netbird.example.com --netbird : :"
-	stub read_line \
-		"'>' : echo 4" \
-		"'Management URL (e.g. https://netbird.example.com):' : echo ''" \
-		"'Management URL (e.g. https://netbird.example.com):' : echo 'https://netbird.example.com'"
-
-	run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" --stacks "" --proxy web --features "" --secret-provider none --netbird
-	assert_success
-	# An empty URL would silently enroll a self-hosted key against NetBird cloud.
-	assert_output --partial "URL is required for a self-hosted quickstart server"
-	run yq -r '.netbird_management_url' "$SCT_HOME_DIR/settings.json"
-	assert_output "https://netbird.example.com"
-}
-
-@test "init interactive netbird server existing re-prompts for non-empty URL" {
-	unset -f read_line
+	unset -f select_option
 
 	stub settings "$PROJECT_DIR/.sandcat/settings.json claude vscode : :"
 	stub devcontainer \
 		"--settings-file .sandcat/settings.json --project-path * --agent claude --ide vscode --name test --stacks * --proxy web --secret-provider none --netbird-management-url https://management.example.com --netbird : :"
+	stub select_option \
+		"'Select secret provider:' none 1password protonpass : echo none"
 	stub read_line \
 		"'>' : echo '2'" \
 		"'Management URL:' : echo ''" \
 		"'Management URL:' : echo 'https://management.example.com'"
 
-	run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" --stacks "" --proxy web --features "" --secret-provider none --netbird
+	run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" --stacks "" --proxy web --features "" --netbird
 	assert_success
 	assert_output --partial "URL is required"
 	run yq -r '.netbird_management_url' "$SCT_HOME_DIR/settings.json"
@@ -414,18 +289,45 @@ teardown() {
 
 @test "init interactive netbird existing accepts non-empty URL without format restriction" {
 	unset -f read_line
+	unset -f select_option
 
 	stub settings "$PROJECT_DIR/.sandcat/settings.json claude vscode : :"
 	stub devcontainer \
 		"--settings-file .sandcat/settings.json --project-path * --agent claude --ide vscode --name test --stacks * --proxy web --secret-provider none --netbird-management-url management.example.com --netbird : :"
+	stub select_option \
+		"'Select secret provider:' none 1password protonpass : echo none"
 	stub read_line \
 		"'>' : echo existing" \
 		"'Management URL:' : echo 'management.example.com'"
 
-	run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" --stacks "" --proxy web --features "" --secret-provider none --netbird
+	run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" --stacks "" --proxy web --features "" --netbird
 	assert_success
 	run yq -r '.netbird_management_url' "$SCT_HOME_DIR/settings.json"
 	assert_output "management.example.com"
+}
+
+@test "init interactive netbird existing localhost persists enrollment URL" {
+	unset -f read_line
+	unset -f select_option
+	unset -f netbird_detect_docker_host_ip
+
+	stub settings "$PROJECT_DIR/.sandcat/settings.json claude vscode : :"
+	stub devcontainer \
+		"--settings-file .sandcat/settings.json --project-path * --agent claude --ide vscode --name test --stacks * --proxy web --secret-provider none --netbird-management-url http://localhost:33073 --netbird : :"
+	stub select_option \
+		"'Select secret provider:' none 1password protonpass : echo none"
+	stub netbird_detect_docker_host_ip "echo 192.168.1.50"
+	stub read_line \
+		"'>' : echo 2" \
+		"'Management URL:' : echo 'http://localhost:33073'" \
+		"'Enrollment URL [http://192.168.1.50:33073]:' : echo ''"
+
+	run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" --stacks "" --proxy web --features "" --netbird
+	assert_success
+	run yq -r '.netbird_management_url' "$SCT_HOME_DIR/settings.json"
+	assert_output "http://localhost:33073"
+	run yq -r '.netbird_enrollment_management_url' "$SCT_HOME_DIR/settings.json"
+	assert_output "http://192.168.1.50:33073"
 }
 
 @test "init interactive flow (devcontainer mode)" {

@@ -18,22 +18,6 @@ source "$SCT_LIBDIR/agents.bash"
 # shellcheck source=../../lib/netbird.bash
 source "$SCT_LIBDIR/netbird.bash"
 
-# Prints instructions for the local template provisioned under ~/.config/sandcat/netbird-server.
-_print_netbird_local_template_hint() {
-	echo "    Local template: ~/.config/sandcat/netbird-server/" | info
-	echo "    Start:  sandcat netbird server start" | info
-	echo "    Dashboard: http://localhost:8080  (bootstrap via /api/setup first — see README.md there)" | info
-}
-
-# Prints instructions for installing a self-hosted NetBird server via the
-# official quickstart script (sandcat does not run the installer).
-_print_netbird_selfhosted_install_hint() {
-	echo "    Remote install (VM + public domain) — run yourself:" | info
-	echo "      curl -fsSL https://github.com/netbirdio/netbird/releases/latest/download/getting-started.sh | bash" | info
-	echo "    Docs: https://docs.netbird.io/selfhosted/selfhosted-quickstart#installation-script" | info
-	echo "    After install: open https://<your-domain>/setup to create the admin account" | info
-}
-
 # Returns the user settings template path for a selected agent.
 # Args:
 #   $1 - Agent name (claude, cursor)
@@ -129,7 +113,7 @@ add_secret_provider_tokens_to_user_settings() {
 #   --1password - Deprecated; same as --secret-provider 1password
 #   --features - Comma-separated optional non-provider features (tui)
 #   --capability - Enable capability-runtime sidecar (requires --netbird)
-#   --proxy-peer - Enable proxy-peer gateway stack (requires --netbird and --capability)
+#   --netbird-management-url - Existing NetBird management server URL (omit = cloud)
 init() {
 	require yq
 
@@ -146,18 +130,15 @@ init() {
 	local features_csv=""
 	local features_provided=false
 	local netbird="false"
-	local netbird_server=""
-	local netbird_server_provided=false
 	local netbird_management_url=""
-	local provisioned_netbird_server="false"
-	local netbird_selfhosted_quickstart="false"
+	local netbird_management_url_provided=false
 	local capability="false"
-	local proxy_peer="false"
+	local init_prompted=false
 
 	while [[ $# -gt 0 ]]
 	do
 		case $1 in
-		--name|--path|--agent|--ide|--stacks|--proxy|--features|--secret-provider|--sp|--netbird-server)
+		--name|--path|--agent|--ide|--stacks|--proxy|--features|--secret-provider|--sp|--netbird-management-url)
 			if [[ $# -lt 2 ]]; then
 				echo "Option $1 requires a value" | error
 				return 1
@@ -212,13 +193,9 @@ init() {
 			capability="true"
 			shift 1
 			;;
-		--proxy-peer)
-			proxy_peer="true"
-			shift 1
-			;;
-		--netbird-server)
-			netbird_server="$2"
-			netbird_server_provided=true
+		--netbird-management-url)
+			netbird_management_url="$2"
+			netbird_management_url_provided=true
 			shift 2
 			;;
 		*)
@@ -236,32 +213,17 @@ init() {
 		secret_provider="1password"
 		secret_provider_provided=true
 	fi
-	if [[ "$netbird_server_provided" == "true" && "$netbird" != "true" ]]; then
-		echo "--netbird-server requires --netbird" | error
+	if [[ "$netbird_management_url_provided" == "true" && "$netbird" != "true" ]]; then
+		echo "--netbird-management-url requires --netbird" | error
 		return 1
 	fi
 	if [[ "$capability" == "true" && "$netbird" != "true" ]]; then
 		echo "--capability requires --netbird" | error
 		return 1
 	fi
-	if [[ "$proxy_peer" == "true" && "$netbird" != "true" ]]; then
-		echo "--proxy-peer requires --netbird" | error
+	if [[ "$netbird_management_url_provided" == "true" && -z "$netbird_management_url" ]]; then
+		echo "--netbird-management-url requires a value" | error
 		return 1
-	fi
-	if [[ "$proxy_peer" == "true" && "$capability" != "true" ]]; then
-		echo "--proxy-peer requires --capability" | error
-		return 1
-	fi
-	if [[ "$netbird_server_provided" == "true" ]]; then
-		case "$netbird_server" in
-		cloud|new|quickstart|http://*|https://*)
-			:
-			;;
-		*)
-			echo "Invalid NetBird server mode: $netbird_server (expected: cloud, new, quickstart, or http(s)://... URL)" | error
-			return 1
-			;;
-		esac
 	fi
 
 	if [[ -z "$project_path" ]]
@@ -282,6 +244,7 @@ init() {
 	default_name="$(derive_project_name "$project_path")"
 	if [[ -z "$name" ]]
 	then
+		init_prompted=true
 		name=$(read_line "Project name [$default_name]:")
 	fi
 
@@ -289,6 +252,7 @@ init() {
 	read -ra available_agents <<< "$(sct_available_agents)"
 	if [[ -z "$agent" ]]
 	then
+		init_prompted=true
 		agent=$(select_option "Select agent:" "${available_agents[@]}")
 	elif ! sct_is_valid_agent "$agent"
 	then
@@ -306,6 +270,7 @@ init() {
 	local available_ides=(vscode jetbrains none)
 	if [[ -z "$ide" ]]
 	then
+		init_prompted=true
 		ide=$(select_option "Select IDE:" "${available_ides[@]}")
 	elif [[ ! " ${available_ides[*]} " =~ [[:space:]]${ide}[[:space:]] ]]
 	then
@@ -315,6 +280,7 @@ init() {
 
 	# Secret provider (none | 1password | protonpass)
 	if [[ "$secret_provider_provided" != "true" ]]; then
+		init_prompted=true
 		local existing_settings
 		existing_settings="$(sct_home)/settings.json"
 		if [[ -f "$existing_settings" ]] && \
@@ -335,6 +301,7 @@ init() {
 
 	# Optional non-provider features (tui → mitmproxy console)
 	if [[ "$features_provided" != "true" ]]; then
+		init_prompted=true
 		local available_features=("tui")
 		local selected_features
 		selected_features=$(select_multiple \
@@ -383,6 +350,7 @@ init() {
 		fi
 		stacks_resolved=$(resolve_stacks "${stacks_arr[@]}")
 	elif [[ "$stacks_provided" != "true" ]]; then
+		init_prompted=true
 		local selected
 		selected=$(select_multiple "Select development stacks (comma-separated numbers, empty for none):" "${STACK_NAMES[@]}")
 		if [[ -n "$selected" ]]; then
@@ -465,35 +433,24 @@ init() {
 			' "$user_settings"
 		fi
 
-		if [[ "$netbird_server_provided" == "true" ]]; then
-			case "$netbird_server" in
-			cloud)
-				netbird_management_url=""
-				;;
-			new)
-				provision_netbird_server_template
-				provisioned_netbird_server="true"
-				netbird_management_url="http://localhost:33073"
-				persist_netbird_management_url "$netbird_management_url"
-				;;
-			quickstart)
-				netbird_selfhosted_quickstart="true"
-				_print_netbird_selfhosted_install_hint
-				netbird_management_url=""
-				;;
-			http://*|https://*)
-				netbird_management_url="$netbird_server"
-				persist_netbird_management_url "$netbird_management_url"
-				;;
-			esac
-		else
+		maybe_prompt_enrollment_url() {
+			if [[ -z "$(netbird_enrollment_management_url_from "$netbird_management_url")" ]]; then
+				prompt_netbird_enrollment_url
+			fi
+		}
+
+		if [[ "$netbird_management_url_provided" == "true" ]]; then
+			persist_netbird_management_url "$netbird_management_url"
+			if [[ "$init_prompted" == "true" ]]; then
+				maybe_prompt_enrollment_url
+			fi
+		elif [[ "$init_prompted" == "true" ]]; then
 			local netbird_server_selection=""
 			while true; do
 				echo "NetBird management server [cloud]:" | info
 				echo "  1) cloud (api.netbird.io)" | info
 				echo "  2) self-hosted — I have a server running" | info
-				echo "  3) self-hosted — local template (localhost)" | info
-				echo "  4) self-hosted — NetBird quickstart (VM + domain)" | info
+				echo "  To create a server, see docs/examples/netbird-server/" | info
 				netbird_server_selection=$(read_line ">")
 				case "$netbird_server_selection" in
 				""|1|cloud)
@@ -504,16 +461,8 @@ init() {
 					netbird_server_selection="existing"
 					break
 					;;
-				3|new|local|self-hosted-local|self-hosted\ —\ local\ template|self-hosted\ new\ template|self-hosted\ —\ provision\ a\ new\ server\ from\ template)
-					netbird_server_selection="new"
-					break
-					;;
-				4|quickstart|self-hosted-quickstart|self-hosted\ —\ NetBird\ quickstart|self-hosted\ —\ install\ with\ NetBird\ quickstart)
-					netbird_server_selection="quickstart"
-					break
-					;;
 				*)
-					echo "Invalid NetBird management server selection: $netbird_server_selection (expected: cloud, existing, new, or quickstart)" | error
+					echo "Invalid NetBird management server selection: $netbird_server_selection (expected: cloud or existing)" | error
 					;;
 				esac
 			done
@@ -529,35 +478,14 @@ init() {
 						continue
 					fi
 					persist_netbird_management_url "$netbird_management_url"
+					maybe_prompt_enrollment_url
 					break
 				done
 				;;
-			new)
-				provision_netbird_server_template
-				provisioned_netbird_server="true"
-				_print_netbird_local_template_hint
-				netbird_management_url=$(read_line "Management URL [http://localhost:33073]:")
-				netbird_management_url="${netbird_management_url:-http://localhost:33073}"
-				persist_netbird_management_url "$netbird_management_url"
-				if [[ -z "$(netbird_enrollment_management_url_from "$netbird_management_url")" ]]; then
-					prompt_netbird_enrollment_url
-				fi
-				;;
-			quickstart)
-				netbird_selfhosted_quickstart="true"
-				_print_netbird_selfhosted_install_hint
-				# Quickstart is self-hosted by definition; an empty URL would
-				# silently enroll against NetBird cloud.
-				while true; do
-					netbird_management_url=$(read_line "Management URL (e.g. https://netbird.example.com):")
-					if [[ -n "$netbird_management_url" ]]; then
-						break
-					fi
-					echo "URL is required for a self-hosted quickstart server" | error
-				done
-				persist_netbird_management_url "$netbird_management_url"
-				;;
 			esac
+		else
+			# Fully flagged `--netbird` without `--netbird-management-url` is cloud.
+			netbird_management_url=""
 		fi
 
 		persist_netbird_management_url "$netbird_management_url"
@@ -582,9 +510,6 @@ init() {
 	fi
 	if [[ "$capability" == "true" ]]; then
 		devcontainer_args+=(--capability)
-	fi
-	if [[ "$proxy_peer" == "true" ]]; then
-		devcontainer_args+=(--proxy-peer)
 	fi
 	devcontainer "${devcontainer_args[@]}"
 
@@ -653,15 +578,9 @@ init() {
 			echo "    Management server: cloud (https://api.netbird.io)" | info
 		fi
 		echo "    Add keys to ~/.config/sandcat/settings.json:" | info
-		echo "      \"netbird_enrollment_key\": \"<setup-key>\"  (wg-client enrollment)" | info
+		echo "      \"netbird_enrollment_key\": \"<setup-key>\"  (mitmproxy enrollment)" | info
 		echo "      \"netbird_api_token\": \"<api-token>\"      (sandcat netbird commands)" | info
-		if [[ "$provisioned_netbird_server" == "true" ]]; then
-			_print_netbird_local_template_hint
-		fi
-		if [[ "$netbird_selfhosted_quickstart" == "true" ]]; then
-			_print_netbird_selfhosted_install_hint
-			echo "    Then set netbird_management_url or re-run init with --netbird-server https://<your-domain>" | info
-		fi
+		echo "    To run a self-hosted management server, see docs/examples/netbird-server/" | info
 	fi
 	echo "  Then run: sandcat run, or reopen the project using the dev container" | info
 }

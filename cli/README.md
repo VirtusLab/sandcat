@@ -29,14 +29,10 @@ Options:
   Adds a `capability-runtime` compose service, mounts a shared Unix socket volume
   into the agent container, and installs `capability-mcp-bridge` for Cursor MCP.
   NetBird API credentials stay in the sidecar — they are not injected into the agent.
-- `--proxy-peer` - Enable the proxy-peer gateway stack (requires `--netbird` and `--capability`).
-  Deploys a dedicated NetBird `proxy-peer` compose service and copies a Layer 1
-  mitmproxy settings example (`.sandcat/settings.proxy-peer.example.json`) for
-  deny-by-default egress. Pair with `--capability` for Layer 2 lease/revoke control.
-- `--netbird-server` - NetBird management server mode (requires `--netbird`):
-  `cloud` | `new` | `quickstart` | `<http(s)://url>`. `new` provisions a local
-  localhost template; `quickstart` prints the official NetBird install command for
-  a VM with a public domain.
+- `--netbird-management-url` - Existing NetBird management server URL (requires
+  `--netbird`). Omit to use NetBird Cloud (`https://api.netbird.io`). Sandcat
+  does not create or start a management server; see
+  [`docs/examples/netbird-server/`](../docs/examples/netbird-server/).
 - `--1password` - Deprecated alias for `--secret-provider 1password`
 - `--features` - Comma-separated optional non-provider features: `tui` (proxy console mode; prefer `--proxy tui`)
 - `--name` - Project name for Docker Compose (default: derived from directory name)
@@ -65,8 +61,9 @@ sandcat init --agent claude --ide vscode --netbird --name myproject
 # With NetBird + capability sidecar (reachability == capability)
 sandcat init --agent cursor --ide vscode --netbird --capability --name myproject
 
-# With NetBird + proxy-peer gateway (two-layer control)
-sandcat init --agent cursor --ide vscode --netbird --capability --proxy-peer --name myproject
+# Point at an existing self-hosted management server
+sandcat init --agent cursor --ide vscode --netbird \
+  --netbird-management-url https://netbird.example.com --name myproject
 ```
 
 #### Proton Pass setup (scoped Personal Access Token)
@@ -249,8 +246,8 @@ NetBird uses **two separate credentials**. Both go in `~/.config/sandcat/setting
 |-------------|----------|-----------------|
 | `netbird_enrollment_key` | Enrolling mitmproxy as a mesh peer (`NB_SETUP_KEY`) | NetBird dashboard → **Setup Keys** |
 | `netbird_api_token` | `sandcat netbird` CLI commands on your host | NetBird dashboard → **API Keys** (Personal Access Token) |
-| `netbird_management_url` | Host-side management API (`sandcat netbird`, browser) | `http://localhost:33073` for local template |
-| `netbird_enrollment_management_url` | mitmproxy enrollment URL (container cannot use `localhost`) | See [local self-hosted](#local-self-hosted-sandcat-template) below |
+| `netbird_management_url` | Host-side management API (`sandcat netbird`, browser) | Empty = cloud; otherwise your server URL |
+| `netbird_enrollment_management_url` | mitmproxy enrollment URL (container cannot use `localhost`) | Docker host LAN IP for a local server; see [docs/examples/netbird-server](../docs/examples/netbird-server/) |
 
 **Before `sandcat netbird status` works**, you must complete steps 1–4 below.
 Container enrollment (`netbird_enrollment_key`) is separate from host CLI control
@@ -282,44 +279,34 @@ settings override user settings when non-empty). Environment variables
 
 ### Management server
 
-Choose one management server mode during `sandcat init --netbird`:
+Sandcat configures connection details; it does not create or lifecycle a
+NetBird management server.
 
-- `cloud` — uses NetBird Cloud (`https://api.netbird.io`).
-- Existing self-hosted URL — pass `--netbird-server <http(s)://url>`.
-- **Local** — `--netbird-server new` provisions a localhost template to
-  `~/.config/sandcat/netbird-server/` (dashboard on **http://localhost:8080**,
-  management API on **http://localhost:33073**).
-- **Remote (VM + domain)** — `--netbird-server quickstart` prints the official
-  NetBird install command; you run it yourself, then point sandcat at your server URL.
-
-Canonical non-interactive invocations:
+- **Cloud** — omit `--netbird-management-url` (defaults to `https://api.netbird.io`).
+- **Existing self-hosted** — pass `--netbird-management-url <http(s)://url>`.
+- **Run a local server yourself** — follow
+  [`docs/examples/netbird-server/`](../docs/examples/netbird-server/), then
+  point sandcat at it.
 
 ```bash
 # Cloud
-sandcat init --agent claude --ide vscode --netbird --netbird-server cloud --name myproject
+sandcat init --agent claude --ide vscode --netbird --name myproject
 
 # Existing self-hosted management server
-sandcat init --agent claude --ide vscode --netbird --netbird-server https://netbird.example.com --name myproject
-
-# Local self-hosted (provisions localhost template)
-sandcat init --agent claude --ide vscode --netbird --netbird-server new --name myproject
-
-# Remote self-hosted (prints quickstart install command)
-sandcat init --agent claude --ide vscode --netbird --netbird-server quickstart --name myproject
-sandcat init --agent claude --ide vscode --netbird --netbird-server https://netbird.example.com --name myproject
+sandcat init --agent claude --ide vscode --netbird \
+  --netbird-management-url https://netbird.example.com --name myproject
 ```
 
-### Local self-hosted (sandcat template)
+Interactive `sandcat init --netbird` (when other options are also prompted)
+offers cloud vs “I have a server running”.
 
-For development on your machine without a public domain:
+### Local self-hosted
 
-```bash
-sandcat init --netbird --netbird-server new ...
-sandcat netbird server start
-```
+For development on your machine without a public domain, run the compose
+stack in [`docs/examples/netbird-server/`](../docs/examples/netbird-server/)
+yourself (`docker compose --env-file netbird-server.env up -d`). Then:
 
-1. Bootstrap admin: `POST http://localhost:33073/api/setup` (see
-   `~/.config/sandcat/netbird-server/README.md`).
+1. Bootstrap admin: `POST http://localhost:33073/api/setup` (see the example README).
 2. Open **http://localhost:8080** and sign in.
 3. Create setup key + API token in the dashboard.
 4. Set credentials in `~/.config/sandcat/settings.json` (or project
@@ -334,7 +321,7 @@ sandcat netbird server start
 }
 ```
 
-**Finding the Docker host IP** (wg-client cannot use `localhost`):
+**Finding the Docker host IP** (mitmproxy cannot use `localhost`):
 
 ```bash
 # Colima
@@ -344,25 +331,17 @@ colima status -j | jq -r '.network.gateway_address'
 docker run --rm alpine getent ahostsv4 host.docker.internal | awk '{print $1; exit}'
 ```
 
-Use that IP in `netbird_enrollment_management_url`, then recreate mitmproxy to
-re-enroll:
+Set `server.exposedAddress` in the example `config.yaml` to the same host IP,
+recreate the netbird-server container, then recreate mitmproxy:
 
 ```bash
-sandcat run --force-recreate mitmproxy
-```
-
-Sandcat also syncs `~/.config/sandcat/netbird-server/config.yaml` `exposedAddress` to
-match `netbird_enrollment_management_url`. **Restart netbird-server** after the first
-sync (or when you change the enrollment IP):
-
-```bash
-sandcat netbird server start --force-recreate netbird-server
+sandcat init --netbird --netbird-management-url http://localhost:33073 ...
 sandcat run --force-recreate mitmproxy
 ```
 
 ### Remote self-hosted (NetBird quickstart)
 
-For a VM with a public domain, sandcat does **not** run the installer. Use the
+For a VM with a public domain, use the
 [official quickstart](https://docs.netbird.io/selfhosted/selfhosted-quickstart#installation-script):
 
 ```bash
@@ -390,17 +369,12 @@ For scripted bootstrap instead of the dashboard setup page, see
 "netbird_api_token": "<api-token>"
 ```
 
-Re-run `sandcat init --netbird --netbird-server https://netbird.example.com ...`
+Re-run `sandcat init --netbird --netbird-management-url https://netbird.example.com ...`
 or edit `~/.config/sandcat/settings.json` directly, then `sandcat run`.
 
 ### Runtime control
 
 ```bash
-# Local self-hosted server (after sandcat init --netbird-server new)
-sandcat netbird server start
-sandcat netbird server status
-sandcat netbird server stop
-
 # List current peers
 sandcat netbird status
 
@@ -477,9 +451,6 @@ sandcat capability revoke --ref cap-reach-api --reason policy
 
 # Foreground route-watcher poll loop (debugging)
 sandcat capability watch
-
-# End-to-end smoke demo
-sandcat capability demo
 ```
 
 ### Security boundary
@@ -558,96 +529,14 @@ Replace placeholders in `capability-catalog.json` before leasing `reach_api`:
 
 **Migration note:** If you previously used a `wg-client` peer as `peer_id` in your catalog, replace it with the mitmproxy peer ID. Remove the old `wg-client` peer from the NetBird dashboard.
 
-## Proxy-peer gateway (Phase 3e)
+## Optional mesh gateway (proxy-peer)
 
-When initialized with `--proxy-peer` (requires `--netbird` and `--capability`), sandcat deploys a
-dedicated NetBird `proxy-peer` gateway peer and operationalizes a **two-layer**
-control model for agent egress:
-
-```
-Layer 1 — static mitmproxy baseline (always on)
-  deny-by-default; only proxy-peer FQDN ({project}-proxy-peer.netbird.selfhosted):8080 allowed
-
-Layer 2 — dynamic NetBird lease/revoke (capability-runtime)
-  lease enables route to proxy-peer; revoke or quota exhaustion disables it
-```
-
-| Layer | Mechanism | What it controls |
-|-------|-----------|------------------|
-| **Layer 1** | mitmproxy `network` rules in `.sandcat/settings.json` | Static egress menu — agent can only reach the proxy-peer gateway on port 8080 |
-| **Layer 2** | `capability-runtime` + NetBird route sync (Phase 3c) | Dynamic reachability — route to proxy-peer exists only while leased |
-
-Layer 1 blocks direct egress (e.g. `curl https://example.com`) even when Layer 2
-has no active lease. Layer 2 gates whether the agent can actually reach the
-proxy-peer mesh endpoint at all.
-
-### Setup
-
-```bash
-sandcat init --agent cursor --ide vscode --netbird --capability --proxy-peer --name myproject
-docker compose -f .devcontainer/sandcat/compose-proxy-peer.yml up -d --build
-sandcat compose up -d
-```
-
-Init copies the Layer 1 template from
-[`templates/settings-proxy-peer.json`](templates/settings-proxy-peer.json) to
-`.sandcat/settings.proxy-peer.example.json`. Init also writes project-scoped peer
-names into `.sandcat/settings.json`:
-
-- `netbird_peer_name_proxy` — mitmproxy peer (default `{project}-proxy`)
-- `netbird_peer_name_proxy_peer` — proxy-peer gateway (default `{project}-proxy-peer`)
-
-The template uses a stable NetBird FQDN placeholder that init rewrites to
-`{project}-proxy-peer.netbird.selfhosted`:
-
-```json
-{
-  "network": [
-    {
-      "action": "allow",
-      "host": "myproject-proxy-peer.netbird.selfhosted",
-      "port": 8080,
-      "comment": "Layer 1 NetBird DNS mode: stable FQDN survives proxy-peer recreate."
-    }
-  ]
-}
-```
-
-### Operator merge workflow (NetBird DNS mode — recommended)
-
-The default template targets `{project}-proxy-peer.netbird.selfhosted` — no manual IP
-editing required after proxy-peer recreate, as long as the NetBird peer name
-stays stable (override via `netbird_peer_name_proxy_peer` in `.sandcat/settings.json`).
-
-**One-time dashboard prerequisite:** enable DNS / Nameservers for group **All**
-in the NetBird management dashboard. This publishes the nameserver to enrolled
-peers so that `myproject-proxy-peer.netbird.selfhosted` resolves inside the agent.
-
-1. Merge the example into project settings:
-   - **Copy:** `cp .sandcat/settings.proxy-peer.example.json .sandcat/settings.json`
-   - **Merge:** add the `network` array from the example into your existing `.sandcat/settings.json`
-2. `sandcat restart-proxy` — reload mitmproxy with the Layer 1 profile.
-3. Verify DNS inside wg-client: `getent hosts myproject-proxy-peer.netbird.selfhosted`
-
-`capability-catalog.json` already has `dns_label: "myproject-proxy-peer.netbird.selfhosted"` for `cap-reach-proxy` (set by init from `netbird_peer_name_proxy_peer`). No IP to update after recreate.
-
-```bash
-sandcat capability lease --ref cap-reach-proxy --justification "need gateway access"
-sandcat run curl -sf http://myproject-proxy-peer.netbird.selfhosted:8080/hello   # succeeds while leased
-sandcat capability revoke --ref cap-reach-proxy --reason done
-```
-
-### IP-only fallback (NetBird DNS not enabled)
-
-If the NetBird dashboard DNS is not configured, use the mesh IP directly:
-
-1. `sandcat netbird status` — note the `proxy-peer` peer's mesh IP (e.g. `100.64.0.5`).
-2. In `.sandcat/settings.json` replace the `host` value with the mesh IP.
-3. In `capability-catalog.json` set `peer_id` and `network: "<mesh-ip>/32"` directly (omit `dns_label`).
-4. `sandcat restart-proxy` + restart capability-runtime.
-
-Without an active lease, traffic to the proxy-peer endpoint times out even though
-Layer 1 allows the host:port in mitmproxy.
+Sandcat does not create a proxy-peer container. To run a small NetBird-enrolled
+HTTP gateway beside the project and lease it via capability-runtime `dns_label`,
+follow [`docs/examples/proxy-peer/`](../docs/examples/proxy-peer/). Init with
+`--netbird --capability` still enrolls the mitmproxy peer
+(`netbird_peer_name_proxy`, default `{project}-proxy`); add the gateway catalog
+entry and Layer 1 allow rule by hand.
 
 ### Usage-metered quota (L7 record)
 

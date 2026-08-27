@@ -392,61 +392,6 @@ apply_netbird_build_args() {
 	" "$compose_file"
 }
 
-# Copies proxy-peer compose stack, registers its include, and injects NetBird
-# build args. Without the include the copied file is inert and the proxy-peer
-# service never joins the stack.
-# Idempotent: skips the include when already present.
-# Args:
-#   $1 - Path to the devcontainer directory (parent of sandcat/)
-#   $2 - NetBird peer hostname for proxy-peer (e.g. myapp-sandbox-proxy-peer)
-enable_proxy_peer() {
-	require yq
-	local compose_dir=$1
-	local peer_name=${2:-}
-	local src="$SCT_TEMPLATEDIR/devcontainer/sandcat/compose-proxy-peer.yml"
-	local dst="$compose_dir/sandcat/compose-proxy-peer.yml"
-
-	[[ -n "$peer_name" ]] || {
-		echo "enable_proxy_peer: peer name (\$2) is required" >&2
-		return 1
-	}
-
-	cp "$src" "$dst"
-	cp "$SCT_TEMPLATEDIR/devcontainer/sandcat/Dockerfile.proxy-peer" "$compose_dir/sandcat/"
-	cp "$SCT_TEMPLATEDIR/devcontainer/sandcat/scripts/proxy-peer-init.sh" "$compose_dir/sandcat/scripts/"
-	cp "$SCT_TEMPLATEDIR/devcontainer/sandcat/scripts/proxy-peer-hello.py" "$compose_dir/sandcat/scripts/"
-	cp "$SCT_TEMPLATEDIR/devcontainer/sandcat/scripts/netbird-peer-lifecycle.sh" "$compose_dir/sandcat/scripts/"
-	apply_netbird_build_args "$dst" "proxy-peer"
-
-	peer_name="$peer_name" yq -i '
-		.services."proxy-peer".hostname = env(peer_name) |
-		.services."proxy-peer".environment = (
-			(.services."proxy-peer".environment // [])
-			| map(select(test("^NB_PEER_NAME=") | not))
-		) + ["NB_PEER_NAME=" + env(peer_name)]
-	' "$dst"
-
-	local has_api_token
-	has_api_token=$(yq '[(.services."proxy-peer".environment // [])[] | select(. == "NB_API_TOKEN")] | length' "$dst")
-	if [[ "$has_api_token" -eq 0 ]]; then
-		yq -i '.services."proxy-peer".environment = ((.services."proxy-peer".environment // []) + ["NB_API_TOKEN"])' "$dst"
-	fi
-
-	local has_state_vol
-	has_state_vol=$(yq '[(.services."proxy-peer".volumes // [])[] | select(. == "netbird-proxy-peer-state:/var/lib/netbird")] | length' "$dst")
-	if [[ "$has_state_vol" -eq 0 ]]; then
-		yq -i '.services."proxy-peer".volumes += ["netbird-proxy-peer-state:/var/lib/netbird"]' "$dst"
-	fi
-	yq -i '.volumes."netbird-proxy-peer-state" = (.volumes."netbird-proxy-peer-state" // {})' "$dst"
-
-	local compose_file="$compose_dir/compose-all.yml"
-	local has_include
-	has_include=$(yq '[.include[]? | select(.path == "sandcat/compose-proxy-peer.yml")] | length' "$compose_file")
-	if [[ "$has_include" -eq 0 ]]; then
-		yq -i '.include += [{"path": "sandcat/compose-proxy-peer.yml"}]' "$compose_file"
-	fi
-}
-
 # Wires NetBird enrollment into the mitmproxy service in compose-proxy.yml.
 # mitmproxy is the sole NetBird mesh participant in the agent stack; wg-client
 # remains a pure tunnel shim (wg0 only). Traffic always flows:
@@ -579,7 +524,6 @@ enable_netbird() {
 					) + ["NB_USE_LEGACY_ROUTING=true"]
 				' "$compose_file"
 			fi
-			netbird_sync_local_server_exposed_address
 		else
 			# localhost/127.0.0.1 resolves to the container itself, so no
 			# NB_MANAGEMENT_URL is emitted. netbird then falls back to its

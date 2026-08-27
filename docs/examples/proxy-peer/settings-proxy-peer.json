@@ -2,7 +2,7 @@
   "network": [
     {
       "action": "allow",
-      "host": "REPLACE_PROXY_PEER_FQDN",
+      "host": "proxy-peer.netbird.selfhosted",
       "port": 8080,
       "comment": "Layer 1 allow: stable NetBird FQDN for proxy-peer. Layer 2 (NetBird route enable/disable on mitmproxy's wt0) controls whether the connection actually succeeds."
     }
