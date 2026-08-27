@@ -15,7 +15,6 @@ Subcommands:
   lease    --ref <ref> --justification <text> [--agent <id>]
   revoke   --ref <ref|lease-id> --reason <text>
   watch                                      Foreground route-watcher poll loop
-  demo     [--agent <id>]                      Check / lease / revoke smoke demo
 EOF
 }
 
@@ -35,10 +34,6 @@ cmd_watch() {
 	capability_watch "$@"
 }
 
-cmd_demo() {
-	capability_demo "$@"
-}
-
 main() {
 	local subcmd="${1:-}"
 	shift || true
@@ -47,7 +42,6 @@ main() {
 	lease) cmd_lease "$@" ;;
 	revoke) cmd_revoke "$@" ;;
 	watch) cmd_watch "$@" ;;
-	demo) cmd_demo "$@" ;;
 	"")
 		usage
 		return 1

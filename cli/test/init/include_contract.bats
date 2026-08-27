@@ -68,15 +68,35 @@ assert_no_include_conflicts() {
 	assert_no_include_conflicts "$PROJECT_DIR/.devcontainer"
 }
 
-@test "init keeps services disjoint with netbird, capability and proxy-peer enabled" {
+@test "init keeps services disjoint with netbird and capability enabled" {
 	stub settings "$PROJECT_DIR/.sandcat/settings.json cursor : :"
 
 	run init --agent cursor --ide none --name cv-sandbox --path "$PROJECT_DIR" \
 		--stacks python --proxy web --features tui --secret-provider protonpass \
-		--netbird --netbird-server cloud --capability --proxy-peer
+		--netbird --capability
 	assert_success
 
 	assert_no_include_conflicts "$PROJECT_DIR/.devcontainer"
+}
+
+@test "init --netbird --capability does not write proxy-peer leftovers" {
+	stub settings "$PROJECT_DIR/.sandcat/settings.json cursor : :"
+
+	run init --agent cursor --ide none --name cv-sandbox --path "$PROJECT_DIR" \
+		--stacks python --proxy web --features tui --secret-provider protonpass \
+		--netbird --capability
+	assert_success
+
+	run yq '.netbird_peer_name_proxy_peer' "$PROJECT_DIR/.sandcat/settings.json"
+	assert_output "null"
+	run yq '[.capabilities[] | select(.ref == "cap-reach-proxy")] | length' \
+		"$PROJECT_DIR/.devcontainer/sandcat/capability-catalog.json"
+	assert_output "0"
+	[[ ! -f "$PROJECT_DIR/.devcontainer/sandcat/compose-proxy-peer.yml" ]]
+	[[ ! -f "$PROJECT_DIR/.sandcat/settings.proxy-peer.example.json" ]]
+	run yq '[.include[]? | select(.path == "sandcat/compose-proxy-peer.yml")] | length' \
+		"$PROJECT_DIR/.devcontainer/compose-all.yml"
+	assert_output "0"
 }
 
 @test "init mounts project settings on the imported mitmproxy service" {

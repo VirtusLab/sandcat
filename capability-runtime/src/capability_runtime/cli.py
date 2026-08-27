@@ -137,39 +137,6 @@ def cmd_watch(args: argparse.Namespace) -> None:
         time.sleep(args.interval)
 
 
-def cmd_demo(args: argparse.Namespace) -> None:
-    agent_id = args.agent_id or "devcontainer-agent"
-    print("=== capability demo: check ===", file=sys.stderr)
-    before = _call("capability.check", {"agent_id": agent_id, "context": {}})
-    _print_json(before)
-
-    print("=== capability demo: lease cap-create-pr ===", file=sys.stderr)
-    lease = _call(
-        "capability.lease",
-        {
-            "agent_id": agent_id,
-            "capability_ref": "cap-create-pr",
-            "justification": "operator demo",
-        },
-    )
-    _print_json(lease)
-
-    print("=== capability demo: check after lease ===", file=sys.stderr)
-    after_lease = _call("capability.check", {"agent_id": agent_id, "context": {}})
-    _print_json(after_lease)
-
-    print("=== capability demo: revoke cap-create-pr ===", file=sys.stderr)
-    revoked = _call(
-        "capability.revoke",
-        {"target": "cap-create-pr", "reason": "demo complete"},
-    )
-    _print_json(revoked)
-
-    print("=== capability demo: check after revoke ===", file=sys.stderr)
-    after_revoke = _call("capability.check", {"agent_id": agent_id, "context": {}})
-    _print_json(after_revoke)
-
-
 def _add_agent_arg(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--agent-id",
@@ -212,10 +179,6 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Seconds between poll calls",
     )
     watch.set_defaults(handler=cmd_watch)
-
-    demo = subparsers.add_parser("demo", help="Run a check/lease/revoke smoke demo")
-    _add_agent_arg(demo)
-    demo.set_defaults(handler=cmd_demo)
 
     for method in SUBCOMMAND_TO_METHOD.values():
         alias = subparsers.add_parser(method, help=f"Alias for {method}")
