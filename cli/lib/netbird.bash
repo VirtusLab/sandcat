@@ -43,18 +43,7 @@ netbird_default_peer_name_proxy() {
 	printf '%s-proxy' "$project_name"
 }
 
-netbird_default_peer_name_proxy_peer() {
-	local project_name=$1
-	printf '%s-proxy-peer' "$project_name"
-}
-
-netbird_peer_fqdn() {
-	local peer_name=$1
-	local dns_domain=${2:-netbird.selfhosted}
-	printf '%s.%s' "$peer_name" "$dns_domain"
-}
-
-# Fills netbird_peer_name_proxy / netbird_peer_name_proxy_peer when absent or empty.
+# Fills netbird_peer_name_proxy when absent or empty.
 # Does not overwrite non-empty values (operator overrides).
 # Args:
 #   $1 - path to a JSON settings file (usually .sandcat/settings.json)
@@ -67,16 +56,12 @@ netbird_ensure_peer_name_settings() {
 	mkdir -p "$(dirname "$settings_file")"
 	[[ -f "$settings_file" ]] || printf '%s\n' '{}' >"$settings_file"
 
-	local proxy peer
+	local proxy
 	proxy=$(netbird_default_peer_name_proxy "$project_name")
-	peer=$(netbird_default_peer_name_proxy_peer "$project_name")
 
-	proxy="$proxy" peer="$peer" yq -i -o json '
+	proxy="$proxy" yq -i -o json '
 		.netbird_peer_name_proxy = (
 			.netbird_peer_name_proxy | select(. != null and . != "") // env(proxy)
-		) |
-		.netbird_peer_name_proxy_peer = (
-			.netbird_peer_name_proxy_peer | select(. != null and . != "") // env(peer)
 		)
 	' "$settings_file"
 }
@@ -84,31 +69,11 @@ netbird_ensure_peer_name_settings() {
 netbird_apply_peer_names_to_catalog() {
 	local catalog_file=$1
 	local peer_name_proxy=$2
-	local peer_name_proxy_peer=$3
-	local dns_domain=${4:-netbird.selfhosted}
 	require yq
 
-	local fqdn
-	fqdn=$(netbird_peer_fqdn "$peer_name_proxy_peer" "$dns_domain")
-
-	peer_name_proxy="$peer_name_proxy" fqdn="$fqdn" yq -i -o json '
-		(.capabilities[] | select(.ref == "cap-reach-api") | .peer_hostname) = env(peer_name_proxy) |
-		(.capabilities[] | select(.ref == "cap-reach-proxy") | .dns_label) = env(fqdn)
+	peer_name_proxy="$peer_name_proxy" yq -i -o json '
+		(.capabilities[] | select(.ref == "cap-reach-api") | .peer_hostname) = env(peer_name_proxy)
 	' "$catalog_file"
-}
-
-netbird_apply_peer_names_to_layer1_example() {
-	local settings_file=$1
-	local peer_name_proxy_peer=$2
-	local dns_domain=${3:-netbird.selfhosted}
-	require yq
-
-	local fqdn
-	fqdn=$(netbird_peer_fqdn "$peer_name_proxy_peer" "$dns_domain")
-
-	fqdn="$fqdn" yq -i -o json '
-		(.network[] | select(.action == "allow") | .host) = env(fqdn)
-	' "$settings_file"
 }
 
 # Export NB_SETUP_KEY from settings when not already set in the environment.
@@ -128,7 +93,6 @@ export_netbird_compose_env() {
 			export NB_API_TOKEN="$api_token"
 		fi
 	fi
-	netbird_sync_local_server_exposed_address
 }
 
 # Export NB_MANAGEMENT_URL from settings when not already set in environment.
@@ -208,189 +172,6 @@ netbird_enrollment_url_uses_host_bypass() {
 	[[ "$url" =~ ^https?://([0-9]{1,3}\.){3}[0-9]{1,3}([:/]|$) ]]
 }
 
-# Aligns netbird-server exposedAddress with netbird_enrollment_management_url so
-# enrolled peers keep dialing the Docker-host IP instead of localhost.
-netbird_sync_local_server_exposed_address() {
-	local enrollment_url config_file dest_dir current
-
-	enrollment_url=$(netbird_read_setting netbird_enrollment_management_url)
-	[[ -n "$enrollment_url" ]] || return 0
-	netbird_enrollment_url_uses_host_bypass "$enrollment_url" || return 0
-
-	dest_dir="$(sct_home)/netbird-server"
-	config_file="$dest_dir/config.yaml"
-	[[ -f "$config_file" ]] || return 0
-
-	require yq
-	current=$(yq -r '.server.exposedAddress // ""' "$config_file")
-	if [[ "$current" == "$enrollment_url" ]]; then
-		return 0
-	fi
-
-	NB_EXPOSED="$enrollment_url" \
-		yq -i '.server.exposedAddress = strenv(NB_EXPOSED)' "$config_file"
-	echo "Updated netbird-server exposedAddress to $enrollment_url." | info
-	echo "Restart netbird-server: sandcat netbird server start --force-recreate netbird-server" | info
-}
-
-# Resolves the NetBird embedded-IdP encryption key.
-# NETBIRD_ENCRYPTION_KEY env wins; otherwise generates a new key.
-_netbird_resolve_encryption_key() {
-	if [[ -n "${NETBIRD_ENCRYPTION_KEY:-}" ]]; then
-		printf '%s' "$NETBIRD_ENCRYPTION_KEY"
-		return 0
-	fi
-
-	require openssl
-	openssl rand -base64 32
-}
-
-# Resolves the relay auth secret for config.yaml server.authSecret.
-# NETBIRD_RELAY_AUTH_SECRET env wins; otherwise generates a new secret.
-_netbird_resolve_relay_auth_secret() {
-	if [[ -n "${NETBIRD_RELAY_AUTH_SECRET:-}" ]]; then
-		printf '%s' "$NETBIRD_RELAY_AUTH_SECRET"
-		return 0
-	fi
-
-	require openssl
-	openssl rand -base64 32
-}
-
-# Reads a KEY=value from a netbird-server.env file (first match wins).
-# Args:
-#   $1 - env file path
-#   $2 - variable name
-_netbird_env_value_from_file() {
-	local env_file=$1
-	local key=$2
-	local line
-
-	[[ -f "$env_file" ]] || return 1
-	while IFS= read -r line || [[ -n "$line" ]]; do
-		[[ "$line" == "${key}="* ]] || continue
-		printf '%s' "${line#"${key}="}"
-		return 0
-	done <"$env_file"
-	return 1
-}
-
-# Replaces or appends KEY=value in a simple env file.
-# Args:
-#   $1 - env file path
-#   $2 - variable name
-#   $3 - value
-_netbird_env_set_value() {
-	local env_file=$1
-	local key=$2
-	local value=$3
-	local tmp_file
-	local found=false
-
-	[[ -f "$env_file" ]] || return 1
-	tmp_file=$(mktemp)
-	while IFS= read -r line || [[ -n "$line" ]]; do
-		if [[ "$line" == "${key}="* ]]; then
-			printf '%s=%s\n' "$key" "$value"
-			found=true
-		else
-			printf '%s\n' "$line"
-		fi
-	done <"$env_file" >"$tmp_file"
-	if [[ "$found" == false ]]; then
-		printf '%s=%s\n' "$key" "$value" >>"$tmp_file"
-	fi
-	mv "$tmp_file" "$env_file"
-}
-
-# Writes secrets and localhost endpoints into the provisioned netbird-server files.
-# Args:
-#   $1 - provisioned directory (e.g. ~/.config/sandcat/netbird-server)
-_netbird_apply_local_server_config() {
-	local dest_dir=$1
-	local env_file config_file dashboard_file
-	local encryption_key relay_secret mgmt_port dashboard_port
-	local mgmt_endpoint issuer dashboard_base
-
-	env_file="$dest_dir/netbird-server.env"
-	config_file="$dest_dir/config.yaml"
-	dashboard_file="$dest_dir/dashboard.env"
-	[[ -f "$env_file" && -f "$config_file" ]] || return 0
-
-	encryption_key=$(_netbird_resolve_encryption_key)
-	relay_secret=$(_netbird_resolve_relay_auth_secret)
-	_netbird_env_set_value "$env_file" NETBIRD_ENCRYPTION_KEY "$encryption_key"
-	_netbird_env_set_value "$env_file" NETBIRD_RELAY_AUTH_SECRET "$relay_secret"
-
-	mgmt_port=$(_netbird_env_value_from_file "$env_file" NETBIRD_MGMT_API_PORT || true)
-	dashboard_port=$(_netbird_env_value_from_file "$env_file" NETBIRD_DASHBOARD_HTTP_PORT || true)
-	mgmt_port=${mgmt_port:-33073}
-	dashboard_port=${dashboard_port:-8080}
-
-	mgmt_endpoint="http://localhost:${mgmt_port}"
-	issuer="${mgmt_endpoint}/oauth2"
-	dashboard_base="http://localhost:${dashboard_port}"
-
-	require yq
-	NB_EXPOSED="$mgmt_endpoint" \
-		NB_ISSUER="$issuer" \
-		NB_NB_AUTH="${dashboard_base}/nb-auth" \
-		NB_NB_SILENT="${dashboard_base}/nb-silent-auth" \
-		NB_ENC="$encryption_key" \
-		NB_RELAY="$relay_secret" \
-		yq -i '
-			.server.exposedAddress = strenv(NB_EXPOSED) |
-			.server.authSecret = strenv(NB_RELAY) |
-			.server.auth.issuer = strenv(NB_ISSUER) |
-			.server.auth.dashboardRedirectURIs = [strenv(NB_NB_AUTH), strenv(NB_NB_SILENT)] |
-			.server.store.encryptionKey = strenv(NB_ENC)' \
-		"$config_file"
-
-	if [[ -f "$dashboard_file" ]]; then
-		_netbird_env_set_value "$dashboard_file" NETBIRD_MGMT_API_ENDPOINT "$mgmt_endpoint"
-		_netbird_env_set_value "$dashboard_file" NETBIRD_MGMT_GRPC_API_ENDPOINT "$mgmt_endpoint"
-		_netbird_env_set_value "$dashboard_file" AUTH_AUTHORITY "$issuer"
-	fi
-}
-
-# Creates ~/.config/sandcat/netbird-server from template when missing.
-# Idempotent: if destination exists, logs and skips.
-provision_netbird_server_template() {
-	local destination_dir template_dir
-	destination_dir="$(sct_home)/netbird-server"
-	template_dir="$SCT_TEMPLATEDIR/netbird-server"
-	local required_file
-	local -a required_files=(
-		docker-compose.yml
-		config.yaml
-		dashboard.env
-		netbird-server.env
-		README.md
-	)
-
-	if [[ -e "$destination_dir" ]]; then
-		echo "NetBird server template already exists at $destination_dir; skipping." | info
-		return 0
-	fi
-
-	if [[ ! -d "$template_dir" ]]; then
-		echo "Missing NetBird server template directory: $template_dir" | error
-		return 1
-	fi
-
-	for required_file in "${required_files[@]}"; do
-		if [[ ! -f "$template_dir/$required_file" ]]; then
-			echo "Incomplete NetBird server template: missing $required_file in $template_dir" | error
-			return 1
-		fi
-	done
-
-	mkdir -p "$destination_dir"
-	# Use rsync-style copy to include dotfiles (glob * skips them)
-	cp -R "$template_dir/." "$destination_dir/"
-	_netbird_apply_local_server_config "$destination_dir"
-}
-
 # Resolve API token: NB_API_TOKEN env wins over settings. Prints token on success.
 # Does not export settings-sourced tokens (avoids leaking via child process environ).
 _netbird_api_token() {
@@ -468,9 +249,8 @@ _netbird_api_print_error() {
 	case "$http_code" in
 	000)
 		echo "  Could not reach the management server." >&2
-		if [[ "$(netbird_management_base_url)" =~ localhost|127\.0\.0\.1 ]]; then
-			echo "  Start it with: sandcat netbird server start" >&2
-		fi
+		echo "  Check netbird_management_url in $(sct_home)/settings.json." >&2
+		echo "  To run a local server, see docs/examples/netbird-server/." >&2
 		;;
 	401|403)
 		_netbird_api_print_auth_hint
@@ -478,9 +258,8 @@ _netbird_api_print_error() {
 	404)
 		echo "  Endpoint not found — check netbird_management_url in $(sct_home)/settings.json." >&2
 		echo "  Use the management API base URL, not the dashboard:" >&2
-		echo "    local template: http://localhost:33073  (not :8080)" >&2
 		echo "    cloud:          (leave empty, defaults to https://api.netbird.io)" >&2
-		echo "    self-hosted:    https://<your-domain>  (reverse proxy must forward /api to management)" >&2
+		echo "    self-hosted:    https://<your-domain> or http://localhost:33073  (see docs/examples/netbird-server/)" >&2
 		[[ -n "$body" ]] && echo "  Response: ${body}" >&2
 		;;
 	*)
@@ -720,53 +499,3 @@ netbird_peer_remove() {
 	netbird_api "DELETE" "/api/peers/$peer_id_escaped"
 }
 
-# Returns the provisioned self-hosted NetBird server directory.
-netbird_server_dir() {
-	printf '%s\n' "$(sct_home)/netbird-server"
-}
-
-# Verifies the local netbird-server template was provisioned.
-_ensure_netbird_server_provisioned() {
-	local server_dir compose_file env_file
-	server_dir=$(netbird_server_dir)
-	compose_file="$server_dir/docker-compose.yml"
-	env_file="$server_dir/netbird-server.env"
-
-	if [[ ! -f "$compose_file" || ! -f "$env_file" ]]; then
-		echo "NetBird server not provisioned at $server_dir" | error
-		echo "Run: sandcat init --netbird --netbird-server new" >&2
-		return 1
-	fi
-}
-
-# Runs docker compose in the provisioned netbird-server directory.
-# Args: docker compose subcommand and options (e.g. up -d, down, ps)
-netbird_server_compose() {
-	require docker
-	_ensure_netbird_server_provisioned || return 1
-
-	local server_dir compose_file env_file
-	server_dir=$(netbird_server_dir)
-	compose_file="$server_dir/docker-compose.yml"
-	env_file="$server_dir/netbird-server.env"
-
-	docker compose -f "$compose_file" --env-file "$env_file" "$@"
-}
-
-# Starts the provisioned self-hosted NetBird server stack.
-# Remaining args are passed to docker compose (e.g. --force-recreate netbird-server).
-netbird_server_start() {
-	netbird_sync_local_server_exposed_address
-	netbird_server_compose up -d "$@"
-}
-
-# Stops the provisioned self-hosted NetBird server stack.
-# Remaining args are passed to docker compose (e.g. -v to remove volumes).
-netbird_server_stop() {
-	netbird_server_compose down "$@"
-}
-
-# Shows container status for the provisioned self-hosted NetBird server stack.
-netbird_server_status() {
-	netbird_server_compose ps
-}

@@ -210,32 +210,3 @@ capability_watch() {
 
 	capability_compose_exec "$project_dir" watch
 }
-
-# Operator demo: quick check/lease/revoke smoke against the sidecar.
-# Args:
-#   --agent <id>  Agent identity (default: devcontainer-agent)
-capability_demo() {
-	local agent_id="devcontainer-agent"
-
-	while [[ $# -gt 0 ]]; do
-		case $1 in
-		--agent)
-			if [[ $# -lt 2 || "$2" == --* ]]; then
-				echo "Option --agent requires a value" | error
-				return 1
-			fi
-			agent_id="$2"
-			shift 2
-			;;
-		*)
-			echo "Unknown option: $1" | error
-			return 1
-			;;
-		esac
-	done
-
-	local project_dir
-	project_dir=$(capability_project_dir) || return 1
-
-	capability_compose_exec "$project_dir" demo --agent-id "$agent_id"
-}

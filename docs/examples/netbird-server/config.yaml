@@ -1,5 +1,6 @@
-# Combined NetBird server — localhost defaults. Secrets and URLs are filled
-# when sandcat provisions this template.
+# Combined NetBird server — localhost defaults. Fill secrets from
+# netbird-server.env (see README.md). exposedAddress must be reachable from
+# Docker containers (Docker host LAN IP), not localhost.
 server:
   listenAddress: ":80"
   # customize and parametrize for local development

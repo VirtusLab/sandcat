@@ -45,12 +45,13 @@ Phase 3 realizes this thesis by binding each network capability to a NetBird pee
 - Grant failure rolls back the lease (fail closed); observability emits `physical_sync: enabled` on successful network lease
 - mitmproxy remains egress inspection only — no per-request L7 allowlist from bundle
 
-**In scope (Phase 3e — proxy-peer gateway):**
+**In scope (Phase 3e — optional mesh gateway):**
 
 - Catalog `lease_policy` on network capabilities overrides PoC hardcoded quotas in `request_capability_lease`
 - Admin-only `capability.l7.record` RPC decrements network lease quota from post-hoc mitmproxy flow records
 - `l7_record.py` matches flow host to active network binding CIDR and calls `record_action`
 - mitmproxy addon emits `l7_flow` events when `CAPABILITY_L7_RECORD=1` (best-effort Unix socket to admin surface)
+- Operators may run a gateway peer themselves ([`docs/examples/proxy-peer/`](../docs/examples/proxy-peer/)) and add a `dns_label` catalog entry; sandcat does not create that container
 
 **Out of scope / known limitations:**
 
@@ -177,21 +178,7 @@ Mutating APIs require `caller` to match the lease-bound `agent_id` (`CallerIdent
 ```bash
 cd capability-runtime
 pytest -q --ignore=tests/test_security.py --ignore=tests/test_policy.py
-PYTHONPATH=src:. python poc/create_pr_demo.py
-PYTHONPATH=src:. python poc/mcp_tool_demo.py
-PYTHONPATH=src:. python poc/network_route_demo.py
 ```
-
-## Engineering gate (Phase 3c)
-
-Automated unit tests and PoC demo, plus printed manual live-smoke steps (NetBird enrollment required):
-
-```bash
-bash scripts/phase3c_engineering_gate.sh
-bash scripts/phase3e_engineering_gate.sh
-```
-
-Manual steps map to the [Phase 3c spec §11 success criteria](../../docs/superpowers/specs/2026-06-30-capability-netbird-policy-sync-phase3c-design.md#11-success-criteria-engineering-gate-before-phase-4) and [Phase 3e spec §9](../../docs/superpowers/specs/2026-07-08-capability-proxy-peer-gateway-phase3e-design.md). For catalog ID setup before live smoke, see [Catalog IDs for live smoke](../../cli/README.md#catalog-ids-for-live-smoke) in the CLI README.
 
 ## Layout
 

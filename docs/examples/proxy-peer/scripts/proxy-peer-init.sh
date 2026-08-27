@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# cli/templates/devcontainer/sandcat/scripts/proxy-peer-init.sh
+# docs/examples/proxy-peer/scripts/proxy-peer-init.sh
 set -euo pipefail
 
 NB_SETUP_KEY="${NB_SETUP_KEY:?NB_SETUP_KEY is required}"

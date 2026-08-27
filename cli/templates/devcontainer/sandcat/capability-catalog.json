@@ -13,19 +13,6 @@
       "peer_hostname": "REPLACE_PEER_HOSTNAME",
       "network": "10.8.0.0/24",
       "sync_mode": "route_enable"
-    },
-    {
-      "name": "reach_proxy",
-      "ref": "cap-reach-proxy",
-      "type": "network",
-      "dns_label": "REPLACE_DNS_LABEL",
-      "peer_id": "peer-placeholder",
-      "network": "0.0.0.0/32",
-      "sync_mode": "route_enable",
-      "proxy": {"port": 8080, "path_prefix": "/hello"},
-      "lease_policy": {"quota": 5, "ttl_minutes": 15, "token_budget": 10000},
-      "revoke_close_policy": "drain_deadline",
-      "revoke_drain_seconds": 30
     }
   ]
 }
