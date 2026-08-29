@@ -19,7 +19,17 @@ from capability_runtime.runtime import CapabilityRuntime
 def catalog_file(tmp_path):
     catalog = {
         "capabilities": [
-            {"name": "create_pr", "ref": "cap-create-pr", "type": "tool"},
+            {
+                "name": "create_pr",
+                "ref": "cap-create-pr",
+                "type": "tool",
+                "lease_policy": {
+                    "quota": 1,
+                    "ttl_minutes": 10,
+                    "token_budget": 25000,
+                    "risk_envelope": "high",
+                },
+            },
             {
                 "name": "reach_api",
                 "ref": "cap-reach-api",
@@ -27,6 +37,12 @@ def catalog_file(tmp_path):
                 "peer_id": "peer-test",
                 "network": "10.8.0.0/24",
                 "route_id": "route-test",
+                "lease_policy": {
+                    "quota": 1,
+                    "ttl_minutes": 10,
+                    "token_budget": 25000,
+                    "risk_envelope": "high",
+                },
             },
         ]
     }

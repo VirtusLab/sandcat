@@ -1,3 +1,4 @@
+from lease_support import register_test_policy
 from capability_runtime.netbird_client import MockNetBirdClient
 from capability_runtime.network import NetworkBinding, SyncMode
 from capability_runtime.catalog import LifecycleState
@@ -70,6 +71,7 @@ def test_watcher_revokes_when_route_disabled_with_active_lease(tmp_path):
     ref = CapabilityRef("cap-reach-api")
     binding = NetworkBinding(ref, "peer-abc", "10.8.0.0/24", "route-1", SyncMode.ROUTE_ENABLE)
     runtime.register_network_capability("reach_api", ref, binding, LifecycleState.VISIBLE)
+    register_test_policy("reach_api")
     runtime.request_capability_lease(agent, agent, ref, "need api")
 
     client._routes[0]["enabled"] = False
@@ -96,6 +98,7 @@ def test_operator_revoke_succeeds_after_retry_when_disable_recovers(tmp_path, mo
     ref = CapabilityRef("cap-reach-api")
     binding = NetworkBinding(ref, "peer-abc", "10.8.0.0/24", "route-1", SyncMode.ROUTE_ENABLE)
     runtime.register_network_capability("reach_api", ref, binding, LifecycleState.VISIBLE)
+    register_test_policy("reach_api")
     runtime.request_capability_lease(agent, agent, ref, "need api")
 
     fail_once = [True]
@@ -149,6 +152,7 @@ def test_watcher_emits_event_when_reconcile_disable_fails(tmp_path, monkeypatch)
     ref = CapabilityRef("cap-reach-api")
     binding = NetworkBinding(ref, "peer-abc", "10.8.0.0/24", "route-1", SyncMode.ROUTE_ENABLE)
     runtime.register_network_capability("reach_api", ref, binding, LifecycleState.VISIBLE)
+    register_test_policy("reach_api")
     runtime.request_capability_lease(agent, agent, ref, "need api")
     runtime.revoke_capability(AgentIdentity("operator"), ref, "operator revoke")
     client._routes[0]["enabled"] = True

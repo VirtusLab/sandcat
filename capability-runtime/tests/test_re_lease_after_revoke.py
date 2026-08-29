@@ -1,6 +1,7 @@
 # capability-runtime/tests/test_re_lease_after_revoke.py
 from datetime import datetime, timedelta, timezone
 
+from lease_support import register_test_policy
 from capability_runtime.catalog import LifecycleState
 from capability_runtime.netbird_client import MockNetBirdClient
 from capability_runtime.network import NetworkBinding, SyncMode
@@ -18,6 +19,7 @@ def test_re_lease_after_revoke_by_ref(tmp_path):
     ref = CapabilityRef("cap-reach-api")
     binding = NetworkBinding(ref, "peer-abc", "10.8.0.0/24", None, sync_mode=SyncMode.ROUTE_ENABLE)
     runtime.register_network_capability("reach_api", ref, binding, LifecycleState.VISIBLE)
+    register_test_policy("reach_api")
 
     runtime.request_capability_lease(agent, agent, ref, "first lease")
     runtime.revoke_capability(_OPERATOR, ref, "done")
@@ -42,6 +44,7 @@ def test_re_lease_after_expiry(tmp_path):
     ref = CapabilityRef("cap-reach-api")
     binding = NetworkBinding(ref, "peer-abc", "10.8.0.0/24", None, sync_mode=SyncMode.ROUTE_ENABLE)
     runtime.register_network_capability("reach_api", ref, binding, LifecycleState.VISIBLE)
+    register_test_policy("reach_api")
 
     decision1 = runtime.request_capability_lease(agent, agent, ref, "first lease")
     runtime.lease_manager._leases[decision1.lease_id].expires_at = (
@@ -67,6 +70,7 @@ def test_re_lease_after_physical_revoke(tmp_path):
     ref = CapabilityRef("cap-reach-api")
     binding = NetworkBinding(ref, "peer-abc", "10.8.0.0/24", None, sync_mode=SyncMode.ROUTE_ENABLE)
     runtime.register_network_capability("reach_api", ref, binding, LifecycleState.VISIBLE)
+    register_test_policy("reach_api")
 
     runtime.request_capability_lease(agent, agent, ref, "first lease")
 
@@ -111,6 +115,7 @@ def test_re_lease_with_dns_label_resolves_new_peer(tmp_path):
         dns_label="cv-sandbox-proxy-peer.netbird.selfhosted",
     )
     runtime.register_network_capability("reach_proxy", ref, binding, LifecycleState.VISIBLE)
+    register_test_policy("reach_proxy")
 
     # First lease: resolves peer A
     runtime.request_capability_lease(agent, agent, ref, "first lease")
@@ -144,6 +149,7 @@ def test_re_lease_after_quota_exhaustion_leaves_expired_state(tmp_path):
     ref = CapabilityRef("cap-reach-api")
     binding = NetworkBinding(ref, "peer-abc", "10.8.0.0/24", None, sync_mode=SyncMode.ROUTE_ENABLE)
     runtime.register_network_capability("reach_api", ref, binding, LifecycleState.VISIBLE)
+    register_test_policy("reach_api")
 
     decision1 = runtime.request_capability_lease(agent, agent, ref, "first lease")
     now = datetime.now(timezone.utc)

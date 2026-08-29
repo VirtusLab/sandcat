@@ -116,7 +116,17 @@ def test_bridge_integration_with_daemon(tmp_path, monkeypatch):
 
     catalog = {
         "capabilities": [
-            {"name": "create_pr", "ref": "cap-create-pr", "type": "tool"},
+            {
+                "name": "create_pr",
+                "ref": "cap-create-pr",
+                "type": "tool",
+                "lease_policy": {
+                    "quota": 1,
+                    "ttl_minutes": 10,
+                    "token_budget": 25000,
+                    "risk_envelope": "high",
+                },
+            },
         ]
     }
     catalog_path = tmp_path / "catalog.json"

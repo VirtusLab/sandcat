@@ -1,4 +1,4 @@
-"""Lease policy decisions for PoC capabilities (extracted from runtime core)."""
+"""Lease policy lookup. Policies come from the catalog via register_lease_policy."""
 
 from __future__ import annotations
 
@@ -18,30 +18,21 @@ class LeasePolicy:
     risk_envelope: str
 
 
-_POC_POLICIES: dict[str, LeasePolicy] = {
-    "create_pr": LeasePolicy(
-        quota=1,
-        ttl=timedelta(minutes=10),
-        token_budget=25_000,
-        risk_envelope="high",
-    ),
-    "write_note": LeasePolicy(
-        quota=3,
-        ttl=timedelta(minutes=5),
-        token_budget=10_000,
-        risk_envelope="medium",
-    ),
-}
+_LEASE_POLICIES: dict[str, LeasePolicy] = {}
 
 
 def register_lease_policy(capability_name: str, policy: LeasePolicy) -> None:
-    _POC_POLICIES[capability_name] = policy
+    _LEASE_POLICIES[capability_name] = policy
+
+
+def clear_lease_policies() -> None:
+    _LEASE_POLICIES.clear()
 
 
 def lease_policy_for(capability_name: str | None) -> LeasePolicy:
     if capability_name is None:
         raise LeasePolicyNotFound("missing capability name")
     try:
-        return _POC_POLICIES[capability_name]
+        return _LEASE_POLICIES[capability_name]
     except KeyError as exc:
         raise LeasePolicyNotFound(capability_name) from exc

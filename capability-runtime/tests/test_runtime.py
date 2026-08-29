@@ -3,6 +3,7 @@
 from datetime import datetime, timezone
 
 import pytest
+from lease_support import register_test_policy
 
 from capability_runtime.catalog import LifecycleState
 from capability_runtime.errors import BundleVersionMismatch, CapabilityNotVisible
@@ -15,6 +16,7 @@ _OPERATOR = AgentIdentity("operator")
 
 def test_poc1_create_pr_lifecycle(tmp_path):
     """Full PoC 1: create_pr invisible → lease → visible → use → gone"""
+    register_test_policy("create_pr")
     runtime = CapabilityRuntime(tmp_path / "trace.jsonl", "trace-1", 42)
     agent = AgentIdentity("agent-1")
     ctx = {}
@@ -47,6 +49,7 @@ def test_poc1_create_pr_lifecycle(tmp_path):
 
 def test_revoke_by_lease_id(tmp_path):
     """Test revoking a capability by lease ID"""
+    register_test_policy("create_pr")
     runtime = CapabilityRuntime(tmp_path / "trace.jsonl", "trace-2", 43)
     agent = AgentIdentity("agent-2")
 
@@ -69,6 +72,7 @@ def test_revoke_by_lease_id(tmp_path):
 
 def test_revoke_by_capability_ref(tmp_path):
     """Test revoking a capability by reference"""
+    register_test_policy("create_pr")
     runtime = CapabilityRuntime(tmp_path / "trace.jsonl", "trace-3", 44)
     agent = AgentIdentity("agent-3")
 
