@@ -6,6 +6,7 @@ import threading
 
 import pytest
 
+from lease_support import register_test_policy
 from capability_runtime.agent_loop import AgentExecutionLoop
 from capability_runtime.errors import CallerIdentityMismatch
 from capability_runtime.runtime import CapabilityRuntime
@@ -24,6 +25,7 @@ def test_request_lease_rejects_caller_impersonation(tmp_path):
 
 
 def test_record_action_rejects_wrong_caller(tmp_path):
+    register_test_policy("create_pr")
     runtime = CapabilityRuntime(tmp_path / "trace.jsonl", "trace-sec-2", 301)
     owner = AgentIdentity("owner-agent")
     other = AgentIdentity("other-agent")
@@ -37,6 +39,7 @@ def test_record_action_rejects_wrong_caller(tmp_path):
 
 
 def test_revoke_rejects_wrong_caller(tmp_path):
+    register_test_policy("create_pr")
     runtime = CapabilityRuntime(tmp_path / "trace.jsonl", "trace-sec-3", 302)
     owner = AgentIdentity("owner-agent")
     other = AgentIdentity("other-agent")
@@ -57,6 +60,7 @@ def test_forgeable_emit_api_removed(tmp_path):
 
 def test_concurrent_run_step_respects_quota_one(tmp_path):
     """Two threads cannot both consume quota=1 on the same lease."""
+    register_test_policy("create_pr")
     runtime = CapabilityRuntime(tmp_path / "trace.jsonl", "trace-sec-5", 304)
     loop = AgentExecutionLoop(runtime)
     agent = AgentIdentity("agent-concurrent")

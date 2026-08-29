@@ -1,3 +1,6 @@
+from lease_support import register_test_policy
+
+
 def test_register_network_capability_appears_in_bundle_when_visible(tmp_path):
     from capability_runtime.catalog import LifecycleState
     from capability_runtime.netbird_client import MockNetBirdClient
@@ -68,6 +71,7 @@ def test_revoke_by_ref_fails_closed_when_netbird_disable_fails(tmp_path, monkeyp
     ref = CapabilityRef("cap-reach-api")
     binding = NetworkBinding(ref, "peer-abc", "10.8.0.0/24", "route-1", sync_mode=SyncMode.ROUTE_ENABLE)
     runtime.register_network_capability("reach_api", ref, binding, LifecycleState.VISIBLE)
+    register_test_policy("reach_api")
     runtime.request_capability_lease(agent, agent, ref, "need api")
 
     def boom(*_a, **_kw):
@@ -124,6 +128,7 @@ def test_quota_exhaustion_disables_network_binding(tmp_path):
     ref = CapabilityRef("cap-quota-test")
     binding = NetworkBinding(ref, "peer-quota", "192.168.1.0/24", "route-quota")
     runtime.register_network_capability("quota_net", ref, binding, LifecycleState.DECLARED)
+    register_test_policy("quota_net")
     
     # Lease with quota=1
     decision = runtime.request_capability_lease(agent, agent, ref, "testing quota")
@@ -157,6 +162,7 @@ def test_ttl_expiry_disables_network_binding(tmp_path):
     ref = CapabilityRef("cap-ttl-test")
     binding = NetworkBinding(ref, "peer-ttl", "172.16.0.0/24", "route-ttl")
     runtime.register_network_capability("ttl_net", ref, binding, LifecycleState.DECLARED)
+    register_test_policy("ttl_net")
 
     decision = runtime.request_capability_lease(agent, agent, ref, "testing ttl")
     runtime.lease_manager._leases[decision.lease_id].expires_at = (
@@ -190,6 +196,7 @@ def test_ttl_expiry_via_watcher_poll(tmp_path):
     ref = CapabilityRef("cap-ttl-watcher")
     binding = NetworkBinding(ref, "peer-ttl", "172.16.0.0/24", "route-ttl", SyncMode.ROUTE_ENABLE)
     runtime.register_network_capability("ttl_net", ref, binding, LifecycleState.VISIBLE)
+    register_test_policy("ttl_net")
     decision = runtime.request_capability_lease(agent, agent, ref, "testing ttl")
     runtime.lease_manager._leases[decision.lease_id].expires_at = (
         datetime.now(timezone.utc) - timedelta(seconds=1)
@@ -216,6 +223,7 @@ def test_ttl_expiry_fails_closed_when_netbird_disable_fails(tmp_path, monkeypatc
     ref = CapabilityRef("cap-reach-api")
     binding = NetworkBinding(ref, "peer-abc", "10.8.0.0/24", "route-1", SyncMode.ROUTE_ENABLE)
     runtime.register_network_capability("reach_api", ref, binding, LifecycleState.VISIBLE)
+    register_test_policy("reach_api")
     decision = runtime.request_capability_lease(agent, agent, ref, "ttl test")
 
     runtime.lease_manager._leases[decision.lease_id].expires_at = (

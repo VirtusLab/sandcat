@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from lease_support import register_test_policy
 from capability_runtime.catalog import LifecycleState
 from capability_runtime.network import RevocationClosePolicy
 from capability_runtime.runtime import CapabilityRuntime
@@ -15,6 +16,7 @@ from capability_runtime.types import AgentIdentity, CapabilityRef
 
 @pytest.fixture
 def runtime(tmp_path):
+    register_test_policy("create_pr")
     return CapabilityRuntime(tmp_path / "trace.jsonl", "trace-rpc", 400)
 
 
@@ -202,6 +204,7 @@ def test_lease_returns_rpc_error_when_netbird_grant_raises(tmp_path):
     ref = CapabilityRef("cap-reach-api")
     binding = NetworkBinding(ref, "peer-abc", "10.8.0.0/24", "route-bad", SyncMode.ROUTE_ENABLE)
     runtime.register_network_capability("reach_api", ref, binding, LifecycleState.VISIBLE)
+    register_test_policy("reach_api")
 
     def boom(*_a, **_kw):
         raise RuntimeError("HTTP Error 404: Not Found")

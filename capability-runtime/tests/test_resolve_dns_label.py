@@ -1,6 +1,8 @@
 """Tests for dns_label resolution in NetworkBinding at lease time."""
 from __future__ import annotations
 
+from lease_support import register_test_policy
+
 
 def test_lease_with_dns_label_resolves_peer_id_and_enables_route(tmp_path):
     """Lease with dns_label resolves peer_id + mesh IP via peers API, enables /32 route."""
@@ -37,6 +39,7 @@ def test_lease_with_dns_label_resolves_peer_id_and_enables_route(tmp_path):
     runtime.register_network_capability(
         "reach_proxy", ref, binding, LifecycleState.DECLARED
     )
+    register_test_policy("reach_proxy")
 
     runtime.request_capability_lease(agent, agent, ref, "test dns resolution")
 
@@ -68,6 +71,7 @@ def test_lease_without_dns_label_uses_catalog_peer_id_directly(tmp_path):
     runtime.register_network_capability(
         "reach_api", ref, binding, LifecycleState.DECLARED
     )
+    register_test_policy("reach_api")
 
     runtime.request_capability_lease(agent, agent, ref, "direct ip")
 
@@ -104,6 +108,7 @@ def test_lease_with_dns_label_not_found_raises(tmp_path):
     runtime.register_network_capability(
         "reach_proxy", ref, binding, LifecycleState.DECLARED
     )
+    register_test_policy("reach_proxy")
 
     with pytest.raises(PeerResolutionError, match="missing.netbird.selfhosted"):
         runtime.request_capability_lease(agent, agent, ref, "test missing peer")
@@ -191,6 +196,7 @@ def test_dns_label_resolution_clears_stale_route_id(tmp_path):
     runtime.register_network_capability(
         "reach_proxy", ref, binding, LifecycleState.DECLARED
     )
+    register_test_policy("reach_proxy")
 
     runtime.request_capability_lease(agent, agent, ref, "test stale route")
 
@@ -281,6 +287,7 @@ def test_lease_with_peer_hostname_resolves_peer_id_keeps_network(tmp_path):
         peer_hostname="sandcat-proxy",
     )
     runtime.register_network_capability("reach_api", ref, binding, LifecycleState.DECLARED)
+    register_test_policy("reach_api")
 
     runtime.request_capability_lease(agent, agent, ref, "test hostname resolution")
 
@@ -313,6 +320,7 @@ def test_peer_hostname_resolution_case_insensitive(tmp_path):
         peer_hostname="sandcat-proxy",
     )
     runtime.register_network_capability("reach_api", ref, binding, LifecycleState.DECLARED)
+    register_test_policy("reach_api")
     runtime.request_capability_lease(agent, agent, ref, "case insensitive")
 
     routes = client.list_routes()
@@ -341,6 +349,7 @@ def test_peer_hostname_resolution_via_hostname_field(tmp_path):
         peer_hostname="sandcat-proxy",
     )
     runtime.register_network_capability("reach_api", ref, binding, LifecycleState.DECLARED)
+    register_test_policy("reach_api")
     runtime.request_capability_lease(agent, agent, ref, "hostname field")
 
     routes = client.list_routes()
@@ -369,6 +378,7 @@ def test_peer_hostname_not_found_raises(tmp_path):
         peer_hostname="sandcat-proxy",
     )
     runtime.register_network_capability("reach_api", ref, binding, LifecycleState.DECLARED)
+    register_test_policy("reach_api")
 
     with pytest.raises(PeerResolutionError, match="sandcat-proxy"):
         runtime.request_capability_lease(agent, agent, ref, "test missing hostname")

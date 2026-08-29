@@ -109,7 +109,11 @@ class UnixRpcServer:
                 }
             else:
                 response = self._dispatcher.handle(request)
-            conn.sendall((json.dumps(response) + "\n").encode())
+            try:
+                conn.sendall((json.dumps(response) + "\n").encode())
+            except (BrokenPipeError, ConnectionResetError, OSError):
+                # Clients such as l7_record_client send and close without reading.
+                return
 
 
 class UnixRpcClient:

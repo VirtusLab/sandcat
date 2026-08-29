@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from lease_support import register_test_policy
 from capability_runtime.catalog import LifecycleState
 from capability_runtime.netbird_client import MockNetBirdClient
 from capability_runtime.network import NetworkBinding
@@ -52,6 +53,7 @@ def _run_reach_api_lifecycle(trace_path: Path) -> _Poc3Result:
     binding = NetworkBinding(ref, "peer-abc", "10.8.0.0/24", "route-1")
 
     runtime.register_network_capability("reach_api", ref, binding, LifecycleState.DECLARED)
+    register_test_policy("reach_api")
 
     bundle1 = runtime.check_current_capabilities(agent, context)
     initial_networks = _network_names(bundle1)

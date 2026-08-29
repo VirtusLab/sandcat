@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Union
 
@@ -30,7 +30,7 @@ from capability_runtime.netbird_backend import NetBirdRevocationBackend
 from capability_runtime.netbird_client import NetBirdClient
 from capability_runtime.netbird_sync import grant_network_binding, revoke_network_binding
 from capability_runtime.observability import ObservabilityCollector
-from capability_runtime.policy import LeasePolicy, LeasePolicyNotFound, lease_policy_for, register_lease_policy
+from capability_runtime.policy import LeasePolicy, lease_policy_for, register_lease_policy
 from capability_runtime.revocation_close import host_patterns_for_binding, resolve_close_policy
 from capability_runtime.revoke import RevocationManager
 from capability_runtime.types import (
@@ -418,23 +418,11 @@ class CapabilityRuntime:
         now = datetime.now(timezone.utc)
 
         capability_name = self.catalog.get_name(capability_ref)
-        try:
-            policy = lease_policy_for(capability_name)
-            quota = policy.quota
-            ttl = policy.ttl
-            token_budget = policy.token_budget
-            risk_envelope = policy.risk_envelope
-        except LeasePolicyNotFound:
-            if capability_name == "write_note":
-                quota = 3
-                ttl = timedelta(minutes=5)
-                token_budget = 10_000
-                risk_envelope = "medium"
-            else:
-                quota = 1
-                ttl = timedelta(minutes=10)
-                token_budget = 25_000
-                risk_envelope = "high"
+        policy = lease_policy_for(capability_name)
+        quota = policy.quota
+        ttl = policy.ttl
+        token_budget = policy.token_budget
+        risk_envelope = policy.risk_envelope
 
         decision = self.lease_manager.grant(
             agent_id=agent_id,

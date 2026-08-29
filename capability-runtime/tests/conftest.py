@@ -7,6 +7,15 @@ from pathlib import Path
 
 import pytest
 
+from capability_runtime.policy import clear_lease_policies
+
+
+@pytest.fixture(autouse=True)
+def _reset_lease_policies():
+    clear_lease_policies()
+    yield
+    clear_lease_policies()
+
 
 class FakeRevokePeer:
     """Stand-in for the mitmproxy revoke addon on an AF_UNIX JSON-RPC socket.

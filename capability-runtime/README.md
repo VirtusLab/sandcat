@@ -47,7 +47,7 @@ Phase 3 realizes this thesis by binding each network capability to a NetBird pee
 
 **In scope (Phase 3e — optional mesh gateway):**
 
-- Catalog `lease_policy` on network capabilities overrides PoC hardcoded quotas in `request_capability_lease`
+- Catalog `lease_policy` is required to lease a capability (`request_capability_lease` fails closed without one)
 - Admin-only `capability.l7.record` RPC decrements network lease quota from post-hoc mitmproxy flow records
 - `l7_record.py` matches flow host to active network binding CIDR and calls `record_action`
 - mitmproxy addon emits `l7_flow` events when `CAPABILITY_L7_RECORD=1` (best-effort Unix socket to admin surface)
@@ -127,7 +127,7 @@ The watcher ensures the runtime catalog stays consistent when reachability disap
                               │
                     capability-socket volume
                               │
-┌──────────────────────── capability-runtime sidecar ───────────┐
+┌──────────────────────── capability-runtime sidecar ─────────────┐
 │  CapabilityRuntime + RouteDisappearanceWatcher                  │
 │  RestNetBirdClient ← settings.json (netbird_api_token)          │
 │       │                              │                          │
@@ -144,12 +144,12 @@ Cursor MCP config (`.cursor/mcp.json` in devcontainer):
 
 ```json
 {
-  "mcpServers": {
-    "sandcat-capability": {
-      "command": "capability-mcp-bridge",
-      "args": []
-    }
-  }
+	"mcpServers": {
+		"sandcat-capability": {
+			"command": "capability-mcp-bridge",
+			"args": []
+		}
+	}
 }
 ```
 
@@ -161,10 +161,10 @@ Mutating APIs require `caller` to match the lease-bound `agent_id` (`CallerIdent
 
 **Phase 3b boundary:**
 
-| Surface | Socket | Methods | Who |
-|---------|--------|---------|-----|
-| Agent | `agent.sock` | check, lease, discover | MCP bridge in agent container |
-| Admin | `admin.sock` | check, lease, discover, revoke, watch.poll | `sandcat capability` operator CLI |
+| Surface | Socket       | Methods                                    | Who                               |
+| ------- | ------------ | ------------------------------------------ | --------------------------------- |
+| Agent   | `agent.sock` | check, lease, discover                     | MCP bridge in agent container     |
+| Admin   | `admin.sock` | check, lease, discover, revoke, watch.poll | `sandcat capability` operator CLI |
 
 - `capability.revoke` requires `caller=operator` on the runtime — agents cannot self-revoke or revoke others
 - RPC dispatcher allowlists reject unknown methods and admin-only methods on the agent socket
@@ -177,30 +177,30 @@ Mutating APIs require `caller` to match the lease-bound `agent_id` (`CallerIdent
 
 ```bash
 cd capability-runtime
-pytest -q --ignore=tests/test_security.py --ignore=tests/test_policy.py
+pytest -q
 ```
 
 ## Layout
 
-| Module | Role |
-|--------|------|
-| `runtime.py` | Protocol surfaces, bundle assembly, NetBird backend wiring |
-| `catalog.py` | Lifecycle states, network binding storage |
-| `network.py` | `NetworkBinding`, `PhysicalRevocationBackend` protocol |
-| `netbird_client.py` | `NetBirdClient` protocol, mock and REST implementations |
-| `netbird_backend.py` | `NetBirdRevocationBackend` — grant/revoke via `enable_binding` / `disable_binding` |
-| `netbird_sync.py` | Grant/revoke orchestration helpers for network bindings |
-| `route_watcher.py` | `RouteDisappearanceWatcher` — physical disappearance → logical revoke |
-| `lease.py` / `revoke.py` | Grant, quota, revocation |
-| `policy.py` | Lease parameters (PoC defaults + catalog `lease_policy` registration) |
-| `l7_record.py` | Post-hoc L7 flow → network lease quota decrement |
-| `observability.py` | JSONL trace + replay |
-| `agent_loop.py` | Check-then-act harness |
-| `mcp_adapter.py` | Transport-agnostic MCP tool wrapper |
-| `daemon.py` | Sidecar main: runtime, watcher, dual Unix sockets |
-| `rpc/dispatcher.py` | JSON-RPC routing with agent/admin allowlists |
-| `rpc/transports/unix.py` | AF_UNIX JSON-RPC server/client |
-| `mcp/server.py` | Minimal MCP meta-tools server |
-| `mcp/bridge.py` | Stdio MCP ↔ agent.sock forwarder |
-| `settings.py` | Sandcat settings JSON layers for NetBird tokens |
-| `cli.py` | Operator admin-socket CLI (used by `sandcat capability`) |
+| Module                   | Role                                                                               |
+| ------------------------ | ---------------------------------------------------------------------------------- |
+| `runtime.py`             | Protocol surfaces, bundle assembly, NetBird backend wiring                         |
+| `catalog.py`             | Lifecycle states, network binding storage                                          |
+| `network.py`             | `NetworkBinding`, `PhysicalRevocationBackend` protocol                             |
+| `netbird_client.py`      | `NetBirdClient` protocol, mock and REST implementations                            |
+| `netbird_backend.py`     | `NetBirdRevocationBackend` — grant/revoke via `enable_binding` / `disable_binding` |
+| `netbird_sync.py`        | Grant/revoke orchestration helpers for network bindings                            |
+| `route_watcher.py`       | `RouteDisappearanceWatcher` — physical disappearance → logical revoke              |
+| `lease.py` / `revoke.py` | Grant, quota, revocation                                                           |
+| `policy.py`              | Lease parameters registered from catalog `lease_policy`                            |
+| `l7_record.py`           | Post-hoc L7 flow → network lease quota decrement                                   |
+| `observability.py`       | JSONL trace + replay                                                               |
+| `agent_loop.py`          | Check-then-act harness                                                             |
+| `mcp_adapter.py`         | Transport-agnostic MCP tool wrapper                                                |
+| `daemon.py`              | Sidecar main: runtime, watcher, dual Unix sockets                                  |
+| `rpc/dispatcher.py`      | JSON-RPC routing with agent/admin allowlists                                       |
+| `rpc/transports/unix.py` | AF_UNIX JSON-RPC server/client                                                     |
+| `mcp/server.py`          | Minimal MCP meta-tools server                                                      |
+| `mcp/bridge.py`          | Stdio MCP ↔ agent.sock forwarder                                                   |
+| `settings.py`            | Sandcat settings JSON layers for NetBird tokens                                    |
+| `cli.py`                 | Operator admin-socket CLI (used by `sandcat capability`)                           |
