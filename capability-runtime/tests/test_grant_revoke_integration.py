@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from lease_support import register_test_policy
 from capability_runtime.catalog import LifecycleState
 from capability_runtime.netbird_client import MockNetBirdClient
 from capability_runtime.network import NetworkBinding, SyncMode
@@ -60,6 +61,7 @@ def test_grant_network_capability_enables_binding(
         binding,
         initial_state=LifecycleState.VISIBLE,
     )
+    register_test_policy("network_test")
 
     # Grant lease
     agent_id = AgentIdentity("test-agent")
@@ -115,6 +117,7 @@ def test_grant_network_capability_rolls_back_on_enable_failure(
         binding,
         initial_state=LifecycleState.VISIBLE,
     )
+    register_test_policy("network_fail")
 
     # Mock enable_binding to raise an error
     original_enable = netbird_client.enable_binding
@@ -153,6 +156,7 @@ def test_grant_tool_capability_skips_physical_sync(
     # Use the built-in create_pr capability (registered in __init__)
     ref = CapabilityRef("cap-create-pr")
     runtime_with_netbird.catalog.set_state(ref, LifecycleState.VISIBLE)
+    register_test_policy("create_pr")
 
     # Grant lease
     agent_id = AgentIdentity("test-agent")
@@ -206,6 +210,7 @@ def test_grant_network_capability_with_existing_route(
         binding,
         initial_state=LifecycleState.VISIBLE,
     )
+    register_test_policy("network_existing")
 
     # Grant lease
     agent_id = AgentIdentity("test-agent")

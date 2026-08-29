@@ -1,6 +1,7 @@
 # capability-runtime/tests/test_revoke_by_lease_network.py
 """Revoke by lease ID must disable network bindings."""
 
+from lease_support import register_test_policy
 from capability_runtime.catalog import LifecycleState
 from capability_runtime.netbird_client import MockNetBirdClient
 from capability_runtime.network import NetworkBinding, SyncMode
@@ -20,6 +21,7 @@ def test_revoke_by_lease_id_disables_network_route(tmp_path):
     ref = CapabilityRef("cap-reach-api")
     binding = NetworkBinding(ref, "peer-abc", "10.8.0.0/24", "route-1", sync_mode=SyncMode.ROUTE_ENABLE)
     runtime.register_network_capability("reach_api", ref, binding, LifecycleState.VISIBLE)
+    register_test_policy("reach_api")
 
     decision = runtime.request_capability_lease(agent, agent, ref, "need api")
     version_before = runtime._bundle_version
@@ -45,6 +47,7 @@ def test_revoke_by_lease_id_fails_closed_when_netbird_disable_fails(tmp_path, mo
     ref = CapabilityRef("cap-reach-api")
     binding = NetworkBinding(ref, "peer-abc", "10.8.0.0/24", "route-1", sync_mode=SyncMode.ROUTE_ENABLE)
     runtime.register_network_capability("reach_api", ref, binding, LifecycleState.VISIBLE)
+    register_test_policy("reach_api")
 
     decision = runtime.request_capability_lease(agent, agent, ref, "need api")
 
@@ -69,6 +72,7 @@ def test_revoke_by_lease_id_skips_netbird_for_tool_capability(tmp_path):
     agent = AgentIdentity("agent-1")
     ref = CapabilityRef("cap-create-pr")
     runtime.catalog.register("create_pr", ref, LifecycleState.VISIBLE)
+    register_test_policy("create_pr")
 
     decision = runtime.request_capability_lease(agent, agent, ref, "need pr")
     runtime.revoke_capability(_OPERATOR, decision.lease_id, "done")

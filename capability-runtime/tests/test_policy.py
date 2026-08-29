@@ -1,28 +1,50 @@
-"""Tests for PoC lease policy lookup."""
+"""Tests for catalog/register lease policy lookup."""
 
 from datetime import timedelta
 
 import pytest
 
-from capability_runtime.policy import LeasePolicyNotFound, lease_policy_for
+from capability_runtime.policy import (
+    LeasePolicy,
+    LeasePolicyNotFound,
+    lease_policy_for,
+    register_lease_policy,
+)
+from capability_runtime.runtime import CapabilityRuntime
+from capability_runtime.types import AgentIdentity, CapabilityRef
 
 
-def test_create_pr_policy():
-    policy = lease_policy_for("create_pr")
-    assert policy.quota == 1
-    assert policy.ttl == timedelta(minutes=10)
-    assert policy.token_budget == 25_000
-    assert policy.risk_envelope == "high"
+def test_unregistered_name_raises():
+    with pytest.raises(LeasePolicyNotFound):
+        lease_policy_for("create_pr")
 
 
-def test_write_note_policy():
-    policy = lease_policy_for("write_note")
-    assert policy.quota == 3
-    assert policy.ttl == timedelta(minutes=5)
+def test_register_then_lookup():
+    register_lease_policy(
+        "reach_api",
+        LeasePolicy(
+            quota=5,
+            ttl=timedelta(minutes=15),
+            token_budget=10_000,
+            risk_envelope="medium",
+        ),
+    )
+    policy = lease_policy_for("reach_api")
+    assert policy.quota == 5
+    assert policy.ttl == timedelta(minutes=15)
     assert policy.token_budget == 10_000
     assert policy.risk_envelope == "medium"
 
 
-def test_unknown_capability_raises():
+def test_missing_capability_name_raises():
     with pytest.raises(LeasePolicyNotFound):
-        lease_policy_for("unknown_tool")
+        lease_policy_for(None)
+
+
+def test_lease_without_registered_policy_fails_closed(tmp_path):
+    runtime = CapabilityRuntime(tmp_path / "trace.jsonl", "trace-policy", 1)
+    agent = AgentIdentity("agent-1")
+    with pytest.raises(LeasePolicyNotFound):
+        runtime.request_capability_lease(
+            agent, agent, CapabilityRef("cap-create-pr"), "no policy"
+        )

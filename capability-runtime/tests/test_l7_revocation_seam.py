@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
+from lease_support import register_test_policy
 from capability_runtime.catalog import LifecycleState
 from capability_runtime.netbird_client import MockNetBirdClient
 from capability_runtime.network import NetworkBinding, RevocationClosePolicy
@@ -188,6 +189,7 @@ def test_ttl_expiry_pushes_l7_and_revokes_even_when_push_fails(tmp_path):
     )
     runtime = _runtime(tmp_path, tmp_path / "missing.sock", netbird_client=client)
     runtime.register_network_capability("reach_api", REF, _binding(), LifecycleState.VISIBLE)
+    register_test_policy("reach_api")
 
     decision = runtime.request_capability_lease(AGENT, AGENT, REF, "need it")
 
@@ -210,6 +212,7 @@ def test_lease_grant_restores_previously_revoked_hosts(tmp_path, revoke_peer):
     runtime = _runtime(tmp_path, peer.socket_path, netbird_client=client)
     runtime.register_network_capability("reach_api", REF, _binding(), LifecycleState.VISIBLE)
 
+    register_test_policy("reach_api")
     runtime.request_capability_lease(AGENT, AGENT, REF, "need it")
     runtime.process_expired_network_leases(
         now=datetime.now(timezone.utc) + timedelta(hours=1)
@@ -242,6 +245,7 @@ def test_lease_grant_restores_without_a_netbird_backend(tmp_path, revoke_peer):
         LifecycleState.VISIBLE,
     )
 
+    register_test_policy("reach_api")
     runtime.request_capability_lease(AGENT, AGENT, REF, "need it")
 
     params = peer.wait()[0]["params"]
@@ -252,6 +256,7 @@ def test_lease_grant_survives_restore_push_failure(tmp_path):
     """The proxy being down must not fail the grant itself."""
     runtime = _runtime(tmp_path, tmp_path / "missing.sock")
     runtime.register_network_capability("reach_api", REF, _binding(), LifecycleState.VISIBLE)
+    register_test_policy("reach_api")
 
     decision = runtime.request_capability_lease(AGENT, AGENT, REF, "need it")
 
@@ -260,6 +265,7 @@ def test_lease_grant_survives_restore_push_failure(tmp_path):
 
 
 def test_tool_lease_does_not_push_restore(tmp_path):
+    register_test_policy("create_pr")
     runtime = _runtime(tmp_path, tmp_path / "missing.sock")
 
     runtime.request_capability_lease(

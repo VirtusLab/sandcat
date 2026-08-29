@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 
 import pytest
 
+from lease_support import register_test_policy
 from capability_runtime.agent_loop import AgentExecutionLoop
 from capability_runtime.catalog import LifecycleState
 from capability_runtime.errors import CapabilityNotVisible
@@ -40,6 +41,7 @@ def test_run_step_raises_not_visible(tmp_path):
 
 
 def test_run_step_adapts_after_lease_exhausted(tmp_path):
+    register_test_policy("create_pr")
     runtime = CapabilityRuntime(tmp_path / "trace.jsonl", "trace-agent-loop-3", 102)
     loop = AgentExecutionLoop(runtime)
     agent = AgentIdentity("agent-3")

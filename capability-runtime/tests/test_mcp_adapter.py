@@ -4,6 +4,7 @@ from datetime import timedelta
 
 import pytest
 
+from lease_support import register_test_policy
 from capability_runtime.agent_loop import AgentExecutionLoop
 from capability_runtime.catalog import LifecycleState
 from capability_runtime.errors import CapabilityNotVisible
@@ -13,6 +14,13 @@ from capability_runtime.types import AgentIdentity, CapabilityRef
 
 
 def _adapter_and_loop(tmp_path):
+    register_test_policy(
+        "write_note",
+        quota=3,
+        ttl_minutes=5,
+        token_budget=10_000,
+        risk_envelope="medium",
+    )
     runtime = CapabilityRuntime(tmp_path / "trace.jsonl", "trace-mcp-1", 200)
     adapter = McpToolAdapter(runtime)
     adapter.register_mcp_tool(

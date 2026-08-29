@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from lease_support import register_test_policy
 from capability_runtime.agent_loop import AgentExecutionLoop
 from capability_runtime.errors import CapabilityNotVisible
 from capability_runtime.runtime import CapabilityRuntime
@@ -26,6 +27,7 @@ class _Poc1Result:
 
 
 def _run_create_pr_lifecycle(trace_path: Path) -> _Poc1Result:
+    register_test_policy("create_pr")
     runtime = CapabilityRuntime(trace_path, "poc1-create-pr", seed=42)
     loop = AgentExecutionLoop(runtime)
     agent = AgentIdentity("demo-agent")
