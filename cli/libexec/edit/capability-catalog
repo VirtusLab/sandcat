@@ -72,7 +72,7 @@ capability-catalog() {
 	if ! _capability_catalog_bind_mounted "$cap_compose"
 	then
 		echo "Project catalog is not bind-mounted into capability-runtime; --restart will not apply this file." | warning
-		echo "Re-run sandcat init --capability or add ./capability-catalog.json:/etc/sandcat/capability-catalog.json:ro to compose-capability.yml." | warning
+		echo "Add ./capability-catalog.json:/etc/sandcat/capability-catalog.json:ro to compose-capability.yml. Re-running sandcat init --capability overwrites the project catalog with the default template." | warning
 		return 0
 	fi
 
@@ -92,6 +92,12 @@ capability-catalog() {
 
 	echo "Catalog was modified. Restarting capability-runtime..." | info
 	"$SCT_LIBEXECDIR/compose/compose" restart capability-runtime
+
+	running=$("$SCT_LIBEXECDIR/compose/compose" ps --status running --quiet capability-runtime 2>/dev/null) || true
+	if [[ -z "$running" ]]
+	then
+		echo "capability-runtime is not running; check sandcat compose logs capability-runtime." | warning
+	fi
 }
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]

@@ -45,14 +45,23 @@ teardown() {
 }
 
 @test "capability-catalog does not restart by default when file modified" {
+	cat >"$BATS_TEST_TMPDIR/.devcontainer/sandcat/compose-capability.yml" <<'EOF'
+services:
+  capability-runtime:
+    volumes:
+      - ./capability-catalog.json:/etc/sandcat/capability-catalog.json:ro
+EOF
+
 	unset -f open_editor
 	stub open_editor \
 		"$CATALOG_FILE : sleep 1 && touch '$CATALOG_FILE'"
 
+	stub docker
+
 	cd "$BATS_TEST_TMPDIR"
 	run capability-catalog
 	assert_success
-	refute_output --partial "Restarting capability-runtime"
+	refute_output --partial "Restarting"
 }
 
 @test "capability-catalog --restart restarts only capability-runtime when modified and running" {
@@ -69,7 +78,8 @@ EOF
 
 	stub docker \
 		"compose -f $COMPOSE_FILE ps --status running --quiet capability-runtime : echo cid" \
-		"compose -f $COMPOSE_FILE restart capability-runtime : :"
+		"compose -f $COMPOSE_FILE restart capability-runtime : :" \
+		"compose -f $COMPOSE_FILE ps --status running --quiet capability-runtime : echo cid"
 
 	cd "$BATS_TEST_TMPDIR"
 	run capability-catalog --restart
@@ -119,7 +129,8 @@ EOF
 	run capability-catalog
 	assert_success
 	assert_output --partial "Project catalog is not bind-mounted into capability-runtime"
-	assert_output --partial "./capability-catalog.json:/etc/sandcat/capability-catalog.json:ro"
+	assert_output --partial "Add ./capability-catalog.json:/etc/sandcat/capability-catalog.json:ro to compose-capability.yml"
+	assert_output --partial "overwrites the project catalog with the default template"
 }
 
 @test "capability-catalog --restart skips restart when bind-mount is missing" {
@@ -163,11 +174,37 @@ EOF
 
 	stub docker \
 		"compose -f $COMPOSE_FILE ps --status running --quiet capability-runtime : echo cid" \
-		"compose -f $COMPOSE_FILE restart capability-runtime : :"
+		"compose -f $COMPOSE_FILE restart capability-runtime : :" \
+		"compose -f $COMPOSE_FILE ps --status running --quiet capability-runtime : echo cid"
 
 	cd "$BATS_TEST_TMPDIR"
 	run capability-catalog --restart
 	assert_success
 	assert_output --partial "Restarting capability-runtime"
 	refute_output --partial "not bind-mounted"
+}
+
+@test "capability-catalog --restart warns when sidecar is not running after restart" {
+	cat >"$BATS_TEST_TMPDIR/.devcontainer/sandcat/compose-capability.yml" <<'EOF'
+services:
+  capability-runtime:
+    volumes:
+      - ./capability-catalog.json:/etc/sandcat/capability-catalog.json:ro
+EOF
+
+	unset -f open_editor
+	stub open_editor \
+		"$CATALOG_FILE : sleep 1 && touch '$CATALOG_FILE'"
+
+	stub docker \
+		"compose -f $COMPOSE_FILE ps --status running --quiet capability-runtime : echo cid" \
+		"compose -f $COMPOSE_FILE restart capability-runtime : :" \
+		"compose -f $COMPOSE_FILE ps --status running --quiet capability-runtime : :"
+
+	cd "$BATS_TEST_TMPDIR"
+	run capability-catalog --restart
+	assert_success
+	assert_output --partial "Restarting capability-runtime"
+	assert_output --partial "capability-runtime is not running"
+	assert_output --partial "sandcat compose logs capability-runtime"
 }
