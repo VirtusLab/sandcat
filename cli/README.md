@@ -177,6 +177,14 @@ identity, API key secrets, and service-specific network rules.
 Opens the container Dockerfile (`.devcontainer/Dockerfile.app`) in your editor. Use this to add or change
 development stack versions installed via mise.
 
+### `sandcat edit capability-catalog`
+
+Opens the project capability catalog (`.devcontainer/sandcat/capability-catalog.json`) in your editor.
+The Capability Control Plane sidecar bind-mounts that file read-only; it is loaded at sidecar process start.
+
+Options:
+- `--restart` — After a save, restart only the `capability-runtime` service so it rereads the catalog. Default is no restart. If compose does not bind-mount the project catalog, the command warns and does not restart.
+
 ### `sandcat proxy`
 
 Opens the mitmproxy interface for traffic inspection. Behavior depends on the proxy mode chosen during
@@ -464,7 +472,7 @@ sandcat capability watch
 - Agent RPC surface rejects `capability.revoke` and unknown methods
 - `SANDCAT_AGENT_ID` is fixed per devcontainer and injected by the bridge;
   agent-supplied `agent_id` parameters are ignored
-- Catalog is loaded at sidecar startup from config — not registerable over RPC
+- Catalog is loaded at sidecar startup from `CAPABILITY_CATALOG_JSON` (the project catalog bind-mounted read-only) — not registerable over RPC
 
 ### Phase 3c grant/revoke flow
 
@@ -524,8 +532,8 @@ Replace placeholders in `capability-catalog.json` before leasing `reach_api`:
    ```
    Or look for hostname `{project}-proxy` (e.g. `myproject-proxy`) in the NetBird dashboard.
 2. `sandcat netbird route list` (or NetBird dashboard) — copy route ID if pre-provisioned
-3. Re-init or edit `.devcontainer/sandcat/capability-catalog.json`
-4. Restart capability-runtime: `docker compose restart capability-runtime`
+3. `sandcat edit capability-catalog` — merge or edit entries in the project catalog
+4. `sandcat edit capability-catalog --restart` — reread the catalog (or `sandcat compose restart capability-runtime` if you already saved)
 
 **Migration note:** If you previously used a `wg-client` peer as `peer_id` in your catalog, replace it with the mitmproxy peer ID. Remove the old `wg-client` peer from the NetBird dashboard.
 

@@ -54,16 +54,20 @@ Reload mitmproxy (`sandcat restart-proxy`) so the rule is live.
 
 The default catalog from `sandcat init --capability` stays small (`create_pr`
 plus mitmproxy `reach_api`). Merge the `reach_proxy` entry from
-[capability-catalog.json](capability-catalog.json) into the project's
-`.devcontainer/sandcat/capability-catalog.json`.
-
-`dns_label` is `proxy-peer.netbird.selfhosted`. capability-runtime resolves
-`peer_id` and mesh IP at lease time, so the catalog survives gateway
-recreates.
-
-Restart the capability sidecar after editing the catalog, then:
+[capability-catalog.json](capability-catalog.json) into the project catalog:
 
 ```bash
+sandcat edit capability-catalog
+```
+
+(`dns_label` is `proxy-peer.netbird.selfhosted`. capability-runtime resolves
+`peer_id` and mesh IP at lease time, so the catalog survives gateway
+recreates.)
+
+Reload the sidecar so it rereads the catalog, then lease:
+
+```bash
+sandcat edit capability-catalog --restart
 sandcat capability lease --ref cap-reach-proxy --justification "need gateway access"
 ```
 
