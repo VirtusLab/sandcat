@@ -35,7 +35,7 @@ Phase 3 realizes this thesis by binding each network capability to a NetBird pee
 - **MCP bridge** (`capability-mcp-bridge`): stdio MCP in agent container → JSON-RPC over `agent.sock`
 - Fixed `SANDCAT_AGENT_ID` per devcontainer; bridge injects identity — agent-supplied `agent_id` ignored
 - Operator CLI: `sandcat capability` via `docker compose exec capability-runtime`
-- Catalog loaded at sidecar startup from `CAPABILITY_CATALOG_JSON` — no `register_*` over RPC
+- Catalog loaded at sidecar startup from `CAPABILITY_CATALOG_JSON` (sandcat compose bind-mounts the project `.devcontainer/sandcat/capability-catalog.json` read-only as the live file) — no `register_*` over RPC
 
 **In scope (Phase 3c — NetBird policy sync):**
 
