@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# shellcheck source=../../lib/logging.bash
+source "$SCT_LIBDIR/logging.bash"
+# shellcheck source=../../lib/constants.bash
+source "$SCT_LIBDIR/constants.bash"
+# shellcheck source=../../lib/select.bash
+source "$SCT_LIBDIR/select.bash"
+# shellcheck source=../../lib/path.bash
+source "$SCT_LIBDIR/path.bash"
+
+# Opens the project capability catalog in the default editor.
+capability-catalog() {
+	while [[ $# -gt 0 ]]
+	do
+		case $1 in
+		*)
+			echo "Unknown option: $1" | error
+			return 1
+			;;
+		esac
+	done
+
+	local repo_root
+	repo_root="$(find_repo_root)"
+
+	local catalog_file="$repo_root/.devcontainer/sandcat/capability-catalog.json"
+
+	if [[ ! -f "$catalog_file" ]]
+	then
+		echo "No capability catalog found: $catalog_file" | error
+		echo "Run sandcat init --capability to create one." | error
+		return 1
+	fi
+
+	open_editor "$catalog_file"
+}
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]
+then
+	capability-catalog "$@"
+fi
