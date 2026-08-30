@@ -13,6 +13,7 @@ services:
       # (revoke path inaccessible to the agent) outranks the PRD's "no new
       # volume" constraint where the two conflict.
       - l7-revoke-socket:/run/sandcat-l7-revoke
+      - ./capability-catalog.json:/etc/sandcat/capability-catalog.json:ro
       - ~/.config/sandcat/settings.json:/config/settings.json:ro
     environment:
       - SANDCAT_SETTINGS_USER=/config/settings.json
