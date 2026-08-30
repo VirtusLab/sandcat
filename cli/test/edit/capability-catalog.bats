@@ -56,6 +56,13 @@ teardown() {
 }
 
 @test "capability-catalog --restart restarts only capability-runtime when modified and running" {
+	cat >"$BATS_TEST_TMPDIR/.devcontainer/sandcat/compose-capability.yml" <<'EOF'
+services:
+  capability-runtime:
+    volumes:
+      - ./capability-catalog.json:/etc/sandcat/capability-catalog.json:ro
+EOF
+
 	unset -f open_editor
 	stub open_editor \
 		"$CATALOG_FILE : sleep 1 && touch '$CATALOG_FILE'"
@@ -82,6 +89,13 @@ teardown() {
 }
 
 @test "capability-catalog --restart warns when sidecar is not running" {
+	cat >"$BATS_TEST_TMPDIR/.devcontainer/sandcat/compose-capability.yml" <<'EOF'
+services:
+  capability-runtime:
+    volumes:
+      - ./capability-catalog.json:/etc/sandcat/capability-catalog.json:ro
+EOF
+
 	unset -f open_editor
 	stub open_editor \
 		"$CATALOG_FILE : sleep 1 && touch '$CATALOG_FILE'"
@@ -94,4 +108,66 @@ teardown() {
 	assert_success
 	assert_output --partial "capability-runtime is not running; catalog was saved but not reloaded."
 	refute_output --partial "Restarting capability-runtime"
+}
+
+@test "capability-catalog warns when catalog bind-mount is missing" {
+	unset -f open_editor
+	stub open_editor \
+		"$CATALOG_FILE : :"
+
+	cd "$BATS_TEST_TMPDIR"
+	run capability-catalog
+	assert_success
+	assert_output --partial "Project catalog is not bind-mounted into capability-runtime"
+	assert_output --partial "./capability-catalog.json:/etc/sandcat/capability-catalog.json:ro"
+}
+
+@test "capability-catalog --restart skips restart when bind-mount is missing" {
+	unset -f open_editor
+	stub open_editor \
+		"$CATALOG_FILE : sleep 1 && touch '$CATALOG_FILE'"
+
+	cd "$BATS_TEST_TMPDIR"
+	run capability-catalog --restart
+	assert_success
+	assert_output --partial "Project catalog is not bind-mounted into capability-runtime"
+	refute_output --partial "Restarting capability-runtime"
+}
+
+@test "capability-catalog does not rewrite compose-capability.yml" {
+	local cap_compose="$BATS_TEST_TMPDIR/.devcontainer/sandcat/compose-capability.yml"
+	printf '%s\n' 'services: {}' >"$cap_compose"
+	cp "$cap_compose" "$BATS_TEST_TMPDIR/compose-capability.before"
+
+	unset -f open_editor
+	stub open_editor \
+		"$CATALOG_FILE : sleep 1 && touch '$CATALOG_FILE'"
+
+	cd "$BATS_TEST_TMPDIR"
+	run capability-catalog
+	assert_success
+	cmp "$BATS_TEST_TMPDIR/compose-capability.before" "$cap_compose"
+}
+
+@test "capability-catalog --restart restarts when bind-mount is present" {
+	cat >"$BATS_TEST_TMPDIR/.devcontainer/sandcat/compose-capability.yml" <<'EOF'
+services:
+  capability-runtime:
+    volumes:
+      - ./capability-catalog.json:/etc/sandcat/capability-catalog.json:ro
+EOF
+
+	unset -f open_editor
+	stub open_editor \
+		"$CATALOG_FILE : sleep 1 && touch '$CATALOG_FILE'"
+
+	stub docker \
+		"compose -f $COMPOSE_FILE ps --status running --quiet capability-runtime : echo cid" \
+		"compose -f $COMPOSE_FILE restart capability-runtime : :"
+
+	cd "$BATS_TEST_TMPDIR"
+	run capability-catalog --restart
+	assert_success
+	assert_output --partial "Restarting capability-runtime"
+	refute_output --partial "not bind-mounted"
 }
