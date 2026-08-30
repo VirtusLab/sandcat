@@ -146,3 +146,44 @@ teardown() {
 	yq -e '.services.mitmproxy.environment[] | select(. == "MITMPROXY_REVOKE_SOCKET=/run/sandcat-l7-revoke/l7-revoke.sock")' \
 		"$COMPOSE_DIR/sandcat/compose-proxy.yml"
 }
+
+CATALOG_MOUNT='./capability-catalog.json:/etc/sandcat/capability-catalog.json:ro'
+
+@test "compose-capability template bind-mounts project catalog read-only" {
+	yq -e ".services.\"capability-runtime\".volumes[] | select(. == \"$CATALOG_MOUNT\")" \
+		"$COMPOSE_DIR/sandcat/compose-capability.yml"
+	yq -e '.services."capability-runtime".environment[] | select(. == "CAPABILITY_CATALOG_JSON=/etc/sandcat/capability-catalog.json")' \
+		"$COMPOSE_DIR/sandcat/compose-capability.yml"
+}
+
+@test "enable_capability adds catalog bind-mount when missing" {
+	yq -i '
+		.services."capability-runtime".volumes =
+			[.services."capability-runtime".volumes[]
+			| select(test("/etc/sandcat/capability-catalog.json") | not)]
+	' "$COMPOSE_DIR/sandcat/compose-capability.yml"
+
+	enable_capability "$COMPOSE_DIR"
+
+	yq -e ".services.\"capability-runtime\".volumes[] | select(. == \"$CATALOG_MOUNT\")" \
+		"$COMPOSE_DIR/sandcat/compose-capability.yml"
+}
+
+@test "enable_capability catalog bind-mount is idempotent" {
+	enable_capability "$COMPOSE_DIR"
+	enable_capability "$COMPOSE_DIR"
+
+	run yq '[.services."capability-runtime".volumes[] | select(test("/etc/sandcat/capability-catalog.json"))] | length' \
+		"$COMPOSE_DIR/sandcat/compose-capability.yml"
+	assert_success
+	assert_output "1"
+}
+
+@test "enable_capability does not mount the catalog on the agent" {
+	enable_capability "$COMPOSE_DIR"
+
+	run yq '[.services.agent.volumes[]? | select(test("capability-catalog"))] | length' \
+		"$COMPOSE_DIR/compose-all.yml"
+	assert_success
+	assert_output "0"
+}

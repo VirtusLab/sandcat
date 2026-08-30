@@ -635,6 +635,13 @@ enable_capability() {
 		yq -i '.volumes.l7-revoke-socket = {}' "$cap_compose"
 	fi
 
+	local catalog_mount="./capability-catalog.json:/etc/sandcat/capability-catalog.json:ro"
+	local has_catalog_mount
+	has_catalog_mount=$(yq '[.services."capability-runtime".volumes[]? | select(test("/etc/sandcat/capability-catalog.json"))] | length' "$cap_compose")
+	if [[ "$has_catalog_mount" -eq 0 ]]; then
+		yq -i '.services."capability-runtime".volumes += ["./capability-catalog.json:/etc/sandcat/capability-catalog.json:ro"]' "$cap_compose"
+	fi
+
 	local proxy_compose="$compose_dir/sandcat/compose-proxy.yml"
 	if [[ -f "$proxy_compose" ]]; then
 		local has_cap_vol has_proxy_revoke_vol
