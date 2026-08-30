@@ -11,10 +11,17 @@ source "$SCT_LIBDIR/select.bash"
 source "$SCT_LIBDIR/path.bash"
 
 # Opens the project capability catalog in the default editor.
+# --restart reloads capability-runtime when the file changed and the sidecar is up.
 capability-catalog() {
+	local do_restart=false
+
 	while [[ $# -gt 0 ]]
 	do
 		case $1 in
+		--restart)
+			do_restart=true
+			shift
+			;;
 		*)
 			echo "Unknown option: $1" | error
 			return 1
@@ -34,7 +41,38 @@ capability-catalog() {
 		return 1
 	fi
 
+	local mtime_before
+	mtime_before=$(get_file_mtime "$catalog_file")
+
 	open_editor "$catalog_file"
+
+	local mtime_after
+	mtime_after=$(get_file_mtime "$catalog_file")
+
+	if [[ "$mtime_before" == "$mtime_after" ]]
+	then
+		echo "No changes detected." | info
+		return 0
+	fi
+
+	echo "Catalog was modified." | info
+
+	if [[ "$do_restart" != "true" ]]
+	then
+		return 0
+	fi
+
+	local running
+	running=$("$SCT_LIBEXECDIR/compose/compose" ps --status running --quiet capability-runtime 2>/dev/null) || true
+
+	if [[ -z "$running" ]]
+	then
+		echo "capability-runtime is not running; catalog was saved but not reloaded." | warning
+		return 0
+	fi
+
+	echo "Catalog was modified. Restarting capability-runtime..." | info
+	"$SCT_LIBEXECDIR/compose/compose" restart capability-runtime
 }
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]
