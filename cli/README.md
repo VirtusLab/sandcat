@@ -185,6 +185,8 @@ The Capability Control Plane sidecar bind-mounts that file read-only; it is load
 Options:
 - `--restart` — After a save, restart only the `capability-runtime` service so it rereads the catalog. Default is no restart. If compose does not bind-mount the project catalog, the command warns and does not restart.
 
+If the sidecar still shows the old catalog after `--restart`, run `sandcat compose up -d capability-runtime`. Recreate remounts the file; `restart` does not. Editors that save by writing a new inode leave a single-file bind-mount pointing at the previous file.
+
 ### `sandcat proxy`
 
 Opens the mitmproxy interface for traffic inspection. Behavior depends on the proxy mode chosen during
