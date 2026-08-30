@@ -10,6 +10,18 @@ source "$SCT_LIBDIR/select.bash"
 # shellcheck source=../../lib/path.bash
 source "$SCT_LIBDIR/path.bash"
 
+# True when compose-capability.yml bind-mounts the project catalog into the sidecar.
+_capability_catalog_bind_mounted() {
+	local cap_compose=$1
+	if [[ ! -f "$cap_compose" ]]
+	then
+		return 1
+	fi
+	local count
+	count=$(yq '[.services."capability-runtime".volumes[]? | select(test("/etc/sandcat/capability-catalog.json"))] | length' "$cap_compose")
+	[[ "$count" -gt 0 ]]
+}
+
 # Opens the project capability catalog in the default editor.
 # --restart reloads capability-runtime when the file changed and the sidecar is up.
 capability-catalog() {
@@ -52,12 +64,19 @@ capability-catalog() {
 	if [[ "$mtime_before" == "$mtime_after" ]]
 	then
 		echo "No changes detected." | info
+	else
+		echo "Catalog was modified." | info
+	fi
+
+	local cap_compose="$repo_root/.devcontainer/sandcat/compose-capability.yml"
+	if ! _capability_catalog_bind_mounted "$cap_compose"
+	then
+		echo "Project catalog is not bind-mounted into capability-runtime; --restart will not apply this file." | warning
+		echo "Re-run sandcat init --capability or add ./capability-catalog.json:/etc/sandcat/capability-catalog.json:ro to compose-capability.yml." | warning
 		return 0
 	fi
 
-	echo "Catalog was modified." | info
-
-	if [[ "$do_restart" != "true" ]]
+	if [[ "$mtime_before" == "$mtime_after" || "$do_restart" != "true" ]]
 	then
 		return 0
 	fi
