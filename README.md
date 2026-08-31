@@ -688,11 +688,11 @@ sandcat edit compose            # Docker Compose file (.devcontainer/compose-all
 After editing a settings file, restart the proxy to apply changes:
 
 ```sh
-sandcat restart-proxy
+sandcat restart
 ```
 
 Note that VS Code's **Rebuild Container** only rebuilds the `agent` service — it
-does not restart `mitmproxy` or `wg-client`. Use `sandcat restart-proxy` to
+does not restart `mitmproxy` or `wg-client`. Use `sandcat restart` to
 apply settings changes.
 
 ## Network access rules
@@ -776,7 +776,7 @@ require numeric IPs); invalid entries are skipped with a warning.
 
 Higher-precedence layers replace the entire list; they are not merged. Setting
 `"dns_servers": null` in a higher layer resets back to defaults regardless of
-what a lower layer set. Run `sandcat restart-proxy` after editing.
+what a lower layer set. Run `sandcat restart` after editing.
 
 ### Container-to-container DNS
 
@@ -846,7 +846,7 @@ The addon logs a warning for IPv6 entries but still writes them, in case
 you're using them for tools that only need name-to-address lookup (e.g.
 some healthchecks) rather than actual connectivity.
 
-**Applying changes.** Run `sandcat restart-proxy` to re-read settings —
+**Applying changes.** Run `sandcat restart` to re-read settings —
 the sentinel block in `/etc/hosts` is replaced atomically on each start.
 Processes already running inside the agent may cache DNS results (Java
 `sun.net.InetAddressCachePolicy`, curl connection pool, etc.) and won't
@@ -937,7 +937,7 @@ The token is read from the settings file by the mitmproxy addon at startup. If
 into the container).
 
 Secret resolution happens once at mitmproxy startup — run `sandcat
-restart-proxy` after changing 1Password items.
+restart` after changing 1Password items.
 
 ### How it works internally
 
@@ -1397,7 +1397,7 @@ secrets are configured:
 - Verify the secret has a non-empty value: `sandcat compose logs mitmproxy`
   shows how many secrets were loaded at startup
 - Check that the destination host matches the secret's `hosts` allowlist
-- Run `sandcat restart-proxy` after editing settings — the addon only reads
+- Run `sandcat restart` after editing settings — the addon only reads
   settings at startup
 
 **No network inside the container on some Wi-Fi networks.** If the sandbox has
@@ -1429,7 +1429,7 @@ Then set it in `.sandcat/settings.local.json` (local, not committed) — or
 ```
 
 The value is network-specific; update or remove it when you change networks.
-Run `sandcat restart-proxy` to apply it (or `sandcat run` if the sandbox isn't
+Run `sandcat restart` to apply it (or `sandcat run` if the sandbox isn't
 started yet).
 
 **CA certificate issues.** If you see TLS errors inside the container, the

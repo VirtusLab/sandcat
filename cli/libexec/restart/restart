@@ -8,8 +8,9 @@ source "$SCT_LIBDIR/require.bash"
 # shellcheck source=../../lib/path.bash
 source "$SCT_LIBDIR/path.bash"
 
-# Restarts the mitmproxy and wg-client services to pick up settings changes.
-restart-proxy() {
+# Restarts the mitmproxy, wg-client, and agent services to pick up settings
+# changes. The agent is re-linked to the fresh wg-client netns (see #69).
+restart() {
 	require docker
 
 	local compose_file
@@ -23,6 +24,12 @@ restart-proxy() {
 		return 0
 	fi
 
+	# Capture the agent's pre-restart running state — we only re-link its
+	# netns below if it was actually running when the user invoked this
+	# command. See #69 for why the re-link is required.
+	local agent_was_running
+	agent_was_running=$(docker compose -f "$compose_file" ps agent --status running --quiet 2>/dev/null) || true
+
 	echo "Restarting proxy service..." | info
 	docker compose -f "$compose_file" restart mitmproxy
 	# Wait for mitmproxy to become healthy before restarting wg-client. The
@@ -32,10 +39,24 @@ restart-proxy() {
 	# compose depends_on health gate, so we wait explicitly here.
 	docker compose -f "$compose_file" up -d --wait --wait-timeout 60 mitmproxy
 	docker compose -f "$compose_file" restart wg-client
+
+	# Re-link the agent's network namespace to the new wg-client. The agent
+	# uses `network_mode: service:wg-client`, which Docker resolves to a
+	# specific netns file descriptor at agent-container start time.
+	# Restarting wg-client tears down that netns and creates a fresh one,
+	# but the agent's existing fd still points at the torn-down namespace —
+	# so DNS and all outbound connectivity break inside the agent (#69).
+	# Waiting for wg-client to be healthy before restarting the agent
+	# guarantees the agent's start resolves to the fresh, ready netns.
+	if [[ -n "$agent_was_running" ]]; then
+		docker compose -f "$compose_file" up -d --wait --wait-timeout 60 wg-client
+		docker compose -f "$compose_file" restart agent
+	fi
+
 	echo "Proxy restarted. New settings are now active." | info
 }
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]
 then
-	restart-proxy "$@"
+	restart "$@"
 fi
