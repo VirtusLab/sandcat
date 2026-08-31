@@ -566,7 +566,7 @@ init() {
 		fi
 		echo "    Add keys to ~/.config/sandcat/settings.json:" | info
 		echo "      \"netbird_enrollment_key\": \"<setup-key>\"  (mitmproxy enrollment)" | info
-		echo "      \"netbird_api_token\": \"<api-token>\"      (sandcat netbird commands)" | info
+		echo "      \"netbird_api_token\": \"<api-token-or-op-or-pass-ref>\"  (mitmproxy peer replace)" | info
 		echo "    To run a self-hosted management server, see docs/examples/netbird-server/" | info
 	fi
 	echo "  Then run: sandcat run, or reopen the project using the dev container" | info
