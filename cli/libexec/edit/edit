@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-echo "Usage: sandcat edit <compose|project-settings|user-settings|dockerfile|capability-catalog>" >&2
+echo "Usage: sandcat edit <compose|project-settings|user-settings|dockerfile>" >&2
 exit 1

@@ -66,16 +66,6 @@ netbird_ensure_peer_name_settings() {
 	' "$settings_file"
 }
 
-netbird_apply_peer_names_to_catalog() {
-	local catalog_file=$1
-	local peer_name_proxy=$2
-	require yq
-
-	peer_name_proxy="$peer_name_proxy" yq -i -o json '
-		(.capabilities[] | select(.ref == "cap-reach-api") | .peer_hostname) = env(peer_name_proxy)
-	' "$catalog_file"
-}
-
 # Export NB_SETUP_KEY from settings when not already set in the environment.
 # Used before docker compose so wg-client receives the enrollment key on create.
 export_netbird_compose_env() {

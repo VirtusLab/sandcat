@@ -1,7 +1,0 @@
-#!/usr/bin/env bash
-
-# Catch subcommands (check, lease, revoke, watch) and forward them to the
-# capability dispatcher. Without this, `sandcat capability check` looks for
-# libexec/capability/check.
-
-exec capability "$@"

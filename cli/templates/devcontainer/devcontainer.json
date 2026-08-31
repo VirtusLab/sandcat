@@ -15,9 +15,7 @@
 	"remoteEnv": {
 		"SSH_AUTH_SOCK": "",
 		"GPG_AGENT_INFO": "",
-		"GIT_ASKPASS": "",
-		"SANDCAT_AGENT_ID": "devcontainer-agent",
-		"CAPABILITY_AGENT_SOCKET": "/run/sandcat-capability/agent.sock"
+		"GIT_ASKPASS": ""
 	},
 	"customizations": {
 		"vscode": {
