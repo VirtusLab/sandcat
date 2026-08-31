@@ -4,3 +4,4 @@ __pycache__/
 .devcontainer
 .orca
 .worktrees/
+docs/examples/proxy-peer/.env
