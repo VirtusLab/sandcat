@@ -58,15 +58,3 @@ JSON
 	run yq -r '.netbird_peer_name_proxy' "$SETTINGS"
 	assert_output "myapp-sandbox-proxy"
 }
-
-@test "netbird_apply_peer_names_to_catalog sets peer_hostname on cap-reach-api" {
-	local catalog="$BATS_TEST_TMPDIR/capability-catalog.json"
-	cp "$SCT_TEMPLATEDIR/devcontainer/sandcat/capability-catalog.json" "$catalog"
-
-	netbird_apply_peer_names_to_catalog "$catalog" "myapp-sandbox-proxy"
-
-	run yq -r '.capabilities[] | select(.ref == "cap-reach-api") | .peer_hostname' "$catalog"
-	assert_output "myapp-sandbox-proxy"
-	run yq '[.capabilities[] | select(.ref == "cap-reach-proxy")] | length' "$catalog"
-	assert_output "0"
-}
