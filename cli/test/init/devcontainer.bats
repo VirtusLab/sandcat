@@ -113,3 +113,13 @@ teardown() {
 	run grep -c '__CUSTOMIZATIONS_' "$DEVCONTAINER_JSON"
 	assert_output "0"
 }
+
+@test "devcontainer.json comment notes copyGitConfig needs host user settings" {
+	# Two independent presence checks — decoupled from any specific window
+	# above the setting. As long as the setting exists AND the comment
+	# somewhere in the file mentions the host-settings requirement, the
+	# intent is preserved. See issue #34.
+	local template="$SCT_TEMPLATEDIR/devcontainer/devcontainer.json"
+	grep -q '"dev.containers.copyGitConfig"' "$template"
+	grep -q "host user settings" "$template"
+}
