@@ -358,17 +358,12 @@ supervise_netbird_dns_publish() {
 main() {
     # ── Read NetBird credentials from settings if not in environment ─────────────
     # Prefer NB_SETUP_KEY from compose passthrough (sandcat exports it from layered
-    # settings). Fall back to the mounted user settings.json only when unset —
-    # that mount does not include project .sandcat/settings.json.
+    # settings). Leave env empty when unset so prepare can flatten object-shaped
+    # secrets from the mounted user settings.json (not project .sandcat/settings.json).
     local _settings_file="/config/settings.json"
+    local _setup_key_from_compose=0
+    [[ -n "${NB_SETUP_KEY:-}" ]] && _setup_key_from_compose=1
     if [[ -f "$_settings_file" ]] && command -v jq >/dev/null 2>&1; then
-        if [[ -z "${NB_SETUP_KEY:-}" ]]; then
-            NB_SETUP_KEY=$(jq -r '.netbird_enrollment_key // empty' "$_settings_file" 2>/dev/null || true)
-            if [[ -n "${NB_SETUP_KEY:-}" ]]; then
-                export NB_SETUP_KEY
-                echo "[mitmproxy] Loaded NB_SETUP_KEY from $_settings_file (compose did not pass it)." >&2
-            fi
-        fi
         if [[ -z "${NB_MANAGEMENT_URL:-}" ]]; then
             # Prefer enrollment-specific URL for container-side access to self-hosted server.
             local _enrollment_url
@@ -381,12 +376,14 @@ main() {
     fi
 
     # ── NetBird enrollment (optional, best-effort) ───────────────────────────────
-    # Mesh enrollment must not block the L7 proxy. An invalid/missing setup key,
-    # unreachable management server, or wt0 bring-up failure used to abort this
-    # script under `set -e` before mitmweb started — wg-client then fails with
-    # "dependency mitmproxy failed to start". Keep trying in the background via
-    # supervise_netbird_daemon when initial enrollment fails.
-    if [[ -n "${NB_SETUP_KEY:-}" ]]; then
+    # Mesh enrollment must not block the L7 proxy. Prepare before the gate so
+    # object-shaped settings secrets flatten; skip mesh if prepare fails.
+    if ! netbird_prepare_enroll_credentials; then
+        echo "[mitmproxy] Failed to prepare NetBird enroll credentials; starting L7 proxy without mesh." >&2
+    elif [[ -n "${NB_SETUP_KEY:-}" ]]; then
+        if [[ "$_setup_key_from_compose" -eq 0 ]]; then
+            echo "[mitmproxy] Loaded NB_SETUP_KEY from $_settings_file (compose did not pass it)." >&2
+        fi
         echo "[mitmproxy] NB_SETUP_KEY is set (${#NB_SETUP_KEY} chars); enrolling NetBird mesh." >&2
         if start_netbird "$NETBIRD_IFACE"; then
             netbird_set_dns_label
