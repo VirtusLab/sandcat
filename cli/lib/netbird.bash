@@ -38,6 +38,62 @@ netbird_read_setting() {
 	printf '%s' "$value"
 }
 
+# Same layers as netbird_read_setting, but each value is JSON (yq -o json).
+# Later non-null layers win. Prints `null` when unset.
+netbird_read_setting_json() {
+	local key=$1
+	require yq
+	local value="null"
+	local file layer_value repo_root
+	local -a layers=()
+	layers+=("$(sct_home)/settings.json")
+	if repo_root=$(find_repo_root 2>/dev/null); then
+		layers+=("$repo_root/$SCT_PROJECT_DIR/settings.json")
+		layers+=("$repo_root/$SCT_PROJECT_DIR/settings.local.json")
+	fi
+	for file in "${layers[@]}"; do
+		[[ -f "$file" ]] || continue
+		layer_value=$(yq -o json -r ".$key" "$file")
+		if [[ "$layer_value" != "null" ]]; then
+			value="$layer_value"
+		fi
+	done
+	printf '%s' "$value"
+}
+
+# Args: $1 JSON (string, object, empty, or null)
+# Object must have exactly one of value, op, pass.
+netbird_flatten_secret_setting() {
+	local json=${1-}
+	require yq
+	if [[ -z "$json" || "$json" == "null" ]]; then
+		printf ''
+		return 0
+	fi
+	local typ
+	typ=$(printf '%s' "$json" | yq -r 'type')
+	case "$typ" in
+	string | !!str)
+		printf '%s' "$(printf '%s' "$json" | yq -r '.')"
+		return 0
+		;;
+	object | !!map)
+		local n
+		n=$(printf '%s' "$json" | yq '[.value, .op, .pass] | map(select(. != null)) | length')
+		if [[ "$n" != "1" ]]; then
+			echo "netbird secret must specify exactly one of 'value', 'op', or 'pass'" >&2
+			return 1
+		fi
+		printf '%s' "$(printf '%s' "$json" | yq -r '.value // .op // .pass')"
+		return 0
+		;;
+	*)
+		echo "netbird secret must be a string or object" >&2
+		return 1
+		;;
+	esac
+}
+
 netbird_default_peer_name_proxy() {
 	local project_name=$1
 	printf '%s-proxy' "$project_name"
@@ -71,14 +127,14 @@ netbird_ensure_peer_name_settings() {
 export_netbird_compose_env() {
 	if [[ -z "${NB_SETUP_KEY:-}" ]]; then
 		local enrollment_key
-		enrollment_key=$(netbird_read_setting netbird_enrollment_key)
+		enrollment_key=$(netbird_flatten_secret_setting "$(netbird_read_setting_json netbird_enrollment_key)") || return 1
 		if [[ -n "$enrollment_key" ]]; then
 			export NB_SETUP_KEY="$enrollment_key"
 		fi
 	fi
 	if [[ -z "${NB_API_TOKEN:-}" ]]; then
 		local api_token
-		api_token=$(netbird_read_setting netbird_api_token)
+		api_token=$(netbird_flatten_secret_setting "$(netbird_read_setting_json netbird_api_token)") || return 1
 		if [[ -n "$api_token" ]]; then
 			export NB_API_TOKEN="$api_token"
 		fi
