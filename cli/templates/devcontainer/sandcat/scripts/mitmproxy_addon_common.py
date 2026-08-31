@@ -65,11 +65,13 @@ SETTINGS_PATHS = [
     "/config/project/settings.json",        # project: .sandcat/settings.json
     "/config/project/settings.local.json",  # local:   .sandcat/settings.local.json
 ]
-SANDCAT_ENV_PATH = "/home/mitmproxy/.mitmproxy/sandcat.env"
-CURSOR_CLI_CONFIG_PATH = "/home/mitmproxy/.mitmproxy/cursor-cli-config.json"
-# Sidecar file consumed by wg-client to override /etc/resolv.conf nameservers.
-# One IPv4/IPv6 address per line; empty or missing file means "use defaults".
-# (glibc/musl resolvers reject hostnames in `nameserver` directives.)
+# Agent-visible files land in the mitmproxy-public volume — mounted RO
+# in the agent container as /mitmproxy-config/. See issue #25 for why we
+# split the private CA volume from the agent-facing files.
+SANDCAT_ENV_PATH = "/mitmproxy-public/sandcat.env"
+CURSOR_CLI_CONFIG_PATH = "/mitmproxy-public/cursor-cli-config.json"
+# Read by wg-client (trusted, sees the private volume) — stays where it
+# already was; no need to duplicate into the public volume.
 SANDCAT_DNS_CONF_PATH = "/home/mitmproxy/.mitmproxy/dns.conf"
 # Sidecar file consumed by wg-client-init.sh. `IP<TAB>hostname` per line.
 # ALWAYS written by the addon (empty file when nothing configured) so

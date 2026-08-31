@@ -59,7 +59,7 @@ services:
     # `dns_servers`) before the addon rewrites it. Wrap the image entrypoint (not
     # the command) so docker-entrypoint.sh still sees `mitmweb` as $1 and drops
     # privileges to the mitmproxy user.
-    entrypoint: ["/bin/sh", "-c", "rm -f /home/mitmproxy/.mitmproxy/dns.conf && exec docker-entrypoint.sh \"$@\"", "sh"]
+    entrypoint: ["/bin/sh", "-c", "chown -R mitmproxy:mitmproxy /mitmproxy-public && rm -f /home/mitmproxy/.mitmproxy/dns.conf /mitmproxy-public/mitmproxy-ca-cert.pem && (while [ ! -f /home/mitmproxy/.mitmproxy/mitmproxy-ca-cert.pem ]; do sleep 1; done; cp /home/mitmproxy/.mitmproxy/mitmproxy-ca-cert.pem /mitmproxy-public/mitmproxy-ca-cert.pem.tmp && mv /mitmproxy-public/mitmproxy-ca-cert.pem.tmp /mitmproxy-public/mitmproxy-ca-cert.pem) & exec docker-entrypoint.sh \"$@\"", "sh"]
     command: mitmweb --mode wireguard --web-host 0.0.0.0 --set web_password=mitmproxy --set http2=__MITM_HTTP2__ __AGENT_MITM_STREAMING_FLAGS__ -s /scripts/__AGENT_MITM_ADDON__
     ports:
       - "8081" # mitmweb UI; host port assigned dynamically to avoid conflicts
@@ -68,12 +68,17 @@ services:
       - ./scripts/__AGENT_MITM_ADDON__:/scripts/__AGENT_MITM_ADDON__:ro
       - ./scripts/mitmproxy_addon_common.py:/scripts/mitmproxy_addon_common.py:ro
       - ~/.config/sandcat/settings.json:/config/settings.json:ro
+      # Agent-facing volume — public CA cert + sandcat.env + cursor-cli-config.
+      # Split from mitmproxy-config so the agent container cannot read the CA
+      # private key (mitmproxy-ca.pem) or WireGuard private keys
+      # (wireguard.conf) — see issue #25.
+      - mitmproxy-public:/mitmproxy-public
     healthcheck:
       # dns.conf is written (last) by the addon's load() hook and cleared by
       # the entrypoint above on each start, so gating on its presence means
       # wg-client (which reads it at startup) cannot race ahead of the addon
       # and silently fall back to defaults or a stale upstream.
-      test: ["CMD", "sh", "-c", "test -f /home/mitmproxy/.mitmproxy/wireguard.conf && test -f /home/mitmproxy/.mitmproxy/mitmproxy-ca-cert.pem && test -f /home/mitmproxy/.mitmproxy/dns.conf"]
+      test: ["CMD", "sh", "-c", "test -f /home/mitmproxy/.mitmproxy/wireguard.conf && test -f /mitmproxy-public/mitmproxy-ca-cert.pem && test -f /home/mitmproxy/.mitmproxy/dns.conf"]
       interval: 2s
       timeout: 2s
       retries: 15
@@ -86,4 +91,5 @@ services:
 
 volumes:
   mitmproxy-config:
+  mitmproxy-public:
   wg-runtime:
