@@ -5,6 +5,95 @@ netbird_peer_log() {
 	echo "[${prefix}] $*" >&2
 }
 
+NETBIRD_PASS_CLI_LOGGED_IN=0
+
+netbird_pass_cli_login_once() {
+	if [[ "${NETBIRD_PASS_CLI_LOGGED_IN}" -eq 1 ]]; then
+		return 0
+	fi
+	pass-cli login || {
+		netbird_peer_log "pass-cli login failed"
+		return 1
+	}
+	NETBIRD_PASS_CLI_LOGGED_IN=1
+}
+
+netbird_resolve_secret_ref() {
+	local value=${1-}
+	if [[ "$value" == op://* ]]; then
+		op read "$value" || {
+			netbird_peer_log "op read failed for ${value}"
+			return 1
+		}
+		return 0
+	fi
+	if [[ "$value" == pass://* ]]; then
+		netbird_pass_cli_login_once || return 1
+		pass-cli item view "$value" || {
+			netbird_peer_log "pass-cli item view failed for ${value}"
+			return 1
+		}
+		return 0
+	fi
+	printf '%s' "$value"
+}
+
+netbird_json_field() {
+	local file=$1 key=$2
+	[[ -f "$file" ]] || { printf 'null'; return 0; }
+	command -v jq >/dev/null 2>&1 || { printf 'null'; return 0; }
+	jq -c --arg k "$key" '.[$k] // null' "$file"
+}
+
+netbird_flatten_secret_json() {
+	local json=$1
+	[[ "$json" == "null" || -z "$json" ]] && { printf ''; return 0; }
+	command -v jq >/dev/null 2>&1 || { printf '%s' "$json"; return 0; }
+	local typ
+	typ=$(printf '%s' "$json" | jq -r 'type')
+	case "$typ" in
+	string)
+		printf '%s' "$(printf '%s' "$json" | jq -r '.')"
+		;;
+	object)
+		local n
+		n=$(printf '%s' "$json" | jq '[.value, .op, .pass] | map(select(. != null)) | length')
+		if [[ "$n" != "1" ]]; then
+			netbird_peer_log "settings secret must specify exactly one of value, op, or pass"
+			return 1
+		fi
+		printf '%s' "$(printf '%s' "$json" | jq -r '.value // .op // .pass')"
+		;;
+	*)
+		netbird_peer_log "settings secret must be a string or object"
+		return 1
+		;;
+	esac
+}
+
+netbird_prepare_enroll_credentials() {
+	local settings_path="${NETBIRD_SETTINGS_PATH:-/config/settings.json}"
+	local raw flat
+	if [[ -z "${NB_SETUP_KEY:-}" ]]; then
+		raw=$(netbird_json_field "$settings_path" netbird_enrollment_key)
+		flat=$(netbird_flatten_secret_json "$raw") || return 1
+		[[ -n "$flat" ]] && export NB_SETUP_KEY="$flat"
+	fi
+	if [[ -z "${NB_API_TOKEN:-}" ]]; then
+		raw=$(netbird_json_field "$settings_path" netbird_api_token)
+		flat=$(netbird_flatten_secret_json "$raw") || return 1
+		[[ -n "$flat" ]] && export NB_API_TOKEN="$flat"
+	fi
+	if [[ -n "${NB_SETUP_KEY:-}" ]]; then
+		NB_SETUP_KEY=$(netbird_resolve_secret_ref "$NB_SETUP_KEY") || return 1
+		export NB_SETUP_KEY
+	fi
+	if [[ -n "${NB_API_TOKEN:-}" ]]; then
+		NB_API_TOKEN=$(netbird_resolve_secret_ref "$NB_API_TOKEN") || return 1
+		export NB_API_TOKEN
+	fi
+}
+
 netbird_local_state_present() {
 	local state_root="${NETBIRD_STATE_ROOT:-/var/lib/netbird}"
 
