@@ -5,7 +5,6 @@ include:
   # wg-client, dependency ordering. The `services.agent` entries below are
   # merged OVER that base by Docker Compose.
   - path: sandcat/compose-agent.yml
-  # sandcat init --capability adds: sandcat/compose-capability.yml
 
 services:
   # User-customizable parts of the agent service (volumes, environment).
