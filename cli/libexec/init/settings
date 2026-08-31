@@ -25,7 +25,18 @@ settings() {
 		"$SCT_TEMPLATEDIR/settings.json" \
 		"$settings_file"
 
-	echo "Settings file created at $SCT_PROJECT_DIR/settings.json" | info
+	echo "Settings file created at $settings_file" | info
+
+	# Empty per-machine overrides scaffold — highest-precedence layer in the
+	# mitmproxy addon's settings merge. Sandcat's .gitignore keeps this file
+	# local to the machine. Existence check preserves real credentials the
+	# user may have added; unlike the template settings.json above, this one
+	# is never overwritten on re-init.
+	local local_settings="${settings_file%.json}.local.json"
+	if [[ ! -f "$local_settings" ]]; then
+		echo '{}' > "$local_settings"
+		echo "Local settings scaffold created at $local_settings" | info
+	fi
 }
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]
