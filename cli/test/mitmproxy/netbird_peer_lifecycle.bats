@@ -155,3 +155,19 @@ teardown() {
 	run netbird_replace_same_name_peer_if_needed
 	assert_success
 }
+
+@test "netbird_prepare_enroll_credentials flattens object enrollment key from settings" {
+	unset NB_SETUP_KEY
+	unset NB_API_TOKEN
+	printf '%s\n' '{"netbird_enrollment_key":{"op":"op://Vault/x/credential"}}' >"$NETBIRD_SETTINGS_PATH"
+	stub op "read op://Vault/x/credential : echo nbp_resolved"
+	netbird_prepare_enroll_credentials
+	[[ "$NB_SETUP_KEY" == "nbp_resolved" ]]
+}
+
+@test "mitmproxy-init does not copy enrollment key into NB_SETUP_KEY with raw jq" {
+	local init="$SCT_TEMPLATEDIR/devcontainer/sandcat/scripts/mitmproxy-init.sh"
+	# Raw jq dumps object JSON into env and skips prepare's flatten-if-empty path.
+	run grep -F "NB_SETUP_KEY=\$(jq -r '.netbird_enrollment_key" "$init"
+	assert_failure
+}
