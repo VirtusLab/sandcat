@@ -181,7 +181,7 @@ Opens the mitmproxy interface for traffic inspection. Behavior depends on the pr
 - **web** (default): prints the mitmweb URL and password
 - **tui**: tails the mitmdump flow log (Ctrl+C to stop)
 
-### `sandcat restart-proxy`
+### `sandcat restart`
 
 Restarts the mitmproxy and wg-client services to pick up settings changes. Run this after editing any settings
 file (project or user) to apply the new configuration.

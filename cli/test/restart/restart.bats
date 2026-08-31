@@ -3,8 +3,8 @@
 setup() {
 	load test_helper
 
-	# shellcheck source=../../libexec/restart-proxy/restart-proxy
-	source "$SCT_LIBEXECDIR/restart-proxy/restart-proxy"
+	# shellcheck source=../../libexec/restart/restart
+	source "$SCT_LIBEXECDIR/restart/restart"
 
 	mkdir -p "$BATS_TEST_TMPDIR/.devcontainer"
 	COMPOSE_FILE="$BATS_TEST_TMPDIR/.devcontainer/compose-all.yml"
@@ -15,7 +15,7 @@ teardown() {
 	unstub_all
 }
 
-@test "restart-proxy restarts proxy AND agent when both are running" {
+@test "restart restarts proxy AND agent when both are running" {
 	stub docker \
 		"compose -f $COMPOSE_FILE ps mitmproxy --status running --quiet : echo 'proxy-id'" \
 		"compose -f $COMPOSE_FILE ps agent --status running --quiet : echo 'agent-id'" \
@@ -26,12 +26,12 @@ teardown() {
 		"compose -f $COMPOSE_FILE restart agent : :"
 
 	cd "$BATS_TEST_TMPDIR"
-	run restart-proxy
+	run restart
 	assert_success
 	assert_output --partial "Restarting proxy"
 }
 
-@test "restart-proxy skips agent restart when agent is not running" {
+@test "restart skips agent restart when agent is not running" {
 	# When only the proxy stack is up (agent stopped or never started),
 	# the netns-relink step is a no-op — restarting a stopped agent would
 	# start it unexpectedly.
@@ -43,17 +43,17 @@ teardown() {
 		"compose -f $COMPOSE_FILE restart wg-client : :"
 
 	cd "$BATS_TEST_TMPDIR"
-	run restart-proxy
+	run restart
 	assert_success
 	assert_output --partial "Restarting proxy"
 }
 
-@test "restart-proxy warns when proxy is not running" {
+@test "restart warns when proxy is not running" {
 	stub docker \
 		"compose -f $COMPOSE_FILE ps mitmproxy --status running --quiet : :"
 
 	cd "$BATS_TEST_TMPDIR"
-	run restart-proxy
+	run restart
 	assert_success
 	assert_output --partial "not running"
 }

@@ -8,8 +8,9 @@ source "$SCT_LIBDIR/require.bash"
 # shellcheck source=../../lib/path.bash
 source "$SCT_LIBDIR/path.bash"
 
-# Restarts the mitmproxy and wg-client services to pick up settings changes.
-restart-proxy() {
+# Restarts the mitmproxy, wg-client, and agent services to pick up settings
+# changes. The agent is re-linked to the fresh wg-client netns (see #69).
+restart() {
 	require docker
 
 	local compose_file
@@ -57,5 +58,5 @@ restart-proxy() {
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]
 then
-	restart-proxy "$@"
+	restart "$@"
 fi
