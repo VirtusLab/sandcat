@@ -173,6 +173,7 @@ start_netbird() {
     fi
     netbird_export_service_env
 
+    netbird_prepare_enroll_credentials || return 1
     netbird_replace_same_name_peer_if_needed || return 1
     echo "[proxy-peer] Enrolling NetBird peer on ${iface}." >&2
     netbird up \

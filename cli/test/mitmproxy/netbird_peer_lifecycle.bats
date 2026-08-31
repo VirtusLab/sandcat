@@ -116,3 +116,42 @@ teardown() {
 	assert_failure
 	assert_output --partial "NB_PEER_NAME"
 }
+
+@test "netbird_resolve_secret_ref leaves plaintext unchanged" {
+	run netbird_resolve_secret_ref "nbp_plain"
+	assert_success
+	assert_output "nbp_plain"
+}
+
+@test "netbird_resolve_secret_ref uses op read for op:// refs" {
+	stub op "read op://Vault/x/credential : echo resolved-token"
+	run netbird_resolve_secret_ref "op://Vault/x/credential"
+	assert_success
+	assert_output "resolved-token"
+}
+
+@test "netbird_resolve_secret_ref logs into pass-cli once for two pass:// refs" {
+	stub pass-cli \
+		"login : :" \
+		"item view pass://Vault/Item/password : echo secret-a" \
+		"item view pass://Vault/Other/password : echo secret-b"
+	run bash -c '
+		source "$1"
+		netbird_resolve_secret_ref "pass://Vault/Item/password"
+		echo ---
+		netbird_resolve_secret_ref "pass://Vault/Other/password"
+	' _ "$SCRIPT"
+	assert_success
+	assert_output $'secret-a\n---\nsecret-b'
+}
+
+@test "netbird_prepare_enroll_credentials resolves NB_API_TOKEN before replace" {
+	export NB_API_TOKEN="op://Vault/x/credential"
+	export NB_SETUP_KEY="setup-literal"
+	stub op "read op://Vault/x/credential : echo tok"
+	stub curl \
+		"-sf --max-time 10 -H 'Authorization: Token tok' http://mgmt.test:33073/api/peers : echo '[]'"
+	netbird_prepare_enroll_credentials
+	run netbird_replace_same_name_peer_if_needed
+	assert_success
+}
