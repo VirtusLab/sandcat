@@ -16,7 +16,6 @@ source "$SCT_LIBDIR/devcontainer.bash"
 #   --agent - The agent name (e.g., "claude")
 #   --ide - The IDE name (e.g., "vscode", "jetbrains", "none") (optional)
 #   --netbird-management-url - NetBird management server URL for mitmproxy (optional)
-#   --capability - Enable capability-runtime sidecar (requires --netbird)
 devcontainer() {
 	local settings_file=""
 	local project_path=""
@@ -28,7 +27,6 @@ devcontainer() {
 	local secret_provider="none"
 	local netbird="false"
 	local netbird_management_url=""
-	local capability="false"
 
 	while [[ $# -gt 0 ]]
 	do
@@ -81,10 +79,6 @@ devcontainer() {
 			netbird="true"
 			shift 1
 			;;
-		--capability)
-			capability="true"
-			shift 1
-			;;
 		--netbird-management-url)
 			netbird_management_url="$2"
 			shift 2
@@ -99,11 +93,6 @@ devcontainer() {
 	: "${settings_file?Missing required parameter: --settings-file}"
 	: "${project_path?Missing required parameter: --project-path}"
 	: "${agent?Missing required parameter: --agent}"
-
-	if [[ "$capability" == "true" && "$netbird" != "true" ]]; then
-		echo "--capability requires --netbird" | error
-		return 1
-	fi
 
 	local devcontainer_dir="$project_path/.devcontainer"
 	local compose_file="$devcontainer_dir/compose-all.yml"
@@ -152,26 +141,6 @@ devcontainer() {
 		fi
 		enable_netbird "$devcontainer_dir/sandcat/compose-proxy.yml" \
 			"$netbird_management_url" "$peer_name_proxy"
-		netbird_apply_peer_names_to_catalog \
-			"$devcontainer_dir/sandcat/capability-catalog.json" \
-			"$peer_name_proxy"
-	fi
-
-	if [[ "$capability" == "true" ]]; then
-		local capability_runtime_src
-		capability_runtime_src="$(cd "$SCT_ROOT/.." && pwd)/capability-runtime"
-		if [[ ! -d "$capability_runtime_src" ]]; then
-			echo "capability-runtime source not found: $capability_runtime_src" | error
-			return 1
-		fi
-		cp -R "$capability_runtime_src" "$devcontainer_dir/sandcat/capability-runtime"
-		apply_template_placeholders \
-			"$devcontainer_dir/Dockerfile.app" \
-			"__CAPABILITY_RUNTIME_INSTALL__" \
-			"COPY --from=python:3.12-slim /usr/local /usr/local
-COPY sandcat/capability-runtime /tmp/capability-runtime
-RUN pip install --no-cache-dir /tmp/capability-runtime && rm -rf /tmp/capability-runtime"
-		enable_capability "$devcontainer_dir"
 	fi
 
 	customize_compose_file "$rel_settings_file" "$compose_file" "$agent" "$ide" "$project_name"

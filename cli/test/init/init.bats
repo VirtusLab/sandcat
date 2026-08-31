@@ -357,6 +357,21 @@ teardown() {
 	assert_success
 }
 
+@test "init rejects --capability as unknown" {
+	run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" \
+		--stacks "" --proxy web --features "" --secret-provider none --capability
+	assert_failure
+	assert_output --partial "Unknown option: --capability"
+}
+
+@test "init rejects --capability even with --netbird" {
+	run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" \
+		--stacks "" --proxy web --features "" --secret-provider none \
+		--netbird --capability
+	assert_failure
+	assert_output --partial "Unknown option: --capability"
+}
+
 @test "init interactive flow selects tui proxy mode" {
 	unset -f read_line
 	unset -f select_option
