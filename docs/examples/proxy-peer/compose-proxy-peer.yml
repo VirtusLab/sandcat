@@ -1,6 +1,7 @@
 # Standalone proxy-peer gateway. Not created by sandcat.
 #
-#   docker compose --env-file netbird.env -f compose-proxy-peer.yml up -d --build
+#   cp .env.example .env   # fill literals
+#   docker compose --env-file netbird.env --env-file .env -f compose-proxy-peer.yml up -d --build
 #
 # Required env: NB_SETUP_KEY, NB_MANAGEMENT_URL, NB_API_TOKEN
 # Optional:     NB_PEER_NAME (default proxy-peer)
@@ -18,13 +19,12 @@ services:
     cap_add:
       - NET_ADMIN
     environment:
-      - NB_SETUP_KEY
-      - NB_MANAGEMENT_URL
-      - NB_API_TOKEN
+      - NB_SETUP_KEY=${NB_SETUP_KEY}
+      - NB_MANAGEMENT_URL=${NB_MANAGEMENT_URL}
+      - NB_API_TOKEN=${NB_API_TOKEN}
       - NB_PEER_NAME=${NB_PEER_NAME:-proxy-peer}
       - PROXY_PEER_PORT=8080
     volumes:
-      - ${HOME}/.config/sandcat/settings.json:/config/settings.json:ro
       - netbird-proxy-peer-state:/var/lib/netbird
     restart: unless-stopped
 
