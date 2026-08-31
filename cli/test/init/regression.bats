@@ -351,6 +351,12 @@ cursor_agent_compose_file_has_expected_content() {
 
 	assert_devcontainer_volume "$effective_file"
 	assert_jetbrains_capabilities "$effective_file"
+
+	# The generated Dockerfile.app removes the base image's passwordless-sudo
+	# grant for vscode, so the image is hardened even when run outside
+	# sandcat's compose (issue #12).
+	run grep -F 'rm -f /etc/sudoers.d/vscode' "$PROJECT_DIR/.devcontainer/Dockerfile.app"
+	assert_success
 }
 
 @test "devcontainer end-to-end: creates devcontainer config for cursor agent" {

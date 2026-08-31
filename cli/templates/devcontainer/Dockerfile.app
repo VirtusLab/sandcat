@@ -18,6 +18,15 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends gosu jq rsync \
     && rm -rf /var/lib/apt/lists/*
 
+# The devcontainers base image grants vscode passwordless sudo
+# (/etc/sudoers.d/vscode: `vscode ALL=(root) NOPASSWD:ALL`). Sandcat's
+# design gives the agent no legitimate sudo use — every root-phase step
+# runs in the entrypoint (app-init.sh) before it drops to vscode via gosu.
+# Remove the grant so the image is hardened even when run outside sandcat's
+# compose; inside compose this is the image-level layer of the same defense
+# whose runtime layer is `security_opt: no-new-privileges` (issue #12, #90).
+RUN rm -f /etc/sudoers.d/vscode
+
 COPY --chmod=755 sandcat/scripts/app-init.sh /usr/local/bin/app-init.sh
 COPY --chmod=755 sandcat/scripts/app-user-init.sh /usr/local/bin/app-user-init.sh
 COPY --chown=vscode:vscode sandcat/tmux.conf /home/vscode/.tmux.conf
