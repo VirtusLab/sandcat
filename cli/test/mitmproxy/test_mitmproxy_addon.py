@@ -108,7 +108,6 @@ sys.path.insert(0, _SCRIPTS_DIR)
 common = importlib.import_module("mitmproxy_addon_common")
 claude_mod = importlib.import_module("mitmproxy_addon_claude")
 cursor_mod = importlib.import_module("mitmproxy_addon_cursor")
-l7_revoke_rpc = importlib.import_module("l7_revoke_rpc")
 
 ClaudeAddon = claude_mod.SandcatAddon
 CursorAddon = cursor_mod.SandcatAddon
@@ -286,13 +285,6 @@ class TestNetworkRules:
         ]
         assert addon._is_request_allowed("GET", "api.example.com") is True
 
-    def test_enabled_false_skipped_in_host_allow_helper(self, addon_cls):
-        addon = addon_cls()
-        addon.network_rules = [
-            {"action": "allow", "host": "api.example.com", "enabled": False},
-        ]
-        assert addon._host_matches_network_allow_rule("api.example.com") is False
-
     @pytest.mark.parametrize("disabled", [False, "false", "False", "0", 0, "off", "no"])
     def test_falsey_enabled_values_disable_rule(self, addon_cls, disabled):
         addon = addon_cls()
@@ -300,7 +292,6 @@ class TestNetworkRules:
             {"action": "allow", "host": "api.example.com", "enabled": disabled},
         ]
         assert addon._is_request_allowed("GET", "api.example.com") is False
-        assert addon._host_matches_network_allow_rule("api.example.com") is False
 
     @pytest.mark.parametrize("truthy", [True, "true", "True", "1", 1, "on", "yes"])
     def test_truthy_enabled_values_keep_rule(self, addon_cls, truthy):
@@ -846,185 +837,6 @@ class TestIntegration:
         addon.request(flow)
         assert flow.response is None
         assert flow.request.headers["Authorization"] == "Bearer real-secret-value"
-
-    def test_revoked_host_denied_after_static_allow(self, addon_cls):
-        addon = addon_cls()
-        addon.network_rules = [{"action": "allow", "host": "*"}]
-        # Import RevokeState to mock it
-        from l7_revoke_rpc import RevokeState
-        addon._revoke_state = RevokeState()
-        addon._revoke_state.apply_revoke(["evil.example.com"], "deny_new", None)
-        assert addon._is_request_allowed("GET", "evil.example.com") is True
-        assert addon._is_l7_revoked("evil.example.com") is True
-        
-        # Test actual request flow - should get 403
-        flow = _make_flow(host="evil.example.com", method="GET")
-        addon.request(flow)
-        assert flow.response is not None
-        assert flow.response["status"] == 403
-        assert b"capability revocation" in flow.response["body"]
-
-    def test_response_drain_kills_after_response_hooks(self, addon_cls):
-        """Drain kill must not short-circuit other response-side work."""
-        addon = addon_cls()
-        addon.network_rules = [{"action": "allow", "host": "*"}]
-        flow = _make_flow(host="api.example.com", method="GET")
-        flow.response = types.SimpleNamespace(status_code=200)
-        flow.metadata = {"sandcat_l7_drain": True}
-
-        call_order = []
-
-        def _record_flow(**kwargs):
-            call_order.append("record")
-
-        flow.kill = MagicMock(side_effect=lambda: call_order.append("kill"))
-
-        with patch.dict(os.environ, {"CAPABILITY_L7_RECORD": "1"}):
-            with patch("l7_record_client.record_flow", side_effect=_record_flow):
-                addon.response(flow)
-
-        assert call_order == ["record", "kill"]
-        flow.kill.assert_called_once()
-
-    def test_response_drain_clears_flag_so_deadline_timer_is_a_noop(self, addon_cls):
-        """A drained flow must not be killed a second time by its deadline timer."""
-        addon = addon_cls()
-        addon.network_rules = [{"action": "allow", "host": "*"}]
-        flow = _make_flow(host="api.example.com", method="GET")
-        flow.response = types.SimpleNamespace(status_code=200)
-        flow.metadata = {"sandcat_l7_drain": True}
-        flow.kill = MagicMock()
-
-        addon.response(flow)
-
-        assert "sandcat_l7_drain" not in flow.metadata
-        l7_revoke_rpc._kill_if_still_open(flow)
-        flow.kill.assert_called_once()
-
-
-# ---------------------------------------------------------------------------
-# L7 revocation server lifecycle and flow tracking.
-# ---------------------------------------------------------------------------
-
-@pytest.mark.parametrize("addon_cls", ADDONS)
-class TestRevokeServerLifecycle:
-    def test_server_not_started_without_socket_env(self, addon_cls, monkeypatch):
-        monkeypatch.delenv("MITMPROXY_REVOKE_SOCKET", raising=False)
-        addon = addon_cls()
-
-        addon._start_revoke_server()
-
-        assert addon._revoke_server is None
-
-    def test_server_starts_at_env_socket_path(self, addon_cls, tmp_path, monkeypatch):
-        sock_path = tmp_path / "nested" / "l7-revoke.sock"
-        monkeypatch.setenv("MITMPROXY_REVOKE_SOCKET", str(sock_path))
-        addon = addon_cls()
-
-        addon._start_revoke_server()
-        try:
-            assert addon._revoke_server is not None
-            assert addon._revoke_server.wait_ready(2) is True
-            assert sock_path.exists()
-        finally:
-            addon.done()
-
-        assert addon._revoke_server is None
-        assert sock_path.exists() is False
-
-    def test_bind_failure_does_not_break_load(self, addon_cls, tmp_path, monkeypatch):
-        """A revoke server that cannot bind must not stop mitmproxy proxying."""
-        monkeypatch.setenv("MITMPROXY_REVOKE_SOCKET", str(tmp_path / "l7-revoke.sock"))
-        addon = addon_cls()
-
-        with patch.object(
-            common.RevokeRpcServer, "start", side_effect=OSError("read-only")
-        ):
-            addon._start_revoke_server()
-
-        assert addon._revoke_server is None
-
-    def test_done_is_safe_without_a_server(self, addon_cls):
-        addon = addon_cls()
-        addon.done()
-        assert addon._revoke_server is None
-
-
-@pytest.mark.parametrize("addon_cls", ADDONS)
-class TestFlowTracking:
-    def test_allowed_request_is_tracked(self, addon_cls):
-        addon = addon_cls()
-        addon.network_rules = [{"action": "allow", "host": "*"}]
-        flow = _make_flow(host="api.example.com")
-
-        addon.request(flow)
-
-        assert addon._get_active_flows() == [flow]
-
-    def test_denied_request_is_not_tracked(self, addon_cls):
-        addon = addon_cls()
-        addon.network_rules = [{"action": "deny", "host": "*"}]
-
-        addon.request(_make_flow(host="api.example.com"))
-
-        assert addon._get_active_flows() == []
-
-    def test_revoked_request_is_not_tracked(self, addon_cls):
-        addon = addon_cls()
-        addon.network_rules = [{"action": "allow", "host": "*"}]
-        addon._revoke_state.apply_revoke(["api.example.com"], "deny_new", None)
-
-        addon.request(_make_flow(host="api.example.com"))
-
-        assert addon._get_active_flows() == []
-
-    def test_response_stops_tracking(self, addon_cls):
-        addon = addon_cls()
-        addon.network_rules = [{"action": "allow", "host": "*"}]
-        flow = _make_flow(host="api.example.com")
-        flow.response = types.SimpleNamespace(status_code=200)
-        flow.metadata = {}
-
-        addon.request(flow)
-        addon.response(flow)
-
-        assert addon._get_active_flows() == []
-
-    def test_error_stops_tracking(self, addon_cls):
-        addon = addon_cls()
-        addon.network_rules = [{"action": "allow", "host": "*"}]
-        flow = _make_flow(host="api.example.com")
-
-        addon.request(flow)
-        addon.error(flow)
-
-        assert addon._get_active_flows() == []
-
-    def test_revoke_closes_tracked_flow(self, addon_cls):
-        """The whole point of tracking: a revoke push kills what is in flight."""
-        from l7_revoke_rpc import handle_revoke_flows
-
-        addon = addon_cls()
-        addon.network_rules = [{"action": "allow", "host": "*"}]
-        doomed = _make_flow(host="api.example.com")
-        doomed.metadata = {}
-        spared = _make_flow(host="other.example.com")
-        spared.metadata = {}
-        addon.request(doomed)
-        addon.request(spared)
-
-        handle_revoke_flows(
-            addon._revoke_state,
-            {
-                "host_patterns": ["api.example.com"],
-                "close_policy": "immediate",
-                "capability_ref": "cap-reach-api",
-            },
-            addon._get_active_flows,
-        )
-
-        doomed.kill.assert_called_once()
-        spared.kill.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

@@ -53,7 +53,6 @@ import time
 from fnmatch import fnmatch
 
 from mitmproxy import ctx, dns, http
-from l7_revoke_rpc import FlowTracker, RevokeRpcServer, RevokeState
 
 _VALID_ENV_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
@@ -126,11 +125,6 @@ class SandcatAddon:
         self.dns_servers: list[str] = []  # custom upstream DNS for wg-client
         self.debug_enabled = False  # subclasses may flip this in _on_settings_merged
         self._pass_cli_logged_in = False  # True only after a successful pass-cli login
-        # In-memory only: a proxy restart drops the pushed L7 deny set. See
-        # RevokeState for why NetBird (when configured) is the backstop.
-        self._revoke_state = RevokeState()
-        self._flow_tracker = FlowTracker()
-        self._revoke_server = None  # RevokeRpcServer instance
 
     # ------------------------------------------------------------------ load
 
@@ -146,8 +140,6 @@ class SandcatAddon:
             # (falling back to defaults) AND so the file's presence still
             # signals "addon has loaded" for the mitmproxy healthcheck.
             self._write_dns_conf()
-            # Start revoke server even when no settings files (so push can still work)
-            self._start_revoke_server()
             logger.info("No settings files found — addon disabled")
             return
 
@@ -169,7 +161,6 @@ class SandcatAddon:
         self._load_dns_servers(merged["dns_servers"])
         self._write_placeholders_env()
         self._write_dns_conf()
-        self._start_revoke_server()
 
         ctx.log.info(
             f"Loaded {len(self.env)} env var(s), {len(self.secrets)} secret(s), "
@@ -180,57 +171,9 @@ class SandcatAddon:
         """Hook: subclasses may inspect merged settings (e.g., feature flags)."""
         pass
 
-    def _start_revoke_server(self):
-        """Start the L7 revocation RPC server, if one is configured.
-
-        The socket path comes from ``MITMPROXY_REVOKE_SOCKET``, which the
-        compose stack sets only when the capability runtime is enabled. Without
-        it there is no peer to talk to, so the server is skipped. A bind
-        failure (read-only or missing directory, stale socket owned by another
-        user) must never stop mitmproxy from proxying: L7 revocation is
-        additive on top of the network-policy deny path.
-        """
-        socket_path = os.environ.get("MITMPROXY_REVOKE_SOCKET")
-        if not socket_path:
-            ctx.log.info(
-                "MITMPROXY_REVOKE_SOCKET not set — L7 revocation RPC server disabled"
-            )
-            return
-
-        server = RevokeRpcServer(
-            socket_path=socket_path,
-            state=self._revoke_state,
-            get_active_flows=self._get_active_flows,
-        )
-        try:
-            server.start()
-        except Exception as e:
-            ctx.log.warn(
-                f"Could not start L7 revocation RPC server at {socket_path}: {e!r}; "
-                "capability revocation will not reach in-flight flows"
-            )
-            return
-
-        self._revoke_server = server
-        ctx.log.info(f"Started L7 revocation RPC server at {socket_path}")
-
-    def _stop_revoke_server(self):
-        """Tear down the RPC server and unlink its socket (best-effort)."""
-        server, self._revoke_server = self._revoke_server, None
-        if server is None:
-            return
-        try:
-            server.stop()
-        except Exception as e:
-            ctx.log.warn(f"Could not stop L7 revocation RPC server: {e!r}")
-
     def done(self):
         """mitmproxy shutdown hook."""
-        self._stop_revoke_server()
-
-    def _get_active_flows(self):
-        """Flows currently in flight, for close-policy application."""
-        return self._flow_tracker.active()
+        pass
 
     @staticmethod
     def _configure_op_token(token: str | None):
@@ -697,20 +640,6 @@ class SandcatAddon:
         rule = self._find_matching_rule(method, host)
         return rule is not None and rule.get("action") == "allow"
 
-    def _is_l7_revoked(self, host: str) -> bool:
-        return self._revoke_state.is_host_revoked(host)
-
-    def _host_matches_network_allow_rule(self, host: str) -> bool:
-        host = host.lower().rstrip(".")
-        for rule in self.network_rules:
-            if not _rule_enabled(rule):
-                continue
-            if rule.get("action") != "allow":
-                continue
-            if fnmatch(host, rule["host"].lower()):
-                return True
-        return False
-
     # ----------------------------------------------------------- env writer
 
     @staticmethod
@@ -929,19 +858,6 @@ class SandcatAddon:
             ctx.log.warn(f"Network deny: {method} {host}")
             return
 
-        if self._is_l7_revoked(host):
-            flow.response = http.Response.make(
-                403,
-                f"Blocked by capability revocation: {method} {host}\n".encode(),
-                {"Content-Type": "text/plain"},
-            )
-            ctx.log.warn(f"L7 revoke deny: {method} {host}")
-            return
-
-        # Only allowed flows are tracked: denied ones never reach upstream, so
-        # a later revoke has nothing to close for them.
-        self._flow_tracker.register(flow)
-
         if self._is_streaming_request(flow):
             self._prepare_streaming_request(flow)
 
@@ -950,37 +866,6 @@ class SandcatAddon:
     def responseheaders(self, flow: http.HTTPFlow):
         if self._is_streaming_request(flow):
             flow.response.stream = True
-
-    def response(self, flow: http.HTTPFlow):
-        self._flow_tracker.unregister(flow)
-
-        if os.environ.get("CAPABILITY_L7_RECORD") == "1":
-            if flow.response and flow.response.status_code is not None:
-                status = flow.response.status_code
-                if 200 <= status < 300:
-                    host = flow.request.pretty_host
-                    if self._host_matches_network_allow_rule(host):
-                        from l7_record_client import record_flow
-
-                        agent_id = os.environ.get("SANDCAT_AGENT_ID", "devcontainer-agent")
-                        record_flow(
-                            agent_id=agent_id,
-                            host=host,
-                            method=flow.request.method,
-                            status=status,
-                        )
-
-        # mitmproxy has already delivered the response body by the time
-        # response() runs, so kill-after-hook approximates "finish response then close."
-        # Clearing the flag first makes any drain_deadline timer still pending
-        # for this flow a no-op, instead of killing it a second time.
-        if flow.metadata.pop("sandcat_l7_drain", None):
-            flow.kill()
-            ctx.log.info(f"L7 drain complete: killed flow to {flow.request.pretty_host}")
-
-    def error(self, flow: http.HTTPFlow):
-        """Connection died before a response — stop tracking it."""
-        self._flow_tracker.unregister(flow)
 
     def dns_request(self, flow: dns.DNSFlow):
         question = flow.request.question
