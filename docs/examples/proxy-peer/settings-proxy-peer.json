@@ -4,7 +4,7 @@
       "action": "allow",
       "host": "proxy-peer.netbird.selfhosted",
       "port": 8080,
-      "comment": "Layer 1 allow: stable NetBird FQDN for proxy-peer. Layer 2 (NetBird route enable/disable on mitmproxy's wt0) controls whether the connection actually succeeds."
+      "comment": "Layer 1 allow: stable NetBird FQDN for proxy-peer. Mesh permission is a NetBird dashboard ACL (groups + TCP 8080)."
     }
   ],
   "_layer1_mesh_notes": [
