@@ -6,6 +6,7 @@ netbird_peer_log() {
 }
 
 NETBIRD_PASS_CLI_LOGGED_IN=0
+NETBIRD_PASS_CLI_WARMED=0
 
 netbird_pass_cli_login_once() {
 	if [[ "${NETBIRD_PASS_CLI_LOGGED_IN}" -eq 1 ]]; then
@@ -18,10 +19,22 @@ netbird_pass_cli_login_once() {
 	NETBIRD_PASS_CLI_LOGGED_IN=1
 }
 
+netbird_pass_cli_warmup_once() {
+	if [[ "${NETBIRD_PASS_CLI_WARMED}" -eq 1 ]]; then
+		return 0
+	fi
+	# First item view after login can stall on a cold vault sync. Warm the
+	# cache once; failure is non-fatal because item view retries below.
+	timeout 60 pass-cli vault list >/dev/null 2>&1 || {
+		netbird_peer_log "pass-cli vault list warmup failed"
+	}
+	NETBIRD_PASS_CLI_WARMED=1
+}
+
 netbird_resolve_secret_ref() {
 	local value=${1-}
 	if [[ "$value" == op://* ]]; then
-		op read "$value" || {
+		timeout 60 op read "$value" || {
 			netbird_peer_log "op read failed for ${value}"
 			return 1
 		}
@@ -29,7 +42,9 @@ netbird_resolve_secret_ref() {
 	fi
 	if [[ "$value" == pass://* ]]; then
 		netbird_pass_cli_login_once || return 1
-		pass-cli item view "$value" || {
+		netbird_pass_cli_warmup_once
+		timeout 60 pass-cli item view "$value" && return 0
+		timeout 60 pass-cli item view "$value" || {
 			netbird_peer_log "pass-cli item view failed for ${value}"
 			return 1
 		}
@@ -104,20 +119,20 @@ netbird_local_state_present() {
 
 netbird_resolve_api_token() {
 	local settings_path="${NETBIRD_SETTINGS_PATH:-/config/settings.json}"
+	local token raw flat
 
 	if [[ -n "${NB_API_TOKEN:-}" ]]; then
-		printf '%s\n' "$NB_API_TOKEN"
-		return 0
+		token="$NB_API_TOKEN"
+	else
+		raw=$(netbird_json_field "$settings_path" netbird_api_token)
+		flat=$(netbird_flatten_secret_json "$raw") || return 1
+		token="$flat"
 	fi
-	if [[ -f "$settings_path" ]]; then
-		local token
-		token=$(jq -r '.netbird_api_token // empty' "$settings_path" 2>/dev/null || true)
-		if [[ -n "$token" ]]; then
-			printf '%s\n' "$token"
-			return 0
-		fi
-	fi
-	return 1
+
+	[[ -n "$token" ]] || return 1
+	token=$(netbird_resolve_secret_ref "$token") || return 1
+	[[ -n "$token" ]] || return 1
+	printf '%s\n' "$token"
 }
 
 netbird_mgmt_find_peer_id_by_name() {

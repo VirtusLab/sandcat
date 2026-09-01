@@ -198,7 +198,7 @@ second WireGuard interface for the overlay mesh. Agent traffic always flows:
 
 ```
 agent → wg0 (wg-client kill switch) → mitmproxy (L7 inspect + secrets) → internet
-                                                                        ↘ wt0 (leased mesh)
+                                                                        ↘ wt0 (NetBird mesh)
 ```
 
 This design eliminates the routing collision that occurred when NetBird ran on `wg-client`
