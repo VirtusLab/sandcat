@@ -565,8 +565,10 @@ multiple sandboxes are running in parallel.
 
 **`sandcat/compose-agent.yml`** — the constant (non-user-editable) base for the
 agent service. `network_mode: "service:wg-client"` routes all traffic through
-the WireGuard tunnel. The `mitmproxy-config` volume gives your container
-access to the CA cert, env vars, and secret placeholders.
+the WireGuard tunnel. The `mitmproxy-public` volume, mounted read-only at
+`/mitmproxy-config/`, gives your container the CA cert, env vars, and secret
+placeholders — the private `mitmproxy-config` volume, which also holds the CA
+private key and the WireGuard keys, is never mounted into the agent.
 
 **`compose-all.yml`** — holds the user-customizable entries merged over that
 constant base. The agent-specific config bind-mounts (for example
@@ -952,11 +954,11 @@ restart` after changing 1Password items.
    common logic via the `mitmproxy_addon_common.py` library.
 2. On startup, the addon reads all available settings files (user, project,
    local), merges them according to the precedence rules above, and writes
-   `sandcat.env` to the `mitmproxy-config` shared volume
-   (`/home/mitmproxy/.mitmproxy/sandcat.env`). This file contains plain env vars
+   `sandcat.env` to the agent-facing `mitmproxy-public` shared volume
+   (`/mitmproxy-public/sandcat.env`). This file contains plain env vars
    (e.g. `export GIT_USER_NAME='Your Name'`) and secret placeholders (e.g.
    `export ANTHROPIC_API_KEY=SANDCAT_PLACEHOLDER_ANTHROPIC_API_KEY`).
-3. App containers mount `mitmproxy-config` read-only at `/mitmproxy-config/`.
+3. App containers mount `mitmproxy-public` read-only at `/mitmproxy-config/`.
    The shared entrypoint (`app-init.sh`) sources `sandcat.env` after installing
    the CA cert, so every process gets the env vars and placeholder values.
 4. On each request, the addon first checks network access rules. If denied, the
@@ -1081,7 +1083,7 @@ Cursor CLI support is available via `sandcat init --agent cursor`.
   `~/.config/sandcat/settings.json` (or project `.sandcat/settings.json`) using
   the same JSON shape as Cursor's global `cli-config.json` (permissions, model,
   network flags — not API keys). Sandcat merges settings layers at mitmproxy
-  startup, writes `/mitmproxy-config/cursor-cli-config.json`, and the agent
+  startup, writes `/mitmproxy-public/cursor-cli-config.json`, and the agent
   deep-merges that fragment into `cli-config.json` in agent-home on each start.
   Sandcat-owned keys win; other Cursor-written keys in that file (model choice,
   permissions allow/deny lists, etc.) are preserved. The Cursor user template
@@ -1155,7 +1157,8 @@ from the host:
 ```mermaid
 flowchart TB
     subgraph volumes["Shared volumes"]
-        mc["<b>mitmproxy-config</b><br/><i>wireguard.conf</i><br/><i>mitmproxy-ca-cert.pem</i><br/><i>sandcat.env</i>"]
+        mc["<b>mitmproxy-config</b> (private)<br/><i>wireguard.conf</i><br/><i>mitmproxy-ca.pem (CA private key)</i><br/><i>dns.conf, extra_hosts</i>"]
+        mp["<b>mitmproxy-public</b> (agent-facing)<br/><i>mitmproxy-ca-cert.pem</i><br/><i>sandcat.env</i>"]
         ah["<b>agent-home</b><br/><i>/home/vscode</i><br/>persists Claude Code state,<br/>shell history across rebuilds"]
     end
 
@@ -1166,23 +1169,31 @@ flowchart TB
     end
 
     mitm["mitmproxy"] -- "read-write" --> mc
+    mitm -- "read-write" --> mp
     wg["wg-client"] -- "read-only" --> mc
-    agent["agent"] -- "read-only" --> mc
+    agent["agent"] -- "read-only<br/>at /mitmproxy-config/" --> mp
     agent -- "read-write" --> ah
     settings -. "bind-mount" .-> mitm
     projsettings -. "bind-mount" .-> mitm
     claude -. "bind-mount" .-> agent
 
     style mc fill:#f0e8fd,stroke:#904ad9
+    style mp fill:#f0e8fd,stroke:#904ad9
     style ah fill:#f0e8fd,stroke:#904ad9
     style settings fill:#fde8e8,stroke:#d94a4a
     style projsettings fill:#fde8e8,stroke:#d94a4a
     style claude fill:#fde8e8,stroke:#d94a4a
 ```
 
-- **`mitmproxy-config`** is the key shared volume. Mitmproxy writes to it
-  (WireGuard keys, CA cert, `sandcat.env` with env vars and secret
-  placeholders); all other containers mount it read-only.
+- **`mitmproxy-config`** is the private volume. Mitmproxy writes its WireGuard
+  keys and CA material there (including the CA **private** key), plus the
+  `dns.conf` and `extra_hosts` sidecars; only wg-client also mounts it, read-only.
+  The agent never gets it — see issue #25.
+- **`mitmproxy-public`** is the agent-facing volume, holding only what the
+  sandbox legitimately needs: the CA **certificate** and `sandcat.env` (env vars
+  and secret placeholders). Mitmproxy writes it; the agent mounts it read-only
+  at `/mitmproxy-config/`, which is why paths inside the agent still start with
+  that prefix.
 - **`agent-home`** persists the vscode user's home directory across container
   rebuilds (Claude Code auth, shell history, git config).
 - **Settings files** are bind-mounted from the host into mitmproxy only — app
@@ -1197,7 +1208,8 @@ flowchart TB
 ### Startup sequence
 
 The containers start in dependency order. Each step writes data to the shared
-`mitmproxy-config` volume that the next step reads:
+volumes that the next step reads — `mitmproxy-config` for wg-client, and
+`mitmproxy-public` for the agent:
 
 ```mermaid
 sequenceDiagram
