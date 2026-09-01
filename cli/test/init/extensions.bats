@@ -284,12 +284,14 @@ teardown() {
 	[[ "$check" == *"/mitmproxy-public/mitmproxy-ca-cert.pem"* ]]
 }
 
-@test "compose-all.yml mounts agent from mitmproxy-public (not mitmproxy-config)" {
+@test "compose-agent.yml mounts agent from mitmproxy-public (not mitmproxy-config)" {
+	# The agent's constant volumes live in sandcat/compose-agent.yml since the
+	# #22 split; compose-all.yml only carries user-editable overrides.
 	yq -e '.services.agent.volumes[] | select(. == "mitmproxy-public:/mitmproxy-config:ro")' \
-		"$SCT_TEMPLATEDIR/devcontainer/compose-all.yml"
+		"$SCT_TEMPLATEDIR/devcontainer/sandcat/compose-agent.yml"
 
 	# Regression guard: the old private mount MUST NOT exist on agent.
 	run yq -e '.services.agent.volumes[] | select(. == "mitmproxy-config:/mitmproxy-config:ro")' \
-		"$SCT_TEMPLATEDIR/devcontainer/compose-all.yml"
+		"$SCT_TEMPLATEDIR/devcontainer/sandcat/compose-agent.yml"
 	[ "$status" -ne 0 ]
 }

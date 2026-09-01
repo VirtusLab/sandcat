@@ -10,7 +10,7 @@ setup() {
 	ADDON="$SCT_TEMPLATEDIR/devcontainer/sandcat/scripts/mitmproxy_addon_common.py"
 	APP_INIT="$SCT_TEMPLATEDIR/devcontainer/sandcat/scripts/app-init.sh"
 	COMPOSE="$SCT_TEMPLATEDIR/devcontainer/sandcat/compose-proxy.yml"
-	COMPOSE_ALL="$SCT_TEMPLATEDIR/devcontainer/compose-all.yml"
+	COMPOSE_AGENT="$SCT_TEMPLATEDIR/devcontainer/sandcat/compose-agent.yml"
 }
 
 # Extract the first double-quoted string from the line in $1 that begins with
@@ -81,5 +81,5 @@ wg_dns_conf_path() {
 	shared_dir="$shared_dir" yq -e "
 		.services.agent.volumes[] |
 		select(. == \"wg-runtime:\" + env(shared_dir) + \":ro\")
-	" "$COMPOSE_ALL"
+	" "$COMPOSE_AGENT"
 }
