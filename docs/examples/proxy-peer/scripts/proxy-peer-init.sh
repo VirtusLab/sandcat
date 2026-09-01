@@ -206,7 +206,7 @@ supervise_netbird_daemon() {
             configure_netbird_host_management_access "$docker_gateway"
             netbird_prepare_local_management_profile
             netbird_export_service_env
-            if netbird_replace_same_name_peer_if_needed; then
+            if netbird_prepare_enroll_credentials && netbird_replace_same_name_peer_if_needed; then
                 netbird up \
                     --setup-key "${NB_SETUP_KEY}" \
                     --management-url "${NB_MANAGEMENT_URL:-https://api.netbird.io}" \
