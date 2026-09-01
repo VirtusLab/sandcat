@@ -57,6 +57,11 @@ setup() {
 	assert_failure
 }
 
+@test "cli README does not call wt0 a leased mesh" {
+	run grep -F 'leased mesh' "$SCT_ROOT/README.md"
+	assert_failure
+}
+
 @test "tracked superpowers netbird plans are not in the tree" {
 	[[ ! -f "$SCT_ROOT/../docs/superpowers/plans/2026-06-15-netbird-dynamic-wireguard.md" ]]
 }

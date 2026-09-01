@@ -124,7 +124,7 @@ teardown() {
 }
 
 @test "netbird_resolve_secret_ref uses op read for op:// refs" {
-	stub op "read op://Vault/x/credential : echo resolved-token"
+	stub timeout "60 op read op://Vault/x/credential : echo resolved-token"
 	run netbird_resolve_secret_ref "op://Vault/x/credential"
 	assert_success
 	assert_output "resolved-token"
@@ -132,9 +132,11 @@ teardown() {
 
 @test "netbird_resolve_secret_ref logs into pass-cli once for two pass:// refs" {
 	stub pass-cli \
-		"login : :" \
-		"item view pass://Vault/Item/password : echo secret-a" \
-		"item view pass://Vault/Other/password : echo secret-b"
+		"login : :"
+	stub timeout \
+		"60 pass-cli vault list : :" \
+		"60 pass-cli item view pass://Vault/Item/password : echo secret-a" \
+		"60 pass-cli item view pass://Vault/Other/password : echo secret-b"
 	run bash -c '
 		source "$1"
 		netbird_resolve_secret_ref "pass://Vault/Item/password"
@@ -145,10 +147,21 @@ teardown() {
 	assert_output $'secret-a\n---\nsecret-b'
 }
 
+@test "netbird_resolve_secret_ref retries pass-cli item view after warmup" {
+	stub pass-cli "login : :"
+	stub timeout \
+		"60 pass-cli vault list : :" \
+		"60 pass-cli item view pass://Vault/Item/password : exit 1" \
+		"60 pass-cli item view pass://Vault/Item/password : echo secret-a"
+	run netbird_resolve_secret_ref "pass://Vault/Item/password"
+	assert_success
+	assert_output "secret-a"
+}
+
 @test "netbird_prepare_enroll_credentials resolves NB_API_TOKEN before replace" {
 	export NB_API_TOKEN="op://Vault/x/credential"
 	export NB_SETUP_KEY="setup-literal"
-	stub op "read op://Vault/x/credential : echo tok"
+	stub timeout "60 op read op://Vault/x/credential : echo tok"
 	stub curl \
 		"-sf --max-time 10 -H 'Authorization: Token tok' http://mgmt.test:33073/api/peers : echo '[]'"
 	netbird_prepare_enroll_credentials
@@ -160,9 +173,55 @@ teardown() {
 	unset NB_SETUP_KEY
 	unset NB_API_TOKEN
 	printf '%s\n' '{"netbird_enrollment_key":{"op":"op://Vault/x/credential"}}' >"$NETBIRD_SETTINGS_PATH"
-	stub op "read op://Vault/x/credential : echo nbp_resolved"
+	stub timeout "60 op read op://Vault/x/credential : echo nbp_resolved"
 	netbird_prepare_enroll_credentials
 	[[ "$NB_SETUP_KEY" == "nbp_resolved" ]]
+}
+
+@test "netbird_resolve_api_token flattens object-shaped token from settings" {
+	unset NB_API_TOKEN
+	printf '%s\n' '{"netbird_api_token":{"value":"nbp_from_settings"}}' >"$NETBIRD_SETTINGS_PATH"
+	run netbird_resolve_api_token
+	assert_success
+	assert_output "nbp_from_settings"
+}
+
+@test "netbird_resolve_api_token resolves op:// from object-shaped settings" {
+	unset NB_API_TOKEN
+	printf '%s\n' '{"netbird_api_token":{"op":"op://Vault/x/credential"}}' >"$NETBIRD_SETTINGS_PATH"
+	stub timeout "60 op read op://Vault/x/credential : echo tok"
+	run netbird_resolve_api_token
+	assert_success
+	assert_output "tok"
+}
+
+@test "replacement fails closed when settings token is an empty object" {
+	unset NB_API_TOKEN
+	printf '%s\n' '{"netbird_api_token":{}}' >"$NETBIRD_SETTINGS_PATH"
+	run netbird_replace_same_name_peer_if_needed
+	assert_failure
+	assert_output --partial "netbird_api_token"
+}
+
+@test "example lifecycle script matches the template" {
+	run cmp \
+		"$SCRIPT" \
+		"$SCT_ROOT/../docs/examples/proxy-peer/scripts/netbird-peer-lifecycle.sh"
+	assert_success
+}
+
+@test "supervise_netbird_daemon re-enroll prepares credentials" {
+	local init="$SCT_TEMPLATEDIR/devcontainer/sandcat/scripts/mitmproxy-init.sh"
+	run awk '/^supervise_netbird_daemon\(\)/,/^}/' "$init"
+	assert_success
+	assert_output --partial "netbird_prepare_enroll_credentials"
+}
+
+@test "proxy-peer supervise_netbird_daemon re-enroll prepares credentials" {
+	local init="$SCT_ROOT/../docs/examples/proxy-peer/scripts/proxy-peer-init.sh"
+	run awk '/^supervise_netbird_daemon\(\)/,/^}/' "$init"
+	assert_success
+	assert_output --partial "netbird_prepare_enroll_credentials"
 }
 
 @test "mitmproxy-init does not copy enrollment key into NB_SETUP_KEY with raw jq" {
