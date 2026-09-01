@@ -77,6 +77,40 @@ export GIT_CONFIG_KEY_0="commit.gpgsign"
 export GIT_CONFIG_VALUE_0="false"
 GITEOF
 
+# Print a "Loaded N env var(s): NAME1, NAME2, ..." summary for the startup
+# log from the "# names: ..." header the addon writes as the first line of
+# sandcat.env (see mitmproxy_addon_common.py::_write_placeholders_env).
+#
+# We parse that header instead of grepping `export` lines: shlex.quote
+# preserves literal newlines in values, so a multi-line value's continuation
+# line can itself start with "export " — grepping for that pattern would
+# both miscount vars and print a fragment of the value to the startup log.
+#
+# Defined as a function (not inlined) so `set --` below only rebinds this
+# function's own positional parameters — bash gives each function its own
+# "$@"/"$#" scope, restored on return — leaving the script's own "$@"
+# (needed later for `exec gosu vscode "$@"`) untouched.
+_sandcat_env_summary() {
+    local env_file="$1" header names name
+    header=$(head -n 1 "$env_file")
+    case "$header" in
+        "# names: "*)
+            names=$(printf '%s' "$header" | sed 's/^# names: //')
+            set -- $names
+            echo "Loaded $# env var(s) from $env_file"
+            for name in "$@"; do
+                echo "  $name"
+            done
+            ;;
+        *)
+            # Old addon / transition: no header line yet. Report loading
+            # without enumerating names rather than falling back to a
+            # value-leaking grep.
+            echo "Loaded env var(s) from $env_file"
+            ;;
+    esac
+}
+
 # Source env vars and secret placeholders (if available)
 SANDCAT_ENV="/mitmproxy-config/sandcat.env"
 if [ -f "$SANDCAT_ENV" ]; then
@@ -84,9 +118,7 @@ if [ -f "$SANDCAT_ENV" ]; then
     # Make vars available to new shells (e.g. VS Code terminals in dev
     # containers) that won't inherit the entrypoint's environment.
     cp "$SANDCAT_ENV" /etc/profile.d/sandcat-env.sh
-    count=$(grep -c '^export ' "$SANDCAT_ENV" 2>/dev/null || echo 0)
-    echo "Loaded $count env var(s) from $SANDCAT_ENV"
-    grep '^export ' "$SANDCAT_ENV" | sed 's/=.*//' | sed 's/^export /  /'
+    _sandcat_env_summary "$SANDCAT_ENV"
 else
     echo "No $SANDCAT_ENV found — env vars and secret substitution disabled"
 fi
