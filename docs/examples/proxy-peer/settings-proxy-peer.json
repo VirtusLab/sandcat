@@ -8,18 +8,8 @@
     }
   ],
   "_layer1_mesh_notes": [
-    "Layer 1 (mitmproxy allow/deny) determines whether mitmproxy attempts to forward",
-    "a request. Layer 2 (NetBird Routes API, managed by capability-runtime) determines",
-    "whether the destination is reachable via mitmproxy's wt0 mesh interface.",
-    "",
-    "For arbitrary mesh CIDRs leased dynamically, add a coarse Layer 1 rule:",
-    "  { 'action': 'allow', 'host': '100.64.0.0/10' }",
-    "or per-peer FQDN rules using the NetBird mesh DNS domain:",
-    "  { 'action': 'allow', 'host': '*.netbird.selfhosted' }",
-    "",
-    "A Layer 1 allow is a necessary but not sufficient condition for reachability.",
-    "If the Layer 2 NetBird route is revoked, the connection will time out after",
-    "mitmproxy attempts to forward it (TCP timeout, no route on wt0). This is",
-    "intentional: Layer 1 blocks immediately; Layer 2 blocks post-mitmproxy."
+    "Layer 1 (mitmproxy allow/deny) decides whether mitmproxy forwards the request.",
+    "Mesh permission is a NetBird dashboard ACL (groups + TCP 8080), not a sandcat lease.",
+    "Delete the Default All-to-All policy or the custom ACL has no effect."
   ]
 }

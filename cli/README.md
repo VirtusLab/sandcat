@@ -25,10 +25,6 @@ Options:
   traffic — including mesh traffic — is subject to mitmproxy network rules and
   secret substitution. Seeds `netbird_enrollment_key` and `netbird_api_token`
   in `~/.config/sandcat/settings.json`.
-- `--capability` - Enable the capability-runtime sidecar (requires `--netbird`).
-  Adds a `capability-runtime` compose service, mounts a shared Unix socket volume
-  into the agent container, and installs `capability-mcp-bridge` for Cursor MCP.
-  NetBird API credentials stay in the sidecar — they are not injected into the agent.
 - `--netbird-management-url` - Existing NetBird management server URL (requires
   `--netbird`). Omit to use NetBird Cloud (`https://api.netbird.io`). Sandcat
   does not create or start a management server; see
@@ -57,9 +53,6 @@ sandcat init --agent claude --ide vscode --secret-provider protonpass --name myp
 
 # With NetBird dynamic WireGuard
 sandcat init --agent claude --ide vscode --netbird --name myproject
-
-# With NetBird + capability sidecar (reachability == capability)
-sandcat init --agent cursor --ide vscode --netbird --capability --name myproject
 
 # Point at an existing self-hosted management server
 sandcat init --agent cursor --ide vscode --netbird \
@@ -177,16 +170,6 @@ identity, API key secrets, and service-specific network rules.
 Opens the container Dockerfile (`.devcontainer/Dockerfile.app`) in your editor. Use this to add or change
 development stack versions installed via mise.
 
-### `sandcat edit capability-catalog`
-
-Opens the project capability catalog (`.devcontainer/sandcat/capability-catalog.json`) in your editor.
-The Capability Control Plane sidecar bind-mounts that file read-only; it is loaded at sidecar process start.
-
-Options:
-- `--restart` — After a save, restart only the `capability-runtime` service so it rereads the catalog. Default is no restart. If compose does not bind-mount the project catalog, the command warns and does not restart.
-
-If the sidecar still shows the old catalog after `--restart`, run `sandcat compose up -d capability-runtime`. Recreate remounts the file; `restart` does not. Editors that save by writing a new inode leave a single-file bind-mount pointing at the previous file.
-
 ### `sandcat proxy`
 
 Opens the mitmproxy interface for traffic inspection. Behavior depends on the proxy mode chosen during
@@ -254,18 +237,19 @@ NetBird uses **two separate credentials**. Both go in `~/.config/sandcat/setting
 
 | Setting key | Used for | Where to get it |
 |-------------|----------|-----------------|
-| `netbird_enrollment_key` | Enrolling mitmproxy as a mesh peer (`NB_SETUP_KEY`) | NetBird dashboard → **Setup Keys** |
-| `netbird_api_token` | `sandcat netbird` CLI commands on your host | NetBird dashboard → **API Keys** (Personal Access Token) |
-| `netbird_management_url` | Host-side management API (`sandcat netbird`, browser) | Empty = cloud; otherwise your server URL |
+| `netbird_enrollment_key` | Enrolling mitmproxy as a mesh peer (`NB_SETUP_KEY`); may be a literal or `op://` / `pass://` (resolved in the container) | NetBird dashboard → **Setup Keys** |
+| `netbird_api_token` | Used by mitmproxy for same-name replace and dns_label; may be a literal or `op://` / `pass://` (resolved in the container) | NetBird dashboard → **API Keys** (Personal Access Token) |
+| `netbird_management_url` | Management API and dashboard | Empty = cloud; otherwise your server URL |
 | `netbird_enrollment_management_url` | mitmproxy enrollment URL (container cannot use `localhost`) | Docker host LAN IP for a local server; see [docs/examples/netbird-server](../docs/examples/netbird-server/) |
 
-**Before `sandcat netbird status` works**, you must complete steps 1–4 below.
-Container enrollment (`netbird_enrollment_key`) is separate from host CLI control
-(`netbird_api_token`) — you need the API token even if the devcontainer is already running.
+Complete steps 1–4 below before enrollment. Container enrollment
+(`netbird_enrollment_key`) is separate from same-name replace and dns_label
+(`netbird_api_token`) — you need the API token even if the setup key is already
+in settings.
 
 1. Create a NetBird account at <https://app.netbird.io> or self-host the server.
 2. In the dashboard, create a **Setup Key** (for peer enrollment).
-3. In the dashboard, create an **API Key** / personal access token (for `sandcat netbird` commands).
+3. In the dashboard, create an **API Key** / personal access token (for mitmproxy same-name replace and dns_label).
 4. Add both values to user settings:
 
 ```json
@@ -281,11 +265,11 @@ Or edit interactively:
 sandcat edit user-settings
 ```
 
-`sandcat compose` and `sandcat run` read `netbird_enrollment_key` and export
-`NB_SETUP_KEY` automatically when starting containers. `sandcat netbird`
-commands read `netbird_api_token` from the same settings layers (project
-settings override user settings when non-empty). Environment variables
-`NB_SETUP_KEY` and `NB_API_TOKEN` override settings when set.
+`sandcat compose` and `sandcat run` read `netbird_enrollment_key` and
+`netbird_api_token` from the same settings layers (project settings override
+user settings when non-empty) and export `NB_SETUP_KEY` / `NB_API_TOKEN`
+when starting containers. Environment variables `NB_SETUP_KEY` and
+`NB_API_TOKEN` override settings when set.
 
 ### Management server
 
@@ -312,42 +296,10 @@ offers cloud vs “I have a server running”.
 
 ### Local self-hosted
 
-For development on your machine without a public domain, run the compose
-stack in [`docs/examples/netbird-server/`](../docs/examples/netbird-server/)
-yourself (`docker compose --env-file netbird-server.env up -d`). Then:
-
-1. Bootstrap admin: `POST http://localhost:33073/api/setup` (see the example README).
-2. Open **http://localhost:8080** and sign in.
-3. Create setup key + API token in the dashboard.
-4. Set credentials in `~/.config/sandcat/settings.json` (or project
-   `.sandcat/settings.local.json`):
-
-```json
-{
-  "netbird_management_url": "http://localhost:33073",
-  "netbird_enrollment_management_url": "http://<docker-host-ip>:33073",
-  "netbird_enrollment_key": "<setup-key>",
-  "netbird_api_token": "<api-token>"
-}
-```
-
-**Finding the Docker host IP** (mitmproxy cannot use `localhost`):
-
-```bash
-# Colima
-colima status -j | jq -r '.network.gateway_address'
-
-# Docker Desktop (macOS) — often 192.168.65.2; verify with:
-docker run --rm alpine getent ahostsv4 host.docker.internal | awk '{print $1; exit}'
-```
-
-Set `server.exposedAddress` in the example `config.yaml` to the same host IP,
-recreate the netbird-server container, then recreate mitmproxy:
-
-```bash
-sandcat init --netbird --netbird-management-url http://localhost:33073 ...
-sandcat run --force-recreate mitmproxy
-```
+Sandcat does not start the management server. Run the compose stack in
+[`docs/examples/netbird-server/`](../docs/examples/netbird-server/) yourself
+(`docker compose --env-file netbird-server.env up -d`), then
+`sandcat init --netbird --netbird-management-url ...`.
 
 ### Remote self-hosted (NetBird quickstart)
 
@@ -382,181 +334,10 @@ For scripted bootstrap instead of the dashboard setup page, see
 Re-run `sandcat init --netbird --netbird-management-url https://netbird.example.com ...`
 or edit `~/.config/sandcat/settings.json` directly, then `sandcat run`.
 
-### Runtime control
-
-```bash
-# List current peers
-sandcat netbird status
-
-# Remove a peer (mitmproxy drops the route within one daemon poll interval)
-sandcat netbird peer remove --peer-id <peer-id>
-
-# Add a network route served by a peer
-sandcat netbird route add --network 10.8.0.0/24 --peer-id <peer-id>
-
-# Remove a route
-sandcat netbird route remove --route-id <route-id>
-```
-
-## Capability sidecar (Phase 3b)
-
-When initialized with `--netbird --capability`, sandcat deploys a trusted
-`capability-runtime` compose sidecar alongside the agent. The sidecar owns
-`CapabilityRuntime` state, NetBird revocation credentials, and the route watcher.
-The agent container talks to the runtime only through a thin MCP bridge over a
-read-only Unix socket — it never receives `NB_API_TOKEN` or direct NetBird access.
-
-```
-Agent (Cursor/Claude)  ──stdio MCP──►  capability-mcp-bridge  ──►  agent.sock
-Operator (host)        ──compose exec──►  admin.sock
-Sidecar                ──RestNetBirdClient──►  NetBird management API
-```
-
-### Setup
-
-Requires NetBird (`--netbird`) and both credentials in user settings (see
-[Dynamic networking](#dynamic-networking-netbird)). The sidecar reads
-`netbird_api_token` and `netbird_management_url` from mounted `settings.json`;
-the agent container does not receive these values.
-
-```bash
-sandcat init --agent cursor --ide vscode --netbird --capability --name myproject
-sandcat compose up -d
-```
-
-### Cursor MCP config
-
-Add to `.cursor/mcp.json` in the devcontainer (the bridge is installed at
-`/usr/local/bin/capability-mcp-bridge`):
-
-```json
-{
-  "mcpServers": {
-    "sandcat-capability": {
-      "command": "capability-mcp-bridge",
-      "args": []
-    }
-  }
-}
-```
-
-MCP meta-tools: `capability_check`, `capability_lease`, `capability_discover`.
-Workload tools remain on their own MCP servers and appear in the bundle only
-when leased or visible.
-
-### Operator commands
-
-`sandcat capability` runs inside the `capability-runtime` container via
-`docker compose exec` — no host-published ports.
-
-```bash
-# Show current capability bundle
-sandcat capability check --context '{}'
-
-# Lease a network capability (triggers NetBird peer/route via sidecar)
-sandcat capability lease --ref cap-reach-api --justification "need API access"
-
-# Revoke (operator-only; disables NetBird route by default, keeps peer)
-sandcat capability revoke --ref cap-reach-api --reason policy
-
-# Foreground route-watcher poll loop (debugging)
-sandcat capability watch
-```
-
-### Security boundary
-
-| Path | Socket | Who | Can revoke? |
-|------|--------|-----|-------------|
-| Agent MCP bridge | `agent.sock` (ro mount) | Agent in container | No |
-| `sandcat capability` | `admin.sock` | Operator on host | Yes |
-
-- `admin.sock` is not mounted in the agent service
-- Agent RPC surface rejects `capability.revoke` and unknown methods
-- `SANDCAT_AGENT_ID` is fixed per devcontainer and injected by the bridge;
-  agent-supplied `agent_id` parameters are ignored
-- Catalog is loaded at sidecar startup from `CAPABILITY_CATALOG_JSON` (the project catalog bind-mounted read-only) — not registerable over RPC
-
-### Phase 3c grant/revoke flow
-
-When the sidecar loads a network capability from the catalog, each entry may include a `sync_mode` that controls how NetBird physical state is synchronized on lease and revoke:
-
-| `sync_mode` | On lease (`enable_binding`) | On revoke (`disable_binding`) |
-|-------------|----------------------------|-------------------------------|
-| `route_enable` (default) | Enable or create NetBird route for the binding | Disable route; peer stays enrolled |
-| `peer_remove` | No-op (peer already enrolled) | Delete peer (Phase 3 break-glass) |
-| `acl_policy` | Stub — future ACL/group sync | Stub |
-
-```bash
-# Lease triggers enable_binding → route visible on wt0
-sandcat capability lease --ref cap-reach-api --justification "need API access"
-sandcat netbird status   # route enabled
-
-# Revoke triggers disable_binding → route gone, peer remains
-sandcat capability revoke --ref cap-reach-api --reason done
-sandcat netbird status   # route disabled; peer still listed
-```
-
-Grant failure rolls back the lease (fail closed). Only the operator admin socket can revoke; agents cannot trigger `enable_binding` or `disable_binding`.
-
-#### Capability catalog schema (network entries)
-
-Network capabilities in `capability-catalog.json` (mounted as `CAPABILITY_CATALOG_JSON` at sidecar startup):
-
-```json
-{
-  "capabilities": [
-    {
-      "name": "reach_api",
-      "ref": "cap-reach-api",
-      "type": "network",
-      "peer_id": "<netbird-peer-id>",
-      "network": "10.8.0.0/24",
-      "route_id": "<netbird-route-id>",
-      "sync_mode": "route_enable"
-    }
-  ]
-}
-```
-
-- `peer_id`, `network` — required NetBird identifiers for the binding. `peer_id` refers to the **mitmproxy** NetBird peer (hostname `{project}-proxy`, e.g. `myproject-proxy` when initialized with `--name myproject`).
-- `route_id` — optional; if omitted, `enable_binding` creates a route via the NetBird API and stores the returned id
-- `sync_mode` — optional; defaults to `route_enable`. Use `peer_remove` only when revoke must delete the peer (legacy Phase 3 behavior)
-
-Tool capabilities (`type: "tool"`) do not use `sync_mode` or binding fields.
-
-#### Catalog IDs for live smoke
-
-Replace placeholders in `capability-catalog.json` before leasing `reach_api`:
-
-1. Find the mitmproxy peer ID (the stack's sole mesh participant):
-   ```bash
-   docker compose exec mitmproxy netbird status --json | jq -r '.id'
-   ```
-   Or look for hostname `{project}-proxy` (e.g. `myproject-proxy`) in the NetBird dashboard.
-2. `sandcat netbird route list` (or NetBird dashboard) — copy route ID if pre-provisioned
-3. `sandcat edit capability-catalog` — merge or edit entries in the project catalog
-4. `sandcat edit capability-catalog --restart` — reread the catalog (or `sandcat compose restart capability-runtime` if you already saved)
-
-**Migration note:** If you previously used a `wg-client` peer as `peer_id` in your catalog, replace it with the mitmproxy peer ID. Remove the old `wg-client` peer from the NetBird dashboard.
-
 ## Optional mesh gateway (proxy-peer)
 
-Sandcat does not create a proxy-peer container. To run a small NetBird-enrolled
-HTTP gateway beside the project and lease it via capability-runtime `dns_label`,
-follow [`docs/examples/proxy-peer/`](../docs/examples/proxy-peer/). Init with
-`--netbird --capability` still enrolls the mitmproxy peer
-(`netbird_peer_name_proxy`, default `{project}-proxy`); add the gateway catalog
-entry and Layer 1 allow rule by hand.
-
-### Usage-metered quota (L7 record)
-
-When `--capability` is enabled, mitmproxy can decrement network lease quota from
-post-hoc flow records. Set `CAPABILITY_L7_RECORD=1` in the mitmproxy service
-environment (compose passes the variable through when capability is enabled; set
-the value in your shell or `.env` before `sandcat compose up`). Each successful
-HTTP response to a mesh or Layer-1-allowed host emits `capability.l7.record` on
-the admin socket; quota exhaustion triggers the same auto-revoke path as tool
-quota.
+Sandcat does not create a proxy-peer container. See
+[`docs/examples/proxy-peer/`](../docs/examples/proxy-peer/).
 
 ## Directory Structure
 
