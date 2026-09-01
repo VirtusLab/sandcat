@@ -68,6 +68,40 @@ teardown() {
 	assert_success
 }
 
+@test "init accepts copilot as valid --agent value" {
+	stub settings \
+		"$PROJECT_DIR/.sandcat/settings.json copilot vscode : :"
+	stub devcontainer \
+		"--settings-file .sandcat/settings.json --project-path * --agent copilot --ide vscode --name test --stacks * --proxy web --secret-provider none : :"
+
+	run init --agent copilot --ide vscode --name test --path "$PROJECT_DIR" --stacks "" --proxy web --features "" --secret-provider none
+	assert_success
+}
+
+@test "user_settings_template_path returns copilot template for copilot" {
+	run user_settings_template_path copilot
+	assert_success
+	assert_output --partial "settings-user-copilot.json"
+}
+
+@test "init creates user settings with COPILOT_GITHUB_TOKEN when agent=copilot" {
+	stub settings "$PROJECT_DIR/.sandcat/settings.json copilot vscode : :"
+	stub devcontainer \
+		"--settings-file .sandcat/settings.json --project-path * --agent copilot --ide vscode --name test --stacks * --proxy web --secret-provider none : :"
+
+	run init --agent copilot --ide vscode --name test --path "$PROJECT_DIR" --stacks "" --proxy web --features "" --secret-provider none
+	assert_success
+
+	run yq -r '.secrets.COPILOT_GITHUB_TOKEN.value' "$SCT_HOME_DIR/settings.json"
+	assert_output ""
+
+	run yq -r '.secrets.COPILOT_GITHUB_TOKEN.hosts | .[0]' "$SCT_HOME_DIR/settings.json"
+	assert_output "api.github.com"
+
+	run yq -r '.network | map(.host) | index("*.githubcopilot.com")' "$SCT_HOME_DIR/settings.json"
+	refute_output "null"
+}
+
 @test "init pre-creates host paths for codex config mount" {
 	stub settings "$PROJECT_DIR/.sandcat/settings.json codex vscode : :"
 	stub devcontainer \
@@ -224,7 +258,7 @@ EOF
 
 	stub read_line "* : echo ''"
 	stub select_option \
-		"'Select agent:' claude cursor codex : echo claude" \
+		"'Select agent:' claude cursor codex copilot : echo claude" \
 		"'Select IDE:' vscode jetbrains none : echo vscode" \
 		"'Select secret provider:' 1password none protonpass : echo 1password"
 	stub select_multiple \
@@ -305,7 +339,7 @@ EOF
 
 	stub read_line "* : echo ''"
 	stub select_option \
-		"'Select agent:' claude cursor codex : echo claude" \
+		"'Select agent:' claude cursor codex copilot : echo claude" \
 		"'Select IDE:' vscode jetbrains none : echo vscode" \
 		"'Select secret provider:' none 1password protonpass : echo none"
 	stub select_multiple \
@@ -384,7 +418,7 @@ EOF
 
 	stub read_line "* : echo ''"
 	stub select_option \
-		"'Select agent:' claude cursor codex : echo claude" \
+		"'Select agent:' claude cursor codex copilot : echo claude" \
 		"'Select IDE:' vscode jetbrains none : echo vscode" \
 		"'Select secret provider:' none 1password protonpass : echo none"
 	stub select_multiple \

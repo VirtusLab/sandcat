@@ -5,7 +5,7 @@ source "${BASH_SOURCE[0]%/*}/rtk.bash"
 
 # Returns supported agents as a space-separated list.
 sct_available_agents() {
-	echo "claude cursor codex"
+	echo "claude cursor codex copilot"
 }
 
 # Returns 0 if agent is valid.
@@ -40,10 +40,11 @@ sct_cursor_workspace_project_id() {
 sct_agent_mount_env_var() {
 	local agent=$1
 	case "$agent" in
-		claude) echo "SANDCAT_MOUNT_CLAUDE_CONFIG" ;;
-		cursor) echo "SANDCAT_MOUNT_CURSOR_CONFIG" ;;
-		codex)  echo "SANDCAT_MOUNT_CODEX_CONFIG"  ;;
-		*)      echo "" ;;
+		claude)  echo "SANDCAT_MOUNT_CLAUDE_CONFIG"  ;;
+		cursor)  echo "SANDCAT_MOUNT_CURSOR_CONFIG"  ;;
+		codex)   echo "SANDCAT_MOUNT_CODEX_CONFIG"   ;;
+		copilot) echo "SANDCAT_MOUNT_COPILOT_CONFIG" ;;
+		*)       echo "" ;;
 	esac
 }
 
@@ -93,6 +94,12 @@ EOF
 $HOME/.codex/AGENTS.md
 $HOME/.codex/skills/
 $HOME/.codex/commands/
+EOF
+			;;
+		copilot)
+			cat <<'EOF'
+$HOME/.copilot/mcp-config.json
+$HOME/.copilot/session-state/
 EOF
 			;;
 		*)
@@ -187,10 +194,11 @@ ensure_host_agent_config_paths() {
 sct_agent_api_key_help() {
 	local agent=$1
 	case "$agent" in
-		claude) echo "ANTHROPIC_API_KEY  your Anthropic API key (for Claude Code)" ;;
-		cursor) echo "CURSOR_API_KEY     your Cursor API key (for Cursor CLI)" ;;
-		codex)  echo "OPENAI_API_KEY     your OpenAI API key (for Codex CLI)" ;;
-		*)      echo "ANTHROPIC_API_KEY  API key for your selected agent" ;;
+		claude)  echo "ANTHROPIC_API_KEY  your Anthropic API key (for Claude Code)" ;;
+		cursor)  echo "CURSOR_API_KEY     your Cursor API key (for Cursor CLI)" ;;
+		codex)   echo "OPENAI_API_KEY     your OpenAI API key (for Codex CLI)" ;;
+		copilot) echo "COPILOT_GITHUB_TOKEN  fine-grained GitHub PAT with \"Copilot Requests\" permission (or \$(gh auth token))" ;;
+		*)       echo "ANTHROPIC_API_KEY  API key for your selected agent" ;;
 	esac
 }
 
@@ -207,6 +215,9 @@ sct_agent_op_api_key_help() {
 			;;
 		codex)
 			echo "OPENAI_API_KEY     \"op\": \"op://vault/OpenAI API Key/credential\""
+			;;
+		copilot)
+			echo "COPILOT_GITHUB_TOKEN  \"op\": \"op://vault/GitHub Copilot Token/credential\""
 			;;
 		claude|*)
 			echo "ANTHROPIC_API_KEY  \"op\": \"op://vault/Anthropic API Key/credential\""
@@ -249,10 +260,11 @@ sct_agent_post_user_settings_hook() {
 sct_agent_vscode_extension() {
 	local agent=$1
 	case "$agent" in
-		claude) echo "anthropic.claude-code" ;;
-		cursor) echo "anysphere.cursor" ;;
-		codex)  echo "openai.chatgpt"       ;;
-		*)      echo "" ;;
+		claude)  echo "anthropic.claude-code" ;;
+		cursor)  echo "anysphere.cursor"      ;;
+		codex)   echo "openai.chatgpt"        ;;
+		copilot) echo "GitHub.copilot"        ;;
+		*)       echo ""                      ;;
 	esac
 }
 
@@ -281,11 +293,8 @@ EOF
 				// auth/network config. Add Cursor-specific settings here if needed.
 EOF
 			;;
-		codex)
-			# No forced VS Code settings for codex in this iteration.
-			echo ""
-			;;
-		*)
+		codex|copilot|*)
+			# No forced VS Code settings for codex, copilot, or unknown agents.
 			echo ""
 			;;
 	esac
@@ -304,7 +313,7 @@ sct_agent_compose_environment_entries() {
 		claude)
 			echo "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1"
 			;;
-		cursor|codex|*)
+		cursor|codex|copilot|*)
 			echo ""
 			;;
 	esac
@@ -340,6 +349,21 @@ EOF
 USER root
 RUN curl -fsSL https://chatgpt.com/codex/install.sh | \
     CODEX_INSTALL_DIR=/usr/local/bin CODEX_HOME=/opt/codex-home sh
+USER vscode
+EOF
+			;;
+		copilot)
+			cat <<'EOF'
+# Install Node.js 22 (Copilot CLI requires Node.js 20+).
+# NodeSource setup script is the shortest path to a current Node on the
+# vscode base image (Debian). Runs as root; USER is restored to vscode
+# before the block ends.
+USER root
+RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
+    && rm -rf /var/lib/apt/lists/*
+# Install GitHub Copilot CLI.
+RUN npm install -g @github/copilot
 USER vscode
 EOF
 			;;
@@ -381,6 +405,13 @@ RUN mkdir -p /home/vscode/.codex /home/vscode/.codex-host
 RUN echo 'alias codex-yolo="codex --yolo"' >> /home/vscode/.bashrc
 EOF
 			;;
+		copilot)
+			cat <<'EOF'
+# Pre-create ~/.copilot so Docker bind-mounts don't create it as root-owned.
+RUN mkdir -p /home/vscode/.copilot
+RUN echo 'alias copilot-yolo="copilot --yolo"' >> /home/vscode/.bashrc
+EOF
+			;;
 		*)
 			echo ""
 			;;
@@ -407,7 +438,7 @@ sct_agent_mitm_streaming_flags() {
 		cursor)
 			echo "--set stream_large_bodies=1m --set connection_strategy=lazy --set anticomp=true --set timeout_read=300"
 			;;
-		claude|codex|*)
+		claude|codex|copilot|*)
 			echo ""
 			;;
 	esac
@@ -504,6 +535,18 @@ if command -v rtk >/dev/null 2>&1 \
    && ! grep -q '@RTK.md\|RTK\.md' "$HOME/.codex/AGENTS.md" 2>/dev/null; then
     rtk init -g --codex >/dev/null 2>&1 \
         || echo "sandcat: rtk init failed (non-fatal)" >&2
+fi
+EOF
+			;;
+		copilot)
+			cat <<'EOF'
+# Copilot CLI reads $COPILOT_GITHUB_TOKEN directly from environment —
+# sandcat.env has already been sourced with the placeholder or
+# 1Password-resolved value. Basic health check on first start;
+# failure is non-fatal.
+if command -v copilot >/dev/null 2>&1; then
+    copilot --version >/dev/null 2>&1 \
+        || echo "sandcat: copilot --version failed (non-fatal)" >&2
 fi
 EOF
 			;;

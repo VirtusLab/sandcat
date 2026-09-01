@@ -213,6 +213,42 @@ teardown() {
 	assert_failure
 }
 
+@test "customize_agent_templates sets copilot mitmproxy defaults" {
+	{
+		echo 'include: []'
+		echo 'services: {agent: {environment: []}}'
+	} > "$BATS_TEST_TMPDIR/compose-all.yml"
+	echo "__AGENT_DOCKER_INSTALL__" > "$BATS_TEST_TMPDIR/Dockerfile.app"
+	echo "__AGENT_USER_INIT__" > "$BATS_TEST_TMPDIR/sandcat/scripts/app-user-init.sh"
+
+	customize_agent_templates "$BATS_TEST_TMPDIR" "copilot"
+
+	run grep 'http2=true' "$BATS_TEST_TMPDIR/sandcat/compose-proxy.yml"
+	assert_success
+
+	run grep '/scripts/mitmproxy_addon_copilot.py' "$BATS_TEST_TMPDIR/sandcat/compose-proxy.yml"
+	assert_success
+
+	# Streaming-related flags are Cursor-only; including them on the Copilot
+	# path would weaken the body-content placeholder leak check in
+	# _substitute_secrets (mitmproxy buffers <1MB bodies by default).
+	run grep 'stream_large_bodies=1m' "$BATS_TEST_TMPDIR/sandcat/compose-proxy.yml"
+	assert_failure
+
+	run grep 'connection_strategy=lazy' "$BATS_TEST_TMPDIR/sandcat/compose-proxy.yml"
+	assert_failure
+
+	run grep 'anticomp=true' "$BATS_TEST_TMPDIR/sandcat/compose-proxy.yml"
+	assert_failure
+
+	run grep 'timeout_read=300' "$BATS_TEST_TMPDIR/sandcat/compose-proxy.yml"
+	assert_failure
+
+	# Placeholder must be fully resolved.
+	run grep '__AGENT_MITM_STREAMING_FLAGS__' "$BATS_TEST_TMPDIR/sandcat/compose-proxy.yml"
+	assert_failure
+}
+
 # --------------------------------------------------- stack environment
 
 @test "customize_compose_stack_environment adds python's uv TLS env vars" {

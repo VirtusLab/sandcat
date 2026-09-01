@@ -374,7 +374,32 @@ class SandcatAddon:
 
     def _load_secrets(self, raw_secrets: dict):
         for name, entry in raw_secrets.items():
-            placeholder = f"SANDCAT_PLACEHOLDER_{name}"
+            # Per-secret placeholder override (rare). Needed when the consumer
+            # tool validates token format client-side and would reject the
+            # default `SANDCAT_PLACEHOLDER_<NAME>` shape before ever hitting
+            # mitmproxy — GitHub Copilot CLI checks the `gho_`/`github_pat_`
+            # prefix on `COPILOT_GITHUB_TOKEN` and errors out with "no auth
+            # information found" for anything else. A custom placeholder in
+            # settings.json (e.g. `gho_SANDCAT_PLACEHOLDER_COPILOT_GITHUB_TOKEN`)
+            # keeps the CLI happy on the env-var side; mitmproxy's on-the-wire
+            # `.replace(placeholder, value)` still swaps the ENTIRE string with
+            # the real token, so what actually leaves the sandbox is well-formed.
+            custom = entry.get("placeholder")
+            if custom is not None:
+                if not isinstance(custom, str):
+                    ctx.log.warn(
+                        f"Secret {name!r}: 'placeholder' must be a string, got "
+                        f"{type(custom).__name__}; using default"
+                    )
+                    custom = None
+                elif "SANDCAT_PLACEHOLDER_" not in custom:
+                    ctx.log.warn(
+                        f"Secret {name!r}: custom placeholder must contain "
+                        f"'SANDCAT_PLACEHOLDER_' to prevent false-positive "
+                        f"substitutions; using default"
+                    )
+                    custom = None
+            placeholder = custom or f"SANDCAT_PLACEHOLDER_{name}"
             self._warn_if_value_looks_like_reference(name, entry)
             source = self._secret_source(entry)
             if "pass" in entry and not self._pass_cli_logged_in:
