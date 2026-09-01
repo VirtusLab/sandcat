@@ -402,6 +402,16 @@ EOF
 	[[ "$ep" == *"/upstream-ca"* ]]
 	[[ "$ep" == *"rm -f /home/mitmproxy/.mitmproxy/dns.conf"* ]]
 	[[ "$ep" == *"exec docker-entrypoint.sh"* ]]
+	# Regression guard (#25): the template's entrypoint also publishes the CA
+	# cert onto the agent-facing mitmproxy-public volume, and the healthcheck
+	# gates on that file. Substituting a fixed entrypoint here would drop it
+	# and the stack would never become healthy.
+	[[ "$ep" == *"mitmproxy-public"* ]]
+	# The install must run BEFORE the template's backgrounded waiter, not
+	# inside it — `&` binds looser than `&&`, so joining with `&&` would
+	# background the install and race mitmproxy's start.
+	[[ "$ep" == *"|| exit 1;"* ]]
+	[[ "${ep%%|| exit 1;*}" == *"update-ca-certificates"* ]]
 	# Fail-loud: no conditional guard around the CA install.
 	[[ "$ep" != *"if [ -d"* ]]
 	# certifi bundle patch: mitmproxy uses certifi.where() for upstream
