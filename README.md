@@ -1606,7 +1606,7 @@ enough for most tools — but some runtimes bring their own CA handling:
 If your organization runs internal HTTPS services (e.g. an on-prem Nexus,
 GitLab, Artifactory) signed by an internal CA or with a self-signed
 certificate, sandcat's mitmproxy will fail to validate those upstreams by
-default — the `mitmproxy/mitmproxy:latest` image ships a stock Debian
+default — the `mitmproxy/mitmproxy` image ships a stock Debian
 public-CA bundle and does not know about your internal CA.
 
 Add the CA(s) to `upstream_ca_bundles` in

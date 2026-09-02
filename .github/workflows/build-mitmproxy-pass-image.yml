@@ -13,7 +13,7 @@ on:
       - 'images/mitmproxy.env'
       - '.github/workflows/build-mitmproxy-pass-image.yml'
   schedule:
-    - cron: '0 6 * * 1' # Weekly Monday 6am — rebuild against latest mitmproxy
+    - cron: '0 6 * * 1' # Weekly Monday 6am — build-only canary against upstream mitmproxy:latest
   workflow_dispatch:
 
 jobs:
@@ -48,10 +48,11 @@ jobs:
         if: github.event_name != 'schedule'
         run: grep -m1 '^MITMPROXY_VERSION=' images/mitmproxy.env >> "$GITHUB_ENV"
 
-      - name: Use latest mitmproxy for the scheduled tracking build
-        # Scheduled builds intentionally bypass the pin to track upstream
-        # mitmproxy:latest; they publish only the `latest` tag, never a
-        # version tag, so this can't be mistaken for the pinned image.
+      - name: Use latest mitmproxy for the scheduled canary build
+        # The weekly canary builds against upstream mitmproxy:latest to surface
+        # breaking upstream releases early (a red run is the alarm). It is
+        # build-only — nothing is pushed (see `push:` below) — so an
+        # unreviewed upstream image can never reach any published tag.
         if: github.event_name == 'schedule'
         run: echo "MITMPROXY_VERSION=latest" >> "$GITHUB_ENV"
 
@@ -60,16 +61,16 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ghcr.io/virtuslab/sandcat-mitmproxy-pass
-          # Tag policy: schedule builds publish only `latest` (tracking
-          # channel). The pinned <version> tag is immutable and can only be
-          # published from master — a push (hard-restricted to master by the
-          # trigger above) or a workflow_dispatch run explicitly on master —
-          # so a manual dispatch from a feature branch can never overwrite
-          # it. Off-master dispatch still gets a sha + branch-name tag (never
-          # tagless, never colliding with the canonical tag). PRs keep their
-          # existing ref tag and are never pushed (see `push:` below).
+          # Tag policy: every published image contains the PINNED mitmproxy
+          # (12.2.3 from images/mitmproxy.env). `latest` simply means the
+          # latest master build of OUR image — so projects that reference
+          # ghcr `latest` (including those generated before pinning) get the
+          # pinned base too. The <version> tag is published from master
+          # pushes and master dispatches only, so a dispatch from a feature
+          # branch can never overwrite it (it gets branch + sha tags).
+          # Scheduled canary builds are never pushed at all.
           tags: |
-            type=raw,value=latest,enable=${{ github.event_name == 'schedule' }}
+            type=raw,value=latest,enable=${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master') }}
             type=raw,value=${{ env.MITMPROXY_VERSION }},enable=${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master') }}
             type=sha,enable=${{ github.event_name != 'schedule' && github.event_name != 'pull_request' }}
             type=ref,event=branch,enable=${{ github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/master' }}
@@ -81,7 +82,7 @@ jobs:
           context: images/mitmproxy-pass
           file: images/mitmproxy-pass/Dockerfile
           platforms: linux/amd64,linux/arm64
-          push: ${{ github.event_name != 'pull_request' }}
+          push: ${{ github.event_name != 'pull_request' && github.event_name != 'schedule' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
@@ -89,6 +90,6 @@ jobs:
             PASS_CLI_VERSION=${{ env.PASS_CLI_VERSION }}
             PASS_CLI_SHA256_X86_64=${{ env.PASS_CLI_SHA256_X86_64 }}
             PASS_CLI_SHA256_AARCH64=${{ env.PASS_CLI_SHA256_AARCH64 }}
-          # Skip cache on scheduled builds to pick up upstream mitmproxy:latest changes
+          # Skip cache on scheduled canary builds to pick up upstream mitmproxy:latest changes
           cache-from: ${{ github.event_name != 'schedule' && 'type=gha' || '' }}
           cache-to: type=gha,mode=max

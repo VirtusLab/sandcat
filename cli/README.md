@@ -106,8 +106,8 @@ To bump the pinned mitmproxy version:
 1. Edit both files above to the same new version (e.g., `13.0.0`)
 2. Push the changes to a branch
 3. The contract test `mitmproxy_version.bats` will verify the two values match; CI will fail if they diverge
-4. Merge to master — the image build workflows are triggered by changes to `images/mitmproxy.env` and publish new versioned `ghcr.io/virtuslab/sandcat-mitmproxy-op` and `ghcr.io/virtuslab/sandcat-mitmproxy-pass` tags
-5. The weekly cron job rebuilds only the `latest` tag from upstream mitmproxy and never touches versioned tags
+4. Merge to master — the image build workflows are triggered by changes to `images/mitmproxy.env` and publish the new versioned `ghcr.io/virtuslab/sandcat-mitmproxy-op` and `ghcr.io/virtuslab/sandcat-mitmproxy-pass` tags, moving `latest` to the same build (every published image contains the pinned mitmproxy; `latest` just means the newest master build)
+5. The weekly cron job is a build-only canary against upstream `mitmproxy:latest` — a red run signals a breaking upstream release; nothing is ever published from it
 
 Generated projects reference the pinned version from the CLI-side constant, so projects created with `sandcat init` always use the stable versioned image.
 
