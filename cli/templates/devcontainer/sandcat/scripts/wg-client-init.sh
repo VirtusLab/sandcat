@@ -134,19 +134,18 @@ write_resolv_conf() {
     } > "$resolv_conf"
 }
 
-# Append NetBird peer DNS records published by mitmproxy-init.sh into the
+# Merge NetBird peer DNS records published by mitmproxy-init.sh into the
 # dnsmasq config and restart dnsmasq so the running process picks them up.
 #
 # mitmproxy-init.sh writes dnsmasq-compatible local=, host-record=, address=,
 # and server= lines to $NETBIRD_PEERS_CONF in the shared mitmproxy-config
-# volume whenever peer state changes. This function merges any new lines into
-# the main dnsmasq config, then restarts dnsmasq. SIGHUP is not enough here:
-# dnsmasq often keeps serving stale data after address=/host-record= lines are
-# appended post-start (and the old pgrep-based reload silently no-oped anyway).
+# volume whenever peer state changes. This function replaces the marked
+# NetBird block (and any legacy unmarked records for the same names) so a
+# new mesh IP is not appended behind a stale one. SIGHUP is not enough:
+# dnsmasq often keeps serving stale data after address=/host-record= changes.
 #
-# Idempotent and safe to call repeatedly: lines already in the config are
-# skipped, and the function returns 0 if the source file does not exist yet
-# (NetBird disabled or mitmproxy still enrolling).
+# Idempotent and safe to call repeatedly. Returns 0 if the source file does
+# not exist yet (NetBird disabled or mitmproxy still enrolling).
 #
 # Args:
 #   $1 - path to the dnsmasq config file to update
@@ -175,6 +174,32 @@ restart_dnsmasq() {
     echo "wg-client: dnsmasq restarted for NetBird DNS records." >&2
 }
 
+# Prefix that identifies a dnsmasq record regardless of its rdata (IP).
+# Used to drop stale host-record=/address= lines when a peer's mesh IP changes.
+netbird_dnsmasq_record_prefix() {
+    local line=$1
+    case "$line" in
+        host-record=*,*)
+            printf '%s,' "${line%%,*}"
+            ;;
+        address=/*)
+            local rest="${line#address=/}"
+            printf 'address=/%s/' "${rest%%/*}"
+            ;;
+        local=/*)
+            local rest="${line#local=/}"
+            printf 'local=/%s/' "${rest%%/*}"
+            ;;
+        server=/*)
+            local rest="${line#server=/}"
+            printf 'server=/%s/' "${rest%%/*}"
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
 patch_dnsmasq_from_netbird_volume() {
     local conf="$1"
     local peers_conf="$NETBIRD_PEERS_CONF"
@@ -187,23 +212,61 @@ patch_dnsmasq_from_netbird_volume() {
     local recorded_mtime=0
     [[ -f "$peers_stamp" ]] && recorded_mtime=$(tr -d '[:space:]' <"$peers_stamp" 2>/dev/null || echo 0)
 
-    local reload_needed=false
-    local line
-    while IFS= read -r line || [[ -n "$line" ]]; do
-        [[ -n "$line" ]] || continue
-        # Accept only known dnsmasq directives to prevent config injection.
-        [[ "$line" =~ ^(local|host-record|address|server)= ]] || continue
-        if ! grep -qF "$line" "$conf" 2>/dev/null; then
-            printf '%s\n' "$line" >> "$conf"
-            echo "wg-client: added dnsmasq record from NetBird volume: $line" >&2
-            reload_needed=true
-        fi
-    done < "$peers_conf"
+    local begin="# BEGIN SANDCAT-NETBIRD-DNS"
+    local end="# END SANDCAT-NETBIRD-DNS"
+    local records tmp line prefix existing
+    records=$(mktemp)
+    tmp=$(mktemp)
+    {
+        echo "$begin"
+        while IFS= read -r line || [[ -n "$line" ]]; do
+            [[ -n "$line" ]] || continue
+            [[ "$line" =~ ^(local|host-record|address|server)= ]] || continue
+            printf '%s\n' "$line"
+        done < "$peers_conf"
+        echo "$end"
+    } > "$records"
 
-    # Restart when lines were added OR when the volume file changed but dnsmasq
-    # never picked up a prior merge (e.g. SIGHUP/pgrep reload silently failed).
+    existing=""
+    if grep -qF "$begin" "$conf" 2>/dev/null; then
+        existing=$(awk -v b="$begin" -v e="$end" '
+            $0==b {p=1}
+            p {print}
+            $0==e {p=0}
+        ' "$conf")
+    fi
+
+    local reload_needed=false
+    if [[ "$existing" != "$(cat "$records")" ]]; then
+        awk -v b="$begin" -v e="$end" '
+            $0==b {skip=1; next}
+            $0==e {skip=0; next}
+            !skip {print}
+        ' "$conf" > "$tmp"
+        mv "$tmp" "$conf"
+        tmp=$(mktemp)
+
+        while IFS= read -r line || [[ -n "$line" ]]; do
+            prefix=$(netbird_dnsmasq_record_prefix "$line") || continue
+            [[ -n "$prefix" ]] || continue
+            awk -v p="$prefix" 'index($0, p) != 1 {print}' "$conf" > "$tmp"
+            mv "$tmp" "$conf"
+            tmp=$(mktemp)
+        done < "$records"
+
+        cat "$records" >> "$conf"
+        reload_needed=true
+        echo "wg-client: updated dnsmasq records from NetBird volume." >&2
+    fi
+    rm -f "$records" "$tmp"
+
+    # Restart only if dnsmasq is already listening. Boot calls this *before*
+    # the first start so a persisted netbird-peers.conf would otherwise spawn
+    # dnsmasq here and then again in main() → EADDRINUSE on 127.0.0.1:53.
     if [[ "$reload_needed" == true ]] || [[ "$peers_mtime" != "$recorded_mtime" ]]; then
-        restart_dnsmasq "$conf"
+        if dnsmasq-ready 2>/dev/null; then
+            restart_dnsmasq "$conf"
+        fi
         printf '%s\n' "$peers_mtime" > "$peers_stamp"
     fi
 }

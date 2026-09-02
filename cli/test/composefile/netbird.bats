@@ -101,6 +101,18 @@ teardown() {
 
     run yq '[.services.mitmproxy.environment[] | select(. == "NB_SETUP_KEY")] | length' "$COMPOSE_FILE"
     assert_output "1"
+    run yq '[.services.mitmproxy.extra_hosts[] | select(. == "host.docker.internal:172.17.0.1")] | length' "$COMPOSE_FILE"
+    assert_output "1"
+}
+
+@test "enable_netbird replaces host-gateway extra_hosts with docker0" {
+    yq -i '.services.mitmproxy.extra_hosts = ["host.docker.internal:host-gateway"]' "$COMPOSE_FILE"
+    enable_netbird "$COMPOSE_FILE" "" "test-proxy"
+
+    run yq '[.services.mitmproxy.extra_hosts[] | select(. == "host.docker.internal:host-gateway")] | length' "$COMPOSE_FILE"
+    assert_output "0"
+    run yq '[.services.mitmproxy.extra_hosts[] | select(. == "host.docker.internal:172.17.0.1")] | length' "$COMPOSE_FILE"
+    assert_output "1"
 }
 
 @test "enable_netbird switches mitmproxy from image to build" {

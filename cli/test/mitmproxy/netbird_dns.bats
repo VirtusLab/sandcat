@@ -22,7 +22,7 @@ teardown() {
 }
 
 @test "publish_netbird_dns writes address= records from netbirdIp (NetBird >= 0.28)" {
-	# Real 0.28.9 status --json shape: peers.details[].netbirdIp, not .ip.
+	# Real NetBird status --json shape: peers.details[].netbirdIp (0.28+), not .ip.
 	cat >"$STATUS_JSON" <<'JSON'
 {
   "peers": {

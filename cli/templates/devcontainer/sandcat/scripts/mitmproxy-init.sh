@@ -142,39 +142,6 @@ netbird_verify_host_management_reachable() {
         curl -sf --max-time 5 "$check_url" >/dev/null
 }
 
-netbird_prepare_local_management_profile() {
-    local mgmt_url="${NB_MANAGEMENT_URL:-https://api.netbird.io}"
-    local host profile_file="/var/lib/netbird/default.json"
-
-    host=$(netbird_management_url_host "$mgmt_url") || return 0
-    netbird_management_url_host_is_literal_ipv4 "$host" || return 0
-
-    mkdir -p "$(dirname "$profile_file")"
-    if [[ -f "$profile_file" ]] && command -v jq >/dev/null 2>&1; then
-        local tmp
-        tmp=$(mktemp)
-        jq --arg url "$mgmt_url" --arg iface "${NETBIRD_IFACE}" --argjson port "${NETBIRD_WG_PORT}" \
-            '.ManagementURL = $url | .AdminURL = $url | .WgPort = $port | .WgIface = $iface' \
-            "$profile_file" >"$tmp"
-        mv "$tmp" "$profile_file"
-        return 0
-    fi
-
-    cat >"$profile_file" <<EOF
-{
-  "ManagementURL": "$mgmt_url",
-  "AdminURL": "$mgmt_url",
-  "WgIface": "${NETBIRD_IFACE}",
-  "WgPort": ${NETBIRD_WG_PORT},
-  "IFaceBlackList": ["docker", "br-", "veth"],
-  "BlockInbound": false,
-  "BlockLANAccess": false,
-  "RosenpassEnabled": false,
-  "PrivateKey": ""
-}
-EOF
-}
-
 netbird_export_service_env() {
     local mgmt_url="${NB_MANAGEMENT_URL:-https://api.netbird.io}"
     export NB_MANAGEMENT_URL="$mgmt_url"
@@ -196,7 +163,7 @@ ensure_netbird_service() {
         return 0
     fi
 
-    echo "[mitmproxy] Starting NetBird service daemon." >&2
+    echo "[mitmproxy] Starting NetBird service daemon ($(netbird version 2>/dev/null || echo unknown))." >&2
     netbird service run --log-file console &
 
     wait_until 30 1 \
@@ -221,7 +188,9 @@ start_netbird() {
     netbird_export_service_env
 
     netbird_prepare_enroll_credentials || return 1
-    netbird_replace_same_name_peer_if_needed || return 1
+    # Replace is best-effort. 0.72 stays NeedsLogin until netbird up --setup-key.
+    netbird_replace_same_name_peer_if_needed || \
+        echo "[mitmproxy] same-name peer replace failed; continuing with netbird up." >&2
     echo "[mitmproxy] Enrolling NetBird peer on ${iface} as '${NB_PEER_NAME}' (WG port ${NETBIRD_WG_PORT})." >&2
     if ! netbird up \
         --setup-key "${NB_SETUP_KEY}" \
@@ -259,7 +228,8 @@ supervise_netbird_daemon() {
             configure_netbird_host_management_access "$docker_gateway"
             netbird_prepare_local_management_profile
             netbird_export_service_env
-            if netbird_prepare_enroll_credentials && netbird_replace_same_name_peer_if_needed; then
+            if netbird_prepare_enroll_credentials; then
+                netbird_replace_same_name_peer_if_needed || true
                 netbird up \
                     --setup-key "${NB_SETUP_KEY}" \
                     --management-url "${NB_MANAGEMENT_URL:-https://api.netbird.io}" \

@@ -5,6 +5,8 @@
 #
 # Required env: NB_SETUP_KEY, NB_MANAGEMENT_URL, NB_API_TOKEN
 # Optional:     NB_PEER_NAME (default proxy-peer)
+# extra_hosts maps host.docker.internal → 172.17.0.1 (docker0). Colima's
+# host-gateway is 192.168.5.2; UDP STUN to that IP hairpins.
 
 services:
   proxy-peer:
@@ -16,6 +18,8 @@ services:
         NETBIRD_SHA256_AMD64: ${NETBIRD_SHA256_AMD64}
         NETBIRD_SHA256_ARM64: ${NETBIRD_SHA256_ARM64}
     hostname: ${NB_PEER_NAME:-proxy-peer}
+    extra_hosts:
+      - "host.docker.internal:172.17.0.1"
     cap_add:
       - NET_ADMIN
     environment:
