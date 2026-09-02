@@ -1,10 +1,13 @@
-# Combined NetBird server — localhost defaults. Fill secrets from
-# netbird-server.env (see README.md). exposedAddress must be reachable from
-# Docker containers (Docker host LAN IP), not localhost.
+# Combined NetBird server — localhost defaults. Fill secrets via start.sh.
+#
+# Do NOT set server.stuns: that disables the embedded STUN listener (UDP 3478).
+# stunPorts keeps STUN in-process; advertised host comes from exposedAddress.
+# On Colima, extra_hosts maps host.docker.internal → 172.17.0.1 (docker0) so
+# UDP reaches the published port (host-gateway is 192.168.5.2 and hairpins).
 server:
   listenAddress: ":80"
   # customize and parametrize for local development
-  exposedAddress: "http://192.168.5.2:33073"
+  exposedAddress: "http://host.docker.internal:33073"
   stunPorts:
     - 3478
   metricsPort: 9090

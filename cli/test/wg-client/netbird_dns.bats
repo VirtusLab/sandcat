@@ -66,6 +66,33 @@ teardown() {
     assert_output "1"
 }
 
+@test "patch_dnsmasq_from_netbird_volume replaces stale host-record IPs" {
+    # Recreating proxy-peer assigns a new 100.79.x; append-only left the old
+    # record first, so the agent connected to a dead mesh IP (EHOSTUNREACH/502)
+    # while curl inside mitmproxy used live NetBird DNS and succeeded.
+    printf 'host-record=proxy-peer.netbird.selfhosted,100.64.0.5\n' > "$NETBIRD_PEERS_CONF"
+    patch_dnsmasq_from_netbird_volume "$DNSMASQ_CONF"
+    printf 'host-record=proxy-peer.netbird.selfhosted,100.64.0.9\n' > "$NETBIRD_PEERS_CONF"
+    patch_dnsmasq_from_netbird_volume "$DNSMASQ_CONF"
+
+    run grep -c "100.64.0.5" "$DNSMASQ_CONF"
+    assert_output "0"
+    run grep -c "host-record=proxy-peer.netbird.selfhosted,100.64.0.9" "$DNSMASQ_CONF"
+    assert_output "1"
+}
+
+@test "patch_dnsmasq_from_netbird_volume replaces stale address= IPs" {
+    printf 'address=/proxy-peer.netbird.selfhosted/100.64.0.5\n' > "$NETBIRD_PEERS_CONF"
+    patch_dnsmasq_from_netbird_volume "$DNSMASQ_CONF"
+    printf 'address=/proxy-peer.netbird.selfhosted/100.64.0.9\n' > "$NETBIRD_PEERS_CONF"
+    patch_dnsmasq_from_netbird_volume "$DNSMASQ_CONF"
+
+    run grep -c "address=/proxy-peer.netbird.selfhosted/100.64.0.5" "$DNSMASQ_CONF"
+    assert_output "0"
+    run grep -c "address=/proxy-peer.netbird.selfhosted/100.64.0.9" "$DNSMASQ_CONF"
+    assert_output "1"
+}
+
 @test "patch_dnsmasq_from_netbird_volume skips lines that are not dnsmasq directives" {
     printf 'host-record=peer.netbird.selfhosted,100.64.0.5\nsome-random-line\n# comment\n' > "$NETBIRD_PEERS_CONF"
 
@@ -92,6 +119,20 @@ teardown() {
 
     run grep -c "server=/netbird.selfhosted" "$DNSMASQ_CONF"
     assert_output "1"
+}
+
+@test "patch_dnsmasq_from_netbird_volume does not start dnsmasq before it is listening" {
+    printf 'address=/test-proxy-peer.netbird.selfhosted/100.64.0.5\n' > "$NETBIRD_PEERS_CONF"
+    local restarts="$BATS_TEST_TMPDIR/dnsmasq.restarts"
+    : >"$restarts"
+    dnsmasq-ready() { return 1; }
+    restart_dnsmasq() { echo restart >>"$restarts"; }
+
+    patch_dnsmasq_from_netbird_volume "$DNSMASQ_CONF"
+
+    run grep -c "address=/test-proxy-peer.netbird.selfhosted/100.64.0.5" "$DNSMASQ_CONF"
+    assert_output "1"
+    assert_equal "$(cat "$restarts")" ""
 }
 
 @test "wg-client-init restarts dnsmasq when NetBird peers volume changes" {

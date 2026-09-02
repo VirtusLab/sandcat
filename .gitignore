@@ -5,3 +5,4 @@ __pycache__/
 .orca
 .worktrees/
 docs/examples/proxy-peer/.env
+docs/examples/netbird-server/config.local.yaml

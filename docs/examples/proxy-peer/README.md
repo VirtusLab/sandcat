@@ -43,8 +43,15 @@ sequenceDiagram
 ```bash
 cp .env.example .env
 # Fill NB_SETUP_KEY, NB_MANAGEMENT_URL, NB_API_TOKEN
-docker compose --env-file netbird.env --env-file .env -f compose-proxy-peer.yml up -d --build
+docker compose --env-file netbird.env --env-file .env \
+  -f compose-proxy-peer.yml up -d --build --force-recreate
 ```
+
+`--env-file netbird.env` is required so the image gets client **0.72.4**. Recreate
+without `--build` keeps a leftover 0.28.9 binary: Relays stay `stun:`-only and
+peers stick on Connecting (no `rel://`, no WireGuard handshake). Confirm both
+peers with `netbird status --json`: `daemonVersion` 0.72.4 and a `rel://`
+relay. Mitmproxy being 0.72.4 is not enough.
 
 Default `NB_PEER_NAME` is `proxy-peer`.
 

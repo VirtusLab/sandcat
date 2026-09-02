@@ -404,6 +404,9 @@ apply_netbird_build_args() {
 #   3. Adds cap_add: [NET_ADMIN] and the WireGuard src_valid_mark sysctl.
 #   4. Adds NB_SETUP_KEY (and optionally NB_MANAGEMENT_URL) to the environment.
 #   5. Injects NetBird build args (version + per-arch checksums) from netbird.env.
+#   6. Adds extra_hosts host.docker.internal:172.17.0.1 so STUN hits docker0
+#      (Colima host-gateway is the LAN IP; UDP hairpin fails). Do not set
+#      server.stuns — that disables the embedded listener.
 #
 # Args:
 #   $1 - Path to compose-proxy.yml
@@ -467,6 +470,17 @@ enable_netbird() {
 	if [[ "$has_src_valid_mark" -eq 0 ]]; then
 		yq -i '.services.mitmproxy.sysctls += ["net.ipv4.conf.all.src_valid_mark=1"]' "$compose_file"
 	fi
+
+	# Reach host-published STUN (UDP 3478) via docker0. Colima's host-gateway
+	# is the VM LAN IP (192.168.5.2); UDP hairpin to that address times out.
+	# server.stuns must stay unset — it disables the embedded STUN listener.
+	yq -i '
+		.services.mitmproxy.extra_hosts = (
+			((.services.mitmproxy.extra_hosts // [])
+				| map(select(test("^host.docker.internal:") | not)))
+			+ ["host.docker.internal:172.17.0.1"]
+		)
+	' "$compose_file"
 
 	# Add NB_SETUP_KEY to mitmproxy environment (value provided at runtime via env).
 	# sandcat compose/run export the key from layered settings (user/project/local);

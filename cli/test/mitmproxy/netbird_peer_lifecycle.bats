@@ -28,6 +28,32 @@ teardown() {
 	assert_output --partial "reconnect"
 }
 
+@test "0.72 enrolled default.json reconnects without a management request" {
+	mkdir -p "$NETBIRD_STATE_ROOT"
+	printf '{}\n' >"$NETBIRD_STATE_ROOT/default.json"
+	stub netbird "status --json : echo '{\"status\":\"Connected\"}'"
+
+	run netbird_replace_same_name_peer_if_needed
+
+	assert_success
+	assert_output --partial "reconnect"
+}
+
+@test "0.72 NeedsLogin default.json is not enrolled local state" {
+	mkdir -p "$NETBIRD_STATE_ROOT"
+	printf '{}\n' >"$NETBIRD_STATE_ROOT/default.json"
+	export NB_API_TOKEN="tok"
+	stub netbird "status --json : echo '{\"status\":\"NeedsLogin\"}'"
+	stub curl \
+		"-sf --max-time 10 -H 'Authorization: Token tok' http://mgmt.test:33073/api/peers : echo '[{\"id\":\"abc\",\"name\":\"myapp-sandbox-proxy\"}]'" \
+		"-sf --max-time 10 -X DELETE -H 'Authorization: Token tok' http://mgmt.test:33073/api/peers/abc : :"
+
+	run netbird_replace_same_name_peer_if_needed
+
+	assert_success
+	assert_output --partial "replace"
+}
+
 @test "missing local state replaces an existing peer" {
 	export NB_API_TOKEN="tok"
 	stub curl \
@@ -203,6 +229,26 @@ teardown() {
 	assert_output --partial "netbird_api_token"
 }
 
+@test "mitmproxy-init does not abort enrollment when same-name replace fails" {
+	local init="$SCT_TEMPLATEDIR/devcontainer/sandcat/scripts/mitmproxy-init.sh"
+	# 0.72 leaves the daemon at NeedsLogin until netbird up --setup-key.
+	# Replace is best-effort; gating up on it leaves the mesh logged out.
+	run grep -F 'netbird_replace_same_name_peer_if_needed || return 1' "$init"
+	assert_failure
+	run awk '/^supervise_netbird_daemon\(\)/,/^}/' "$init"
+	assert_success
+	assert_output --partial "netbird_replace_same_name_peer_if_needed || true"
+}
+
+@test "proxy-peer-init does not abort enrollment when same-name replace fails" {
+	local init="$SCT_ROOT/../docs/examples/proxy-peer/scripts/proxy-peer-init.sh"
+	run grep -F 'netbird_replace_same_name_peer_if_needed || return 1' "$init"
+	assert_failure
+	run awk '/^supervise_netbird_daemon\(\)/,/^}/' "$init"
+	assert_success
+	assert_output --partial "netbird_replace_same_name_peer_if_needed || true"
+}
+
 @test "example lifecycle script matches the template" {
 	run cmp \
 		"$SCRIPT" \
@@ -229,4 +275,67 @@ teardown() {
 	# Raw jq dumps object JSON into env and skips prepare's flatten-if-empty path.
 	run grep -F "NB_SETUP_KEY=\$(jq -r '.netbird_enrollment_key" "$init"
 	assert_failure
+}
+
+@test "prepare profile converts string ManagementURL to a Go url.URL object" {
+	# NetBird 0.72 Config.ManagementURL is *url.URL; a JSON string crashes the
+	# daemon with "cannot unmarshal string into Go struct field Config.ManagementURL".
+	mkdir -p "$NETBIRD_STATE_ROOT"
+	printf '%s\n' '{"ManagementURL":"http://192.0.2.1:33073","AdminURL":"http://192.0.2.1:33073","PrivateKey":"keep-me"}' \
+		>"$NETBIRD_STATE_ROOT/default.json"
+	export NB_MANAGEMENT_URL="http://192.0.2.1:33073"
+	export NETBIRD_IFACE="wt0"
+
+	netbird_prepare_local_management_profile
+
+	run jq -c '{scheme:.ManagementURL.Scheme, host:.ManagementURL.Host, key:.PrivateKey, admin:.AdminURL.Scheme}' \
+		"$NETBIRD_STATE_ROOT/default.json"
+	assert_success
+	assert_output '{"scheme":"http","host":"192.0.2.1:33073","key":"keep-me","admin":"http"}'
+}
+
+@test "prepare profile does not seed a missing default.json" {
+	# 0.72 writes native url.URL objects; seeding a string profile is what broke
+	# the daemon. Leave a missing file to the client.
+	export NB_MANAGEMENT_URL="http://192.0.2.1:33073"
+
+	netbird_prepare_local_management_profile
+
+	[[ ! -e "$NETBIRD_STATE_ROOT/default.json" ]]
+}
+
+@test "init scripts do not seed ManagementURL as a JSON string" {
+	run grep -F '"ManagementURL": "$mgmt_url"' \
+		"$SCT_TEMPLATEDIR/devcontainer/sandcat/scripts/mitmproxy-init.sh" \
+		"$SCT_ROOT/../docs/examples/proxy-peer/scripts/proxy-peer-init.sh"
+	assert_failure
+}
+
+@test "prepare profile coerces leftover hostname string URLs without rewriting" {
+	mkdir -p "$NETBIRD_STATE_ROOT"
+	printf '%s\n' '{"ManagementURL":"http://host.docker.internal:33073","AdminURL":"http://host.docker.internal:33073","PrivateKey":"keep-me"}' \
+		>"$NETBIRD_STATE_ROOT/default.json"
+	export NB_MANAGEMENT_URL="http://host.docker.internal:33073"
+
+	netbird_prepare_local_management_profile
+
+	run jq -c '{host:.ManagementURL.Host, key:.PrivateKey}' "$NETBIRD_STATE_ROOT/default.json"
+	assert_success
+	assert_output '{"host":"host.docker.internal:33073","key":"keep-me"}'
+}
+
+@test "prepare profile refreshes an existing object URL from NB_MANAGEMENT_URL" {
+	mkdir -p "$NETBIRD_STATE_ROOT"
+	printf '%s\n' '{"ManagementURL":{"Scheme":"http","Host":"192.0.2.8:33073","Path":""},"AdminURL":{"Scheme":"http","Host":"192.0.2.8:33073","Path":""},"WgIface":"wt0","PrivateKey":"keep-me"}' \
+		>"$NETBIRD_STATE_ROOT/default.json"
+	export NB_MANAGEMENT_URL="http://192.0.2.1:33073"
+	export NETBIRD_IFACE="wt0"
+	export NETBIRD_WG_PORT="51821"
+
+	netbird_prepare_local_management_profile
+
+	run jq -c '{host:.ManagementURL.Host, port:.WgPort, iface:.WgIface, key:.PrivateKey}' \
+		"$NETBIRD_STATE_ROOT/default.json"
+	assert_success
+	assert_output '{"host":"192.0.2.1:33073","port":51821,"iface":"wt0","key":"keep-me"}'
 }

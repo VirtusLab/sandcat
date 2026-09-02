@@ -31,8 +31,10 @@ setup() {
 }
 
 @test "proxy-peer README documents two-env-file compose command" {
-	run grep -F 'docker compose --env-file netbird.env --env-file .env -f compose-proxy-peer.yml up -d --build' \
+	run grep -F 'docker compose --env-file netbird.env --env-file .env' \
 		"$EXAMPLE/README.md"
+	assert_success
+	run grep -F 'up -d --build --force-recreate' "$EXAMPLE/README.md"
 	assert_success
 }
 

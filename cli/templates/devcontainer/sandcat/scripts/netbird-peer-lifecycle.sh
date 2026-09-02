@@ -109,12 +109,82 @@ netbird_prepare_enroll_credentials() {
 	fi
 }
 
+netbird_daemon_status() {
+	local json status
+	json=$(netbird status --json 2>/dev/null) || return 1
+	status=$(printf '%s' "$json" | jq -r '.status // .daemonStatus // .daemon.status // empty' 2>/dev/null) || return 1
+	[[ -n "$status" ]] || return 1
+	printf '%s' "$status"
+}
+
+# 0.72 Start() creates /var/lib/netbird/default.json and stays NeedsLogin until
+# `netbird up --setup-key`. That file is not enrolled identity.
+netbird_profile_is_enrolled() {
+	local status
+	status=$(netbird_daemon_status) || return 1
+	[[ "$status" != "NeedsLogin" && "$status" != "LoginFailed" && "$status" != "NeedsLoginSSO" ]]
+}
+
 netbird_local_state_present() {
 	local state_root="${NETBIRD_STATE_ROOT:-/var/lib/netbird}"
 
 	[[ -s "${state_root}/config.json" ]] && return 0
 	[[ -s /etc/netbird/config.json ]] && return 0
+	if [[ -s "${state_root}/default.json" ]] && netbird_profile_is_enrolled; then
+		return 0
+	fi
 	return 1
+}
+
+# Go encoding/json for net/url.URL (NetBird 0.72 Config.ManagementURL).
+netbird_go_url_json() {
+	local url=$1
+	[[ "$url" =~ ^(https?)://([^/?#]+)([^?#]*) ]] || return 1
+	jq -nc --arg Scheme "${BASH_REMATCH[1]}" --arg Host "${BASH_REMATCH[2]}" --arg Path "${BASH_REMATCH[3]}" \
+		'{Scheme:$Scheme, Host:$Host, Path:$Path}'
+}
+
+# NetBird 0.72 unmarshals ManagementURL/AdminURL as *url.URL. A JSON string
+# (0.28 seed format) fatal's the daemon. Never create default.json; only
+# coerce leftover string URLs and refresh IPv4 self-hosted fields in place.
+netbird_prepare_local_management_profile() {
+	local mgmt_url="${NB_MANAGEMENT_URL:-https://api.netbird.io}"
+	local state_root="${NETBIRD_STATE_ROOT:-/var/lib/netbird}"
+	local profile_file="${state_root}/default.json"
+	local host update_urls=false url_json tmp
+
+	command -v jq >/dev/null 2>&1 || return 0
+	[[ -f "$profile_file" ]] || return 0
+
+	if [[ "$mgmt_url" =~ ^https?://([^/:]+) ]]; then
+		host="${BASH_REMATCH[1]}"
+		if [[ "$host" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
+			update_urls=true
+		fi
+	fi
+
+	tmp=$(mktemp)
+	if [[ "$update_urls" == true ]] && url_json=$(netbird_go_url_json "$mgmt_url"); then
+		if [[ -n "${NETBIRD_WG_PORT:-}" ]]; then
+			jq --argjson mgmt "$url_json" --arg iface "${NETBIRD_IFACE:-wt0}" --argjson port "${NETBIRD_WG_PORT}" \
+				'.ManagementURL = $mgmt | .AdminURL = $mgmt | .WgIface = $iface | .WgPort = $port' \
+				"$profile_file" >"$tmp"
+		else
+			jq --argjson mgmt "$url_json" --arg iface "${NETBIRD_IFACE:-wt0}" \
+				'.ManagementURL = $mgmt | .AdminURL = $mgmt | .WgIface = $iface' \
+				"$profile_file" >"$tmp"
+		fi
+	else
+		jq '
+			def coerce:
+			  if type == "string" then
+			    (capture("^(?<Scheme>https?)://(?<Host>[^/?#]+)(?<Path>[^?#]*)") // .)
+			  else . end;
+			.ManagementURL |= coerce
+			| .AdminURL |= coerce
+		' "$profile_file" >"$tmp"
+	fi
+	mv "$tmp" "$profile_file"
 }
 
 netbird_resolve_api_token() {
