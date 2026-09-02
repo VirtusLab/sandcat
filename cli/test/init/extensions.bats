@@ -5,6 +5,8 @@ setup() {
 	load test_helper
 	# shellcheck source=../../lib/devcontainer.bash
 	source "$SCT_LIBDIR/devcontainer.bash"
+	# shellcheck source=../../lib/composefile.bash
+	source "$SCT_LIBDIR/composefile.bash"
 
 	DEVCONTAINER_JSON="$BATS_TEST_TMPDIR/devcontainer.json"
 	cp "$SCT_TEMPLATEDIR/devcontainer/devcontainer.json" "$DEVCONTAINER_JSON"
@@ -330,4 +332,110 @@ teardown() {
 	run yq -e '.services.agent.volumes[] | select(. == "mitmproxy-config:/mitmproxy-config:ro")' \
 		"$SCT_TEMPLATEDIR/devcontainer/sandcat/compose-agent.yml"
 	[ "$status" -ne 0 ]
+}
+
+# --------------------------------------------------- upstream CA bundles
+
+@test "apply_upstream_ca_bundles is a no-op with no settings" {
+	local before
+	before=$(cat "$BATS_TEST_TMPDIR/sandcat/compose-proxy.yml")
+
+	HOME="$BATS_TEST_TMPDIR/home" run apply_upstream_ca_bundles \
+		"$BATS_TEST_TMPDIR/sandcat/compose-proxy.yml" "$BATS_TEST_TMPDIR/proj"
+	assert_success
+
+	local after
+	after=$(cat "$BATS_TEST_TMPDIR/sandcat/compose-proxy.yml")
+	[ "$before" = "$after" ]
+}
+
+@test "apply_upstream_ca_bundles adds mounts for configured bundles" {
+	mkdir -p "$BATS_TEST_TMPDIR/home/.config/sandcat"
+	local ca="$BATS_TEST_TMPDIR/company-ca.pem"
+	printf -- '-----BEGIN CERTIFICATE-----\nABC\n-----END CERTIFICATE-----\n' > "$ca"
+	cat > "$BATS_TEST_TMPDIR/home/.config/sandcat/settings.json" <<EOF
+{ "upstream_ca_bundles": ["$ca"] }
+EOF
+
+	HOME="$BATS_TEST_TMPDIR/home" apply_upstream_ca_bundles \
+		"$BATS_TEST_TMPDIR/sandcat/compose-proxy.yml" "$BATS_TEST_TMPDIR/proj"
+
+	yq -e ".services.mitmproxy.volumes[] | select(. == \"${ca}:/upstream-ca/000-company-ca.crt:ro\")" \
+		"$BATS_TEST_TMPDIR/sandcat/compose-proxy.yml"
+}
+
+@test "apply_upstream_ca_bundles numbers multiple bundles" {
+	mkdir -p "$BATS_TEST_TMPDIR/home/.config/sandcat"
+	local a="$BATS_TEST_TMPDIR/a.pem" b="$BATS_TEST_TMPDIR/b.pem"
+	printf -- '-----BEGIN CERTIFICATE-----\nA\n-----END CERTIFICATE-----\n' > "$a"
+	printf -- '-----BEGIN CERTIFICATE-----\nB\n-----END CERTIFICATE-----\n' > "$b"
+	cat > "$BATS_TEST_TMPDIR/home/.config/sandcat/settings.json" <<EOF
+{ "upstream_ca_bundles": ["$a", "$b"] }
+EOF
+
+	HOME="$BATS_TEST_TMPDIR/home" apply_upstream_ca_bundles \
+		"$BATS_TEST_TMPDIR/sandcat/compose-proxy.yml" "$BATS_TEST_TMPDIR/proj"
+
+	yq -e ".services.mitmproxy.volumes[] | select(. == \"${a}:/upstream-ca/000-a.crt:ro\")" \
+		"$BATS_TEST_TMPDIR/sandcat/compose-proxy.yml"
+	yq -e ".services.mitmproxy.volumes[] | select(. == \"${b}:/upstream-ca/001-b.crt:ro\")" \
+		"$BATS_TEST_TMPDIR/sandcat/compose-proxy.yml"
+}
+
+@test "apply_upstream_ca_bundles rewrites entrypoint to install CAs" {
+	mkdir -p "$BATS_TEST_TMPDIR/home/.config/sandcat"
+	local ca="$BATS_TEST_TMPDIR/ca.pem"
+	printf -- '-----BEGIN CERTIFICATE-----\nX\n-----END CERTIFICATE-----\n' > "$ca"
+	cat > "$BATS_TEST_TMPDIR/home/.config/sandcat/settings.json" <<EOF
+{ "upstream_ca_bundles": ["$ca"] }
+EOF
+
+	HOME="$BATS_TEST_TMPDIR/home" apply_upstream_ca_bundles \
+		"$BATS_TEST_TMPDIR/sandcat/compose-proxy.yml" "$BATS_TEST_TMPDIR/proj"
+
+	# The rewritten entrypoint must reference the install step and still run
+	# the original dns.conf cleanup + docker-entrypoint.sh chain.
+	local ep
+	ep=$(yq -r '.services.mitmproxy.entrypoint | join(" ")' \
+		"$BATS_TEST_TMPDIR/sandcat/compose-proxy.yml")
+	[[ "$ep" == *"update-ca-certificates"* ]]
+	[[ "$ep" == *"/upstream-ca"* ]]
+	[[ "$ep" == *"rm -f /home/mitmproxy/.mitmproxy/dns.conf"* ]]
+	[[ "$ep" == *"exec docker-entrypoint.sh"* ]]
+	# Regression guard (#25): the template's entrypoint also publishes the CA
+	# cert onto the agent-facing mitmproxy-public volume, and the healthcheck
+	# gates on that file. Substituting a fixed entrypoint here would drop it
+	# and the stack would never become healthy.
+	[[ "$ep" == *"mitmproxy-public"* ]]
+	# The install must run BEFORE the template's backgrounded waiter, not
+	# inside it — `&` binds looser than `&&`, so joining with `&&` would
+	# background the install and race mitmproxy's start.
+	[[ "$ep" == *"|| exit 1;"* ]]
+	[[ "${ep%%|| exit 1;*}" == *"update-ca-certificates"* ]]
+	# Fail-loud: no conditional guard around the CA install.
+	[[ "$ep" != *"if [ -d"* ]]
+	# certifi bundle patch: mitmproxy uses certifi.where() for upstream
+	# trust store, not the OS store, so update-ca-certificates alone is
+	# insufficient. E2E verified.
+	[[ "$ep" == *"certifi.where()"* ]]
+}
+
+@test "apply_upstream_ca_bundles fails and does not modify compose on invalid path" {
+	mkdir -p "$BATS_TEST_TMPDIR/home/.config/sandcat"
+	cat > "$BATS_TEST_TMPDIR/home/.config/sandcat/settings.json" <<'EOF'
+{ "upstream_ca_bundles": ["/nonexistent/ca.pem"] }
+EOF
+
+	local before
+	before=$(cat "$BATS_TEST_TMPDIR/sandcat/compose-proxy.yml")
+
+	HOME="$BATS_TEST_TMPDIR/home" run apply_upstream_ca_bundles \
+		"$BATS_TEST_TMPDIR/sandcat/compose-proxy.yml" "$BATS_TEST_TMPDIR/proj"
+	assert_failure
+	assert_output --partial "file not found"
+	assert_output --partial "/nonexistent/ca.pem"
+
+	local after
+	after=$(cat "$BATS_TEST_TMPDIR/sandcat/compose-proxy.yml")
+	[ "$before" = "$after" ]
 }

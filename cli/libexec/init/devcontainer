@@ -117,6 +117,8 @@ devcontainer() {
 
 	apply_secret_provider "$devcontainer_dir/sandcat/compose-proxy.yml" "$secret_provider"
 
+	apply_upstream_ca_bundles "$devcontainer_dir/sandcat/compose-proxy.yml" "$project_path"
+
 	customize_compose_file "$rel_settings_file" "$compose_file" "$agent" "$ide" "$project_name" "$stacks"
 	set_project_name "$compose_file" "$project_name"
 

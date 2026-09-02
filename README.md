@@ -1601,6 +1601,42 @@ enough for most tools — but some runtimes bring their own CA handling:
   bundles its own root CAs. The `python` stack sets `UV_SYSTEM_CERTS` on the
   agent service automatically so `uv` reads the system store instead.
 
+### Trusting internal CAs upstream
+
+If your organization runs internal HTTPS services (e.g. an on-prem Nexus,
+GitLab, Artifactory) signed by an internal CA or with a self-signed
+certificate, sandcat's mitmproxy will fail to validate those upstreams by
+default — the `mitmproxy/mitmproxy:latest` image ships a stock Debian
+public-CA bundle and does not know about your internal CA.
+
+Add the CA(s) to `upstream_ca_bundles` in
+`~/.config/sandcat/settings.json` (per-user) and/or
+`.sandcat/settings.local.json` (per-project, per-machine — file is
+git-ignored by default):
+
+    {
+      "upstream_ca_bundles": [
+        "/etc/ssl/company-ca.pem"
+      ]
+    }
+
+Values are absolute paths on the host. Files are bind-mounted read-only
+into mitmproxy at `/upstream-ca/` and installed at container start into
+(a) the OS trust store via `update-ca-certificates` and (b) the
+`certifi` bundle that mitmproxy loads on the upstream leg
+(`mitmproxy/net/tls.py` uses `certifi.where()`, not the OS store).
+Public CAs are **extended, not replaced** — public HTTPS services keep
+working.
+
+Re-run `sandcat init` after adding, removing, or changing paths in this
+setting (bind-mounts are set at compose-render time). Changing only the
+contents of an already-mounted CA file requires just
+`docker compose restart mitmproxy`.
+
+Security note: a CA you add here is trusted by mitmproxy for every
+upstream that CA signs — the same risk model as installing a CA in your
+OS. Add only CAs you or your organization control.
+
 ## Development
 
 Start the container from the command line:
