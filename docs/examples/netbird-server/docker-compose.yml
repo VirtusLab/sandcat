@@ -23,7 +23,9 @@ services:
       - ${NETBIRD_STUN_PORT}:3478/udp
     volumes:
       - netbird_data:/var/lib/netbird
-      - ./config.yaml:/etc/netbird/config.yaml
+      # Produced by ./start.sh (secrets filled). Do not mount the tracked
+      # config.yaml placeholders — empty authSecret fails 0.72 local relay.
+      - ./config.local.yaml:/etc/netbird/config.yaml
     command: ["--config", "/etc/netbird/config.yaml"]
     environment:
       - NB_SETUP_PAT_ENABLED=true
