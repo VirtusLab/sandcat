@@ -460,7 +460,7 @@ into the container's copy of `hooks.json`.
 
 ```bash
 # Install rtk locally (needed once on the host)
-brew install rtk       # or: curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/master/install.sh | sh
+brew install rtk       # or: curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/b34be37caf3796b69a50952a28e60e32b5daad43/install.sh | RTK_VERSION=v0.45.0 sh
 
 # Register the cursor hook in your host ~/.cursor/hooks.json
 rtk init -g --hook-only --auto-patch --agent cursor
@@ -1606,7 +1606,7 @@ enough for most tools — but some runtimes bring their own CA handling:
 If your organization runs internal HTTPS services (e.g. an on-prem Nexus,
 GitLab, Artifactory) signed by an internal CA or with a self-signed
 certificate, sandcat's mitmproxy will fail to validate those upstreams by
-default — the `mitmproxy/mitmproxy:latest` image ships a stock Debian
+default — the `mitmproxy/mitmproxy` image ships a stock Debian
 public-CA bundle and does not know about your internal CA.
 
 Add the CA(s) to `upstream_ca_bundles` in

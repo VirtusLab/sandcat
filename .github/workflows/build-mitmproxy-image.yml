@@ -5,13 +5,15 @@ on:
     branches: [master]
     paths:
       - 'images/mitmproxy/**'
+      - 'images/mitmproxy.env'
       - '.github/workflows/build-mitmproxy-image.yml'
   pull_request:
     paths:
       - 'images/mitmproxy/**'
+      - 'images/mitmproxy.env'
       - '.github/workflows/build-mitmproxy-image.yml'
   schedule:
-    - cron: '0 6 * * 1' # Weekly Monday 6am — rebuild against latest mitmproxy
+    - cron: '0 6 * * 1' # Weekly Monday 6am — build-only canary against upstream mitmproxy:latest
   workflow_dispatch:
 
 jobs:
@@ -35,16 +37,39 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Load pinned mitmproxy version
+        # Single source of truth — also consumed by the CLI (SCT_MITMPROXY_VERSION
+        # in cli/lib/constants.bash) and the contract test that checks they match.
+        if: github.event_name != 'schedule'
+        run: grep -m1 '^MITMPROXY_VERSION=' images/mitmproxy.env >> "$GITHUB_ENV"
+
+      - name: Use latest mitmproxy for the scheduled canary build
+        # The weekly canary builds against upstream mitmproxy:latest to surface
+        # breaking upstream releases early (a red run is the alarm). It is
+        # build-only — nothing is pushed (see `push:` below) — so an
+        # unreviewed upstream image can never reach any published tag.
+        if: github.event_name == 'schedule'
+        run: echo "MITMPROXY_VERSION=latest" >> "$GITHUB_ENV"
+
       - name: Extract metadata
         id: meta
         uses: docker/metadata-action@v5
         with:
           images: ghcr.io/virtuslab/sandcat-mitmproxy-op
+          # Tag policy: every published image contains the PINNED mitmproxy
+          # (12.2.3 from images/mitmproxy.env). `latest` simply means the
+          # latest master build of OUR image — so projects that reference
+          # ghcr `latest` (including those generated before pinning) get the
+          # pinned base too. The <version> tag is published from master
+          # pushes and master dispatches only, so a dispatch from a feature
+          # branch can never overwrite it (it gets branch + sha tags).
+          # Scheduled canary builds are never pushed at all.
           tags: |
-            type=ref,event=branch
-            type=ref,event=pr
-            type=sha
-            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=latest,enable=${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master') }}
+            type=raw,value=${{ env.MITMPROXY_VERSION }},enable=${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master') }}
+            type=sha,enable=${{ github.event_name != 'schedule' && github.event_name != 'pull_request' }}
+            type=ref,event=branch,enable=${{ github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/master' }}
+            type=ref,event=pr,enable=${{ github.event_name == 'pull_request' }}
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
@@ -52,9 +77,11 @@ jobs:
           context: images/mitmproxy
           file: images/mitmproxy/Dockerfile
           platforms: linux/amd64,linux/arm64
-          push: ${{ github.event_name != 'pull_request' }}
+          push: ${{ github.event_name != 'pull_request' && github.event_name != 'schedule' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          # Skip cache on scheduled builds to pick up upstream mitmproxy:latest changes
+          build-args: |
+            MITMPROXY_VERSION=${{ env.MITMPROXY_VERSION }}
+          # Skip cache on scheduled canary builds to pick up upstream mitmproxy:latest changes
           cache-from: ${{ github.event_name != 'schedule' && 'type=gha' || '' }}
           cache-to: type=gha,mode=max

@@ -144,6 +144,24 @@ teardown() {
 	assert_failure
 }
 
+@test "customize_agent_templates pins mitmproxy image version" {
+	{
+		echo 'include: []'
+		echo 'services: {agent: {environment: []}}'
+	} > "$BATS_TEST_TMPDIR/compose-all.yml"
+	echo "__AGENT_DOCKER_INSTALL__" > "$BATS_TEST_TMPDIR/Dockerfile.app"
+	echo "__AGENT_USER_INIT__" > "$BATS_TEST_TMPDIR/sandcat/scripts/app-user-init.sh"
+
+	customize_agent_templates "$BATS_TEST_TMPDIR" "claude"
+
+	run grep "mitmproxy/mitmproxy:$SCT_MITMPROXY_VERSION" "$BATS_TEST_TMPDIR/sandcat/compose-proxy.yml"
+	assert_success
+
+	# Placeholder must be fully resolved.
+	run grep '__MITMPROXY_VERSION__' "$BATS_TEST_TMPDIR/sandcat/compose-proxy.yml"
+	assert_failure
+}
+
 @test "customize_agent_templates adds cursor bootstrap settings" {
 	{
 		echo 'include: []'

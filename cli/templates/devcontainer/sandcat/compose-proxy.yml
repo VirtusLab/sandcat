@@ -51,7 +51,7 @@ services:
       start_period: 120s
 
   mitmproxy:
-    image: mitmproxy/mitmproxy:latest
+    image: mitmproxy/mitmproxy:__MITMPROXY_VERSION__
     # Delete the stale dns.conf sentinel before mitmweb starts (see healthcheck
     # below). The mitmproxy-config volume persists across restarts, so a dns.conf
     # left by a previous run would satisfy the healthcheck immediately — letting

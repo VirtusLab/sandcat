@@ -531,7 +531,7 @@ YAML
 
 	apply_secret_provider "$proxy_compose" "1password"
 
-	yq -e '.services.mitmproxy.image == "ghcr.io/virtuslab/sandcat-mitmproxy-op:latest"' "$proxy_compose"
+	yq -e '.services.mitmproxy.image == "ghcr.io/virtuslab/sandcat-mitmproxy-op:'"$SCT_MITMPROXY_VERSION"'"' "$proxy_compose"
 	yq -e '.services.mitmproxy.environment[] | select(. == "OP_SERVICE_ACCOUNT_TOKEN")' "$proxy_compose"
 }
 
@@ -545,7 +545,7 @@ YAML
 
 	apply_secret_provider "$proxy_compose" "protonpass"
 
-	yq -e '.services.mitmproxy.image == "ghcr.io/virtuslab/sandcat-mitmproxy-pass:latest"' "$proxy_compose"
+	yq -e '.services.mitmproxy.image == "ghcr.io/virtuslab/sandcat-mitmproxy-pass:'"$SCT_MITMPROXY_VERSION"'"' "$proxy_compose"
 	yq -e '.services.mitmproxy.environment[] | select(. == "PROTON_PASS_PERSONAL_ACCESS_TOKEN")' "$proxy_compose"
 }
 
