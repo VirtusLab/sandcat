@@ -301,14 +301,19 @@ init() {
 	#   no-shared-cache → disable shared JVM dependency cache volumes
 	#   no-gitignore    → skip appending the Sandcat block to .gitignore
 	#   no-rtk          → skip installing the rtk shell hook
+	#   strict-network  → project settings get stack network presets instead
+	#                     of the allow-all-GET wildcard (default deny beyond
+	#                     the presets and the user-settings layer)
 	local gitignore_enabled=${SANDCAT_GITIGNORE:-true}
 	local rtk_enabled=${SANDCAT_RTK:-true}
+	local strict_network=${SANDCAT_STRICT_NETWORK:-false}
 	if [[ "$features_provided" != "true" ]]; then
 		local available_features=(
 			"tui (mitmproxy console instead of web UI)"
 			"no-shared-cache (per-project dep cache instead of shared)"
 			"no-gitignore (do not append Sandcat block to .gitignore)"
 			"no-rtk (do not install rtk shell hook)"
+			"strict-network (stack presets instead of allow-all-GET wildcard)"
 		)
 		local selected_features
 		selected_features=$(select_multiple "Select optional features (comma-separated numbers, empty for none):" "${available_features[@]}")
@@ -321,6 +326,7 @@ init() {
 					no-shared-cache) export SANDCAT_MOUNT_SHARED_CACHE="false" ;;
 					no-gitignore) gitignore_enabled=false ;;
 					no-rtk) rtk_enabled=false ;;
+					strict-network) strict_network=true ;;
 				esac
 			done
 		fi
@@ -333,11 +339,12 @@ init() {
 					no-shared-cache) export SANDCAT_MOUNT_SHARED_CACHE="false" ;;
 					no-gitignore) gitignore_enabled=false ;;
 					no-rtk) rtk_enabled=false ;;
+					strict-network) strict_network=true ;;
 					1password)
 						echo "Use --secret-provider 1password instead of --features 1password" | error
 						return 1
 						;;
-					*) echo "Unknown feature: $f (expected: tui, no-shared-cache, no-gitignore, no-rtk)" | error; return 1 ;;
+					*) echo "Unknown feature: $f (expected: tui, no-shared-cache, no-gitignore, no-rtk, strict-network)" | error; return 1 ;;
 				esac
 			done
 		fi
@@ -387,7 +394,11 @@ init() {
 
 	add_secret_provider_tokens_to_user_settings "$secret_provider"
 
-	settings "$project_path/$settings_file" "${services[@]}"
+	local settings_args=()
+	if [[ "$strict_network" == "true" ]]; then
+		settings_args+=(--strict-network --stacks "$stacks_resolved")
+	fi
+	settings "${settings_args[@]+"${settings_args[@]}"}" "$project_path/$settings_file" "${services[@]}"
 	local devcontainer_args=(
 		--settings-file "$settings_file"
 		--project-path "$project_path"
@@ -446,6 +457,12 @@ init() {
 		echo "  RTK:              installed (disable with --features no-rtk)" | info
 	else
 		echo "  RTK:              disabled" | info
+	fi
+	if [[ "$strict_network" == "true" ]]; then
+		local preset_summary="${stacks_resolved:-none}"
+		echo "  Network:          strict — stack presets: ${preset_summary// /, } (edit .sandcat/settings.json to allow more)" | info
+	else
+		echo "  Network:          default (allow all GET; tighten with --features strict-network)" | info
 	fi
 	case "$secret_provider" in
 	1password)
