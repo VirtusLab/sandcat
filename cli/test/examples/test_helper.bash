@@ -1,7 +1,7 @@
 #!/bin/bash
 bats_require_minimum_version 1.5.0
 if shopt -s compat32 2>/dev/null; then
-    export BASH_COMPAT=3.2
+	export BASH_COMPAT=3.2
 fi
 set -uo pipefail
 export SHELLOPTS

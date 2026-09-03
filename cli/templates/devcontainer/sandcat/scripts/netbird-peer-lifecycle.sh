@@ -16,6 +16,19 @@ netbird_pass_cli_login_once() {
 		netbird_peer_log "pass-cli login failed"
 		return 1
 	}
+	# Reject full-account credentials the same way the mitmproxy addon does:
+	# pass-cli info prints "Personal Access Token:" only for PAT sessions.
+	local info_out
+	info_out=$(pass-cli info 2>/dev/null) || {
+		netbird_peer_log "pass-cli info failed; cannot verify PAT session — logging out"
+		pass-cli logout >/dev/null 2>&1 || true
+		return 1
+	}
+	if ! printf '%s' "$info_out" | grep -qiE '^\s*-?\s*personal\s+access\s+token\s*:'; then
+		netbird_peer_log "pass-cli session is not a Personal Access Token — logging out"
+		pass-cli logout >/dev/null 2>&1 || true
+		return 1
+	fi
 	NETBIRD_PASS_CLI_LOGGED_IN=1
 }
 
@@ -268,6 +281,13 @@ netbird_replace_same_name_peer_if_needed() {
 
 	if netbird_local_state_present; then
 		netbird_peer_log "local state present — will reconnect as '${peer_name}'"
+		return 0
+	fi
+
+	# Without a PAT we cannot query management; skip replace and let netbird up
+	# enroll fresh. FQDN may get an IP suffix but enrollment is not blocked.
+	if ! netbird_resolve_api_token >/dev/null 2>&1; then
+		netbird_peer_log "no API token — skipping same-name peer check; will enroll fresh"
 		return 0
 	fi
 
