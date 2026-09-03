@@ -294,46 +294,6 @@ sandcat init --agent claude --ide vscode --netbird \
 Interactive `sandcat init --netbird` (when other options are also prompted)
 offers cloud vs “I have a server running”.
 
-### Local self-hosted
-
-Sandcat does not start the management server. Run the compose stack in
-[`docs/examples/netbird-server/`](../docs/examples/netbird-server/) yourself
-(`docker compose --env-file netbird-server.env up -d`), then
-`sandcat init --netbird --netbird-management-url ...`.
-
-### Remote self-hosted (NetBird quickstart)
-
-For a VM with a public domain, use the
-[official quickstart](https://docs.netbird.io/selfhosted/selfhosted-quickstart#installation-script):
-
-```bash
-curl -fsSL https://github.com/netbirdio/netbird/releases/latest/download/getting-started.sh | bash
-```
-
-The script generates `docker-compose.yml`, `config.yaml`, and `dashboard.env`
-with embedded IdP support. Follow the prompts (Traefik `[0]` is the default).
-
-**First-time onboarding** (from the [quickstart guide](https://docs.netbird.io/selfhosted/selfhosted-quickstart#installation-script)):
-
-1. Open `https://<your-domain>` in a browser.
-2. You are redirected to `/setup` while no users exist.
-3. Create the admin account (email, name, password).
-4. In the dashboard, create a **Setup Key** and an **API Key** (PAT).
-
-For scripted bootstrap instead of the dashboard setup page, see
-[Automated setup with a Personal Access Token](https://docs.netbird.io/selfhosted/automated-setup).
-
-**Wire sandcat** after the server is running:
-
-```json
-"netbird_management_url": "https://netbird.example.com",
-"netbird_enrollment_key": "<setup-key>",
-"netbird_api_token": "<api-token>"
-```
-
-Re-run `sandcat init --netbird --netbird-management-url https://netbird.example.com ...`
-or edit `~/.config/sandcat/settings.json` directly, then `sandcat run`.
-
 ## Optional mesh gateway (proxy-peer)
 
 Sandcat does not create a proxy-peer container. See

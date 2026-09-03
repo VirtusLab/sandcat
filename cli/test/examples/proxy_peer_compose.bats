@@ -26,44 +26,33 @@ setup() {
 	assert_success
 }
 
+@test ".env.example leaves NB_SETUP_KEY NB_MANAGEMENT_URL and NB_API_TOKEN empty" {
+	run grep -E '^NB_SETUP_KEY=.' "$EXAMPLE/.env.example"
+	assert_failure
+	run grep -E '^NB_MANAGEMENT_URL=.' "$EXAMPLE/.env.example"
+	assert_failure
+	run grep -E '^NB_API_TOKEN=.' "$EXAMPLE/.env.example"
+	assert_failure
+	run grep -F 'NB_MANAGEMENT_URL=' "$EXAMPLE/.env.example"
+	assert_success
+}
+
 @test "example has no capability-catalog.json" {
 	[[ ! -f "$EXAMPLE/capability-catalog.json" ]]
 }
 
-@test "proxy-peer README documents two-env-file compose command" {
-	run grep -F 'docker compose --env-file netbird.env --env-file .env' \
-		"$EXAMPLE/README.md"
-	assert_success
-	run grep -F 'up -d --build --force-recreate' "$EXAMPLE/README.md"
-	assert_success
+@test "example does not duplicate netbird-peer-lifecycle.sh" {
+	[[ ! -f "$EXAMPLE/scripts/netbird-peer-lifecycle.sh" ]]
 }
 
-@test "proxy-peer README does not mention capability-runtime or sandcat netbird" {
-	run grep -Ei 'capability-runtime|sandcat netbird|sandcat capability|--capability' \
-		"$EXAMPLE/README.md"
-	assert_failure
-}
-
-@test "proxy-peer README includes mermaid data path" {
-	run grep -F 'flowchart LR' "$EXAMPLE/README.md"
+@test "compose additional_contexts points at template scripts" {
+	run grep -F 'sandcat-scripts: ../../../cli/templates/devcontainer/sandcat/scripts' \
+		"$EXAMPLE/compose-proxy-peer.yml"
 	assert_success
 }
 
-@test "settings-proxy-peer.json does not mention capability-runtime" {
-	run grep -F 'capability-runtime' "$EXAMPLE/settings-proxy-peer.json"
-	assert_failure
-}
-
-@test "cli README has no Capability sidecar heading" {
-	run grep -F '## Capability sidecar' "$SCT_ROOT/README.md"
-	assert_failure
-}
-
-@test "cli README does not call wt0 a leased mesh" {
-	run grep -F 'leased mesh' "$SCT_ROOT/README.md"
-	assert_failure
-}
-
-@test "tracked superpowers netbird plans are not in the tree" {
-	[[ ! -f "$SCT_ROOT/../docs/superpowers/plans/2026-06-15-netbird-dynamic-wireguard.md" ]]
+@test "example Dockerfile copies lifecycle from sandcat templates context" {
+	run grep -F 'COPY --from=sandcat-scripts netbird-peer-lifecycle.sh /usr/local/lib/netbird-peer-lifecycle.sh' \
+		"$EXAMPLE/Dockerfile.proxy-peer"
+	assert_success
 }

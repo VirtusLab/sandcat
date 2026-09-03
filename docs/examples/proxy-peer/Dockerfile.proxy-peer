@@ -32,7 +32,9 @@ RUN test -n "$NETBIRD_VERSION" || { echo "NETBIRD_VERSION build arg is required 
     && rm /tmp/netbird.tar.gz \
     && netbird version
 
-COPY scripts/netbird-peer-lifecycle.sh /usr/local/lib/netbird-peer-lifecycle.sh
+# Canonical enroll helpers live in the CLI mitmproxy template; this example
+# does not keep a second copy. Compose named context `sandcat-scripts`.
+COPY --from=sandcat-scripts netbird-peer-lifecycle.sh /usr/local/lib/netbird-peer-lifecycle.sh
 COPY scripts/proxy-peer-init.sh /usr/local/bin/proxy-peer-init.sh
 COPY scripts/proxy-peer-hello.py /usr/local/bin/proxy-peer-hello.py
 RUN chmod +x /usr/local/bin/proxy-peer-init.sh

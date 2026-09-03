@@ -94,11 +94,6 @@ netbird_flatten_secret_setting() {
 	esac
 }
 
-netbird_default_peer_name_proxy() {
-	local project_name=$1
-	printf '%s-proxy' "$project_name"
-}
-
 # Fills netbird_peer_name_proxy when absent or empty.
 # Does not overwrite non-empty values (operator overrides).
 # Args:
@@ -113,7 +108,7 @@ netbird_ensure_peer_name_settings() {
 	[[ -f "$settings_file" ]] || printf '%s\n' '{}' >"$settings_file"
 
 	local proxy
-	proxy=$(netbird_default_peer_name_proxy "$project_name")
+	proxy=$(printf '%s-proxy' "$project_name")
 
 	proxy="$proxy" yq -i -o json '
 		.netbird_peer_name_proxy = (

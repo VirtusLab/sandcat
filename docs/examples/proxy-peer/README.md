@@ -44,10 +44,15 @@ sequenceDiagram
 cp .env.example .env
 # Fill NB_SETUP_KEY, NB_MANAGEMENT_URL, NB_API_TOKEN
 docker compose --env-file netbird.env --env-file .env \
-  -f compose-proxy-peer.yml up -d --build --force-recreate
+  -f compose-proxy-peer.yml up -d --build
 ```
 
-`--env-file netbird.env` is required so the image gets client **0.72.4**. Recreate
+Build from a full repo checkout: the image copies
+`cli/templates/devcontainer/sandcat/scripts/netbird-peer-lifecycle.sh`
+via the compose `sandcat-scripts` additional context. A copy of only
+`docs/examples/proxy-peer/` cannot build.
+
+`--env-file netbird.env` is required so the image gets client **0.72.4**. Up
 without `--build` keeps a leftover 0.28.9 binary: Relays stay `stun:`-only and
 peers stick on Connecting (no `rel://`, no WireGuard handshake). Confirm both
 peers with `netbird status --json`: `daemonVersion` 0.72.4 and a `rel://`

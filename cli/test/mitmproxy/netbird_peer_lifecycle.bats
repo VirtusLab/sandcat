@@ -66,11 +66,11 @@ teardown() {
 	assert_output --partial "replace"
 }
 
-@test "replacement fails loudly when the API token is missing" {
+@test "replacement skips when the API token is missing" {
 	run netbird_replace_same_name_peer_if_needed
 
-	assert_failure
-	assert_output --partial "netbird_api_token"
+	assert_success
+	assert_output --partial "skipping same-name peer check"
 }
 
 @test "netbird_mgmt_delete_peer_by_name deletes matched peer by id" {
@@ -158,7 +158,8 @@ teardown() {
 
 @test "netbird_resolve_secret_ref logs into pass-cli once for two pass:// refs" {
 	stub pass-cli \
-		"login : :"
+		"login : :" \
+		"info : echo '  - Personal Access Token: pst_test'"
 	stub timeout \
 		"60 pass-cli vault list : :" \
 		"60 pass-cli item view pass://Vault/Item/password : echo secret-a" \
@@ -174,7 +175,9 @@ teardown() {
 }
 
 @test "netbird_resolve_secret_ref retries pass-cli item view after warmup" {
-	stub pass-cli "login : :"
+	stub pass-cli \
+		"login : :" \
+		"info : echo '  - Personal Access Token: pst_test'"
 	stub timeout \
 		"60 pass-cli vault list : :" \
 		"60 pass-cli item view pass://Vault/Item/password : exit 1" \
@@ -182,6 +185,16 @@ teardown() {
 	run netbird_resolve_secret_ref "pass://Vault/Item/password"
 	assert_success
 	assert_output "secret-a"
+}
+
+@test "pass-cli login rejects non-PAT session" {
+	stub pass-cli \
+		"login : :" \
+		"info : echo 'ID: user@example.com'" \
+		"logout : :"
+	run netbird_pass_cli_login_once
+	assert_failure
+	assert_output --partial "not a Personal Access Token"
 }
 
 @test "netbird_prepare_enroll_credentials resolves NB_API_TOKEN before replace" {
@@ -221,39 +234,32 @@ teardown() {
 	assert_output "tok"
 }
 
-@test "replacement fails closed when settings token is an empty object" {
+@test "replacement skips when settings token is an empty object" {
 	unset NB_API_TOKEN
 	printf '%s\n' '{"netbird_api_token":{}}' >"$NETBIRD_SETTINGS_PATH"
 	run netbird_replace_same_name_peer_if_needed
-	assert_failure
-	assert_output --partial "netbird_api_token"
+	assert_success
+	assert_output --partial "skipping same-name peer check"
 }
 
-@test "mitmproxy-init does not abort enrollment when same-name replace fails" {
+@test "mitmproxy-init aborts start_netbird when same-name replace fails" {
 	local init="$SCT_TEMPLATEDIR/devcontainer/sandcat/scripts/mitmproxy-init.sh"
-	# 0.72 leaves the daemon at NeedsLogin until netbird up --setup-key.
-	# Replace is best-effort; gating up on it leaves the mesh logged out.
-	run grep -F 'netbird_replace_same_name_peer_if_needed || return 1' "$init"
-	assert_failure
-	run awk '/^supervise_netbird_daemon\(\)/,/^}/' "$init"
+	run awk '/^start_netbird\(\)/,/^}/' "$init"
 	assert_success
-	assert_output --partial "netbird_replace_same_name_peer_if_needed || true"
+	assert_output --partial "netbird_replace_same_name_peer_if_needed || return 1"
+	refute_output --partial "continuing with netbird up"
 }
 
-@test "proxy-peer-init does not abort enrollment when same-name replace fails" {
+@test "proxy-peer-init aborts start_netbird when same-name replace fails" {
 	local init="$SCT_ROOT/../docs/examples/proxy-peer/scripts/proxy-peer-init.sh"
-	run grep -F 'netbird_replace_same_name_peer_if_needed || return 1' "$init"
-	assert_failure
-	run awk '/^supervise_netbird_daemon\(\)/,/^}/' "$init"
+	run awk '/^start_netbird\(\)/,/^}/' "$init"
 	assert_success
-	assert_output --partial "netbird_replace_same_name_peer_if_needed || true"
+	assert_output --partial "netbird_replace_same_name_peer_if_needed || return 1"
+	refute_output --partial "continuing with netbird up"
 }
 
-@test "example lifecycle script matches the template" {
-	run cmp \
-		"$SCRIPT" \
-		"$SCT_ROOT/../docs/examples/proxy-peer/scripts/netbird-peer-lifecycle.sh"
-	assert_success
+@test "example does not keep a second lifecycle script" {
+	[[ ! -f "$SCT_ROOT/../docs/examples/proxy-peer/scripts/netbird-peer-lifecycle.sh" ]]
 }
 
 @test "supervise_netbird_daemon re-enroll prepares credentials" {
@@ -261,6 +267,7 @@ teardown() {
 	run awk '/^supervise_netbird_daemon\(\)/,/^}/' "$init"
 	assert_success
 	assert_output --partial "netbird_prepare_enroll_credentials"
+	refute_output --partial "netbird_replace_same_name_peer_if_needed || true"
 }
 
 @test "proxy-peer supervise_netbird_daemon re-enroll prepares credentials" {
@@ -268,6 +275,7 @@ teardown() {
 	run awk '/^supervise_netbird_daemon\(\)/,/^}/' "$init"
 	assert_success
 	assert_output --partial "netbird_prepare_enroll_credentials"
+	refute_output --partial "netbird_replace_same_name_peer_if_needed || true"
 }
 
 @test "mitmproxy-init does not copy enrollment key into NB_SETUP_KEY with raw jq" {

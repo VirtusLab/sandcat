@@ -7,7 +7,7 @@ NB_MANAGEMENT_URL="${NB_MANAGEMENT_URL:-}"
 NETBIRD_IFACE="${NETBIRD_IFACE:-wt0}"
 HELLO_PORT="${PROXY_PEER_PORT:-8080}"
 # DNS label used for both `netbird up --hostname` and the post-enrollment
-# PATCH /api/peers/{id}. Must match capability-catalog.json dns_label prefix.
+# PATCH /api/peers/{id}.
 NB_PEER_NAME="${NB_PEER_NAME:?NB_PEER_NAME must be set by compose}"
 NETBIRD_PEER_LOG_PREFIX="${NETBIRD_PEER_LOG_PREFIX:-proxy-peer}"
 NETBIRD_PEER_LIFECYCLE_PATH="${NETBIRD_PEER_LIFECYCLE_PATH:-/usr/local/lib/netbird-peer-lifecycle.sh}"
@@ -152,8 +152,7 @@ start_netbird() {
     netbird_export_service_env
 
     netbird_prepare_enroll_credentials || return 1
-    netbird_replace_same_name_peer_if_needed || \
-        echo "[proxy-peer] same-name peer replace failed; continuing with netbird up." >&2
+    netbird_replace_same_name_peer_if_needed || return 1
     echo "[proxy-peer] Enrolling NetBird peer on ${iface}." >&2
     netbird up \
         --setup-key "${NB_SETUP_KEY}" \
@@ -185,8 +184,8 @@ supervise_netbird_daemon() {
             configure_netbird_host_management_access "$docker_gateway"
             netbird_prepare_local_management_profile
             netbird_export_service_env
-            if netbird_prepare_enroll_credentials; then
-                netbird_replace_same_name_peer_if_needed || true
+            if netbird_prepare_enroll_credentials \
+                && netbird_replace_same_name_peer_if_needed; then
                 netbird up \
                     --setup-key "${NB_SETUP_KEY}" \
                     --management-url "${NB_MANAGEMENT_URL:-https://api.netbird.io}" \

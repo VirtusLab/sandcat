@@ -600,7 +600,7 @@ flowchart LR
     agent -- "network_mode:<br/>shares net namespace" --- wg
     wg -- "WireGuard wg0<br/>(all egress)" --> mitm
     mitm -- "allowed requests" --> inet
-    mitm -. "leased mesh route<br/>(optional, via wt0)" .-> mesh
+    mitm -. "optional mesh via wt0<br/>(dashboard ACL)" .-> mesh
 
     style agent fill:#e8f4fd,stroke:#4a90d9
     style wg fill:#fdf2e8,stroke:#d9904a
@@ -611,13 +611,14 @@ flowchart LR
 - **mitmproxy** runs `mitmweb --mode wireguard`, acting as both the WireGuard
   server for the inspection tunnel and (when NetBird is enabled) as the sole
   NetBird mesh peer for the stack. All agent traffic is inspected here; mesh
-  destinations are reached via mitmproxy's `wt0` interface after Layer 1 allows
-  them and Layer 2 (capability-runtime) grants the NetBird route.
+  destinations are reached via mitmproxy's `wt0` interface after mitmproxy
+  network rules allow them and the NetBird dashboard ACL permits the peer pair.
 - **wg-client** is a dedicated networking container that derives a WireGuard
   client config from the keys written by mitmproxy, sets up `wg0`, and adds
   iptables kill-switch rules. It also runs `dnsmasq` to split DNS (Docker
-  sibling names stay local; everything else goes through the tunnel). Only this
-  container has `NET_ADMIN`. No user code or NetBird runs here.
+  sibling names stay local; everything else goes through the tunnel). This
+  container always has `NET_ADMIN`. When NetBird is enabled, mitmproxy also
+  gets `NET_ADMIN` for `wt0`. No user code or NetBird runs here.
 - **App containers** share `wg-client`'s network namespace via `network_mode`.
   They inherit the tunnel and firewall rules but cannot modify them (no
   `NET_ADMIN`). They install the mitmproxy CA cert into the system trust store
