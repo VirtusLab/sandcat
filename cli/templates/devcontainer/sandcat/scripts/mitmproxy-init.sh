@@ -188,9 +188,7 @@ start_netbird() {
     netbird_export_service_env
 
     netbird_prepare_enroll_credentials || return 1
-    # Replace is best-effort. 0.72 stays NeedsLogin until netbird up --setup-key.
-    netbird_replace_same_name_peer_if_needed || \
-        echo "[mitmproxy] same-name peer replace failed; continuing with netbird up." >&2
+    netbird_replace_same_name_peer_if_needed || return 1
     echo "[mitmproxy] Enrolling NetBird peer on ${iface} as '${NB_PEER_NAME}' (WG port ${NETBIRD_WG_PORT})." >&2
     if ! netbird up \
         --setup-key "${NB_SETUP_KEY}" \
@@ -228,8 +226,8 @@ supervise_netbird_daemon() {
             configure_netbird_host_management_access "$docker_gateway"
             netbird_prepare_local_management_profile
             netbird_export_service_env
-            if netbird_prepare_enroll_credentials; then
-                netbird_replace_same_name_peer_if_needed || true
+            if netbird_prepare_enroll_credentials \
+                && netbird_replace_same_name_peer_if_needed; then
                 netbird up \
                     --setup-key "${NB_SETUP_KEY}" \
                     --management-url "${NB_MANAGEMENT_URL:-https://api.netbird.io}" \

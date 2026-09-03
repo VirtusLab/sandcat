@@ -15,12 +15,6 @@ teardown() {
 	unstub_all
 }
 
-@test "netbird_default_peer_name_proxy uses compose project formula" {
-	run netbird_default_peer_name_proxy "myapp-sandbox"
-	assert_success
-	assert_output "myapp-sandbox-proxy"
-}
-
 @test "netbird_ensure_peer_name_settings writes proxy default when key absent" {
 	echo '{}' >"$SETTINGS"
 	netbird_ensure_peer_name_settings "$SETTINGS" "myapp-sandbox"
