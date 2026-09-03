@@ -31,6 +31,45 @@ teardown() {
 	[[ -f "$settings_file" ]]
 }
 
+@test "settings default keeps the template wildcard rule" {
+	local settings_file="$BATS_TEST_TMPDIR/settings.json"
+
+	run settings "$settings_file" "github"
+	assert_success
+
+	yq -e '.network[0].action == "allow" and .network[0].host == "*" and .network[0].method == "GET"' \
+		"$settings_file"
+}
+
+@test "settings --strict-network seeds stack presets instead of the wildcard" {
+	local settings_file="$BATS_TEST_TMPDIR/settings.json"
+
+	run settings --strict-network --stacks "python java" "$settings_file" "github"
+	assert_success
+
+	yq -e '.network | length == 2' "$settings_file"
+	yq -e '.network[0].preset == "python"' "$settings_file"
+	yq -e '.network[1].preset == "java"' "$settings_file"
+	# The wildcard must be gone — that is the whole point of strict mode.
+	run yq -e '.network[] | select(.host == "*")' "$settings_file"
+	[ "$status" -ne 0 ]
+}
+
+@test "settings --strict-network with no stacks leaves an empty network list" {
+	local settings_file="$BATS_TEST_TMPDIR/settings.json"
+
+	run settings --strict-network --stacks "" "$settings_file" "github"
+	assert_success
+
+	yq -e '.network | length == 0' "$settings_file"
+}
+
+@test "settings rejects unknown option" {
+	run settings --no-such-flag "$BATS_TEST_TMPDIR/settings.json"
+	assert_failure
+	assert_output --partial "unknown option"
+}
+
 @test "settings creates empty settings.local.json scaffold when absent" {
 	local settings_file="$BATS_TEST_TMPDIR/settings.json"
 	local local_settings="$BATS_TEST_TMPDIR/settings.local.json"

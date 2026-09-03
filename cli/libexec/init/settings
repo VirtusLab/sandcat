@@ -10,11 +10,34 @@ source "$SCT_LIBDIR/constants.bash"
 
 # Creates a network settings file for the proxy.
 # Args:
+#   [--strict-network]  - Replace the template's allow-all-GET wildcard with
+#                         network presets for the given stacks (default deny
+#                         beyond the presets and the user-settings layer)
+#   [--stacks "<a b c>"] - Space-separated resolved stack names whose presets
+#                         seed the strict policy (may be empty)
 #   $1 - Path to the settings file
 #   $@ - Service names to include (e.g., claude, copilot, vscode, jetbrains, github)
 # Outputs:
 #   Creates a JSON settings file from template
 settings() {
+	local strict_network=false
+	local stacks=""
+	while [[ $# -gt 0 && "$1" == --* ]]; do
+		case "$1" in
+		--strict-network)
+			strict_network=true
+			shift
+			;;
+		--stacks)
+			stacks="${2-}"
+			shift 2
+			;;
+		*)
+			echo "settings: unknown option: $1" | error
+			return 1
+			;;
+		esac
+	done
 	local settings_file=$1
 	shift
 
@@ -24,6 +47,20 @@ settings() {
 	cp \
 		"$SCT_TEMPLATEDIR/settings.json" \
 		"$settings_file"
+
+	if [[ "$strict_network" == "true" ]]; then
+		# Replace the template's `allow * GET` wildcard with one preset entry
+		# per stack. The names are expanded to concrete allow rules at proxy
+		# start by the mitmproxy addon (NETWORK_PRESETS), so the domain lists
+		# update with the sandcat version instead of freezing in the project.
+		# With no stacks this leaves an empty list: everything beyond the
+		# user-settings layer (agent API hosts) is then denied by default.
+		yq -i -o=json '.network = []' "$settings_file"
+		local s
+		for s in $stacks; do
+			s="$s" yq -i -o=json '.network += [{"preset": strenv(s)}]' "$settings_file"
+		done
+	fi
 
 	echo "Settings file created at $settings_file" | info
 

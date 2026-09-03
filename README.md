@@ -840,6 +840,13 @@ For stricter configurations, replace the wildcard rule with the
 you need) — e.g. `{"preset": "python"}, {"preset": "github"}` instead of
 `{"action": "allow", "host": "*", "method": "GET"}`.
 
+`sandcat init --features strict-network` does this for you: the generated
+project settings contain one preset entry per selected stack and no wildcard,
+so anything beyond the stack registries and the user-settings layer (your
+agent's API hosts) is denied by default — including its DNS resolution.
+Expect to add a few hosts on first use (`.sandcat/settings.local.json` is the
+per-machine place); the startup log and `sandcat proxy` show what got blocked.
+
 ### DNS filtering
 
 DNS queries are checked against the same network rules as HTTP requests. If a
