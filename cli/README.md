@@ -23,7 +23,7 @@ Options:
 - `--proxy` - Proxy UI mode: `web` (default, mitmweb browser UI) or `tui` (mitmproxy console, use with `sandcat proxy` to attach)
 - `--secret-provider` / `--sp` - Secret backend: `none` (default), `1password`, `protonpass` (skips prompt when set)
 - `--1password` - Deprecated alias for `--secret-provider 1password`
-- `--features` - Comma-separated optional non-provider features: `tui` (proxy console mode; prefer `--proxy tui`), `no-gitignore` (skip appending the `# Sandcat` block to the project's `.gitignore`; equivalent to `SANDCAT_GITIGNORE=false`), `no-rtk` (skip RTK installation; equivalent to `SANDCAT_RTK=false`)
+- `--features` - Comma-separated optional non-provider features: `tui` (proxy console mode; prefer `--proxy tui`), `no-gitignore` (skip appending the `# Sandcat` block to the project's `.gitignore`; equivalent to `SANDCAT_GITIGNORE=false`), `no-rtk` (skip RTK installation; equivalent to `SANDCAT_RTK=false`), `strict-network` (project settings get network presets for the selected stacks instead of the allow-all-GET wildcard; equivalent to `SANDCAT_STRICT_NETWORK=true`)
 - `--name` - Project name for Docker Compose (default: derived from directory name)
 - `--path` - Project directory (default: current directory)
 
