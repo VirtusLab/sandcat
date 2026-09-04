@@ -283,6 +283,75 @@ class TestNetworkRules:
 
 
 # ---------------------------------------------------------------------------
+# Network presets — {"preset": "<name>"} expansion (issue #2).
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("addon_cls", ADDONS)
+class TestNetworkPresets:
+    def test_preset_expands_to_allow_rules(self, addon_cls):
+        addon = addon_cls()
+        addon._load_network_rules([{"preset": "python"}])
+        assert {"action": "allow", "host": "pypi.org"} in addon.network_rules
+        assert all(r["action"] == "allow" for r in addon.network_rules)
+        assert addon._is_request_allowed("GET", "files.pythonhosted.org") is True
+        # default deny still applies outside the preset
+        assert addon._is_request_allowed("GET", "example.com") is False
+
+    def test_preset_expands_in_place_preserving_rule_order(self, addon_cls):
+        # A deny BEFORE the preset must shadow a host the preset would allow.
+        addon = addon_cls()
+        addon._load_network_rules([
+            {"action": "deny", "host": "pypi.org"},
+            {"preset": "python"},
+            {"action": "allow", "host": "example.com", "method": "GET"},
+        ])
+        assert addon._is_request_allowed("GET", "pypi.org") is False
+        assert addon._is_request_allowed("GET", "files.pythonhosted.org") is True
+        assert addon._is_request_allowed("GET", "example.com") is True
+
+    def test_unknown_preset_fails_loud(self, addon_cls):
+        addon = addon_cls()
+        with pytest.raises(RuntimeError, match="unknown network preset 'no-such'"):
+            addon._load_network_rules([{"preset": "no-such"}])
+
+    def test_preset_combined_with_other_keys_is_rejected(self, addon_cls):
+        addon = addon_cls()
+        with pytest.raises(RuntimeError, match="must not combine 'preset'"):
+            addon._load_network_rules([{"preset": "python", "method": "GET"}])
+
+    def test_rules_without_preset_pass_through_unchanged(self, addon_cls):
+        addon = addon_cls()
+        rules = [
+            {"action": "allow", "host": "*", "method": "GET"},
+            {"action": "deny", "host": "*"},
+        ]
+        addon._load_network_rules(list(rules))
+        assert addon.network_rules == rules
+
+    def test_every_defined_preset_expands(self, addon_cls):
+        # Guards the definitions themselves: non-empty host lists, and every
+        # name expands without error so a typo in NETWORK_PRESETS can't ship.
+        addon = addon_cls()
+        for name, hosts in common.NETWORK_PRESETS.items():
+            assert hosts, f"preset {name!r} has an empty host list"
+            addon._load_network_rules([{"preset": name}])
+            assert len(addon.network_rules) == len(hosts)
+
+    def test_stack_names_have_matching_presets(self, addon_cls):
+        # `sandcat init --stacks` names double as preset names (PR2 seeds
+        # them into project settings) — keep the two namespaces in sync.
+        stacks_bash = (
+            Path(__file__).resolve().parents[2] / "lib" / "stacks.bash"
+        ).read_text()
+        m = re.search(r"STACK_NAMES=\(([^)]*)\)", stacks_bash)
+        assert m, "STACK_NAMES not found in cli/lib/stacks.bash"
+        for stack in m.group(1).split():
+            assert stack in common.NETWORK_PRESETS, (
+                f"stack {stack!r} has no matching network preset"
+            )
+
+
+# ---------------------------------------------------------------------------
 # Secret substitution — shared logic, parameterised over both variants.
 # ---------------------------------------------------------------------------
 

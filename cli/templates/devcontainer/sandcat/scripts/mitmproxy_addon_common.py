@@ -80,6 +80,106 @@ SANDCAT_DNS_CONF_PATH = "/home/mitmproxy/.mitmproxy/dns.conf"
 # stale entries from previous runs.
 EXTRA_HOSTS_PATH = "/home/mitmproxy/.mitmproxy/extra_hosts"
 
+# Predefined network allowlists (issue #2). A settings `network` entry of
+# `{"preset": "<name>"}` expands, in place, to one `{"action": "allow",
+# "host": <h>}` rule per host below — see _expand_network_presets. Names
+# deliberately match `sandcat init --stacks` values where an ecosystem
+# preset exists, plus agent/API and forge presets. Host-only on purpose
+# (no method restriction): these mirror the domain-level allowlists this
+# feature is modeled on, and per-method tightening of package registries
+# breaks legitimate flows (e.g. npm audit POSTs) for marginal gain.
+# Ecosystem presets are self-contained — `scala` repeats the Maven hosts
+# instead of depending on `java` — so using one preset alone never leaves
+# a hidden gap; duplicate rules from combined presets are harmless under
+# first-match-wins.
+NETWORK_PRESETS: dict[str, list[str]] = {
+    "python": [
+        "pypi.org",
+        "files.pythonhosted.org",
+        "pypi.python.org",
+        "astral.sh",  # uv installer/metadata
+    ],
+    "node": [
+        "registry.npmjs.org",
+        "registry.yarnpkg.com",
+        "nodejs.org",
+    ],
+    "java": [
+        "repo.maven.apache.org",
+        "repo1.maven.org",
+        "central.sonatype.com",
+        "plugins.gradle.org",
+        "services.gradle.org",
+        "downloads.gradle.org",
+        "downloads.gradle-dn.com",
+    ],
+    "scala": [
+        "repo.scala-sbt.org",
+        "repo.typesafe.com",
+        "repo1.maven.org",
+        "repo.maven.apache.org",
+        "central.sonatype.com",
+    ],
+    "go": [
+        "proxy.golang.org",
+        "sum.golang.org",
+        "pkg.go.dev",
+        "golang.org",
+        "google.golang.org",
+    ],
+    "rust": [
+        "crates.io",
+        "index.crates.io",
+        "static.crates.io",
+        "static.rust-lang.org",
+    ],
+    "ruby": [
+        "rubygems.org",
+        "index.rubygems.org",
+        "api.rubygems.org",
+    ],
+    "dotnet": [
+        "api.nuget.org",
+        "globalcdn.nuget.org",
+        "nuget.org",
+    ],
+    "zig": [
+        "ziglang.org",
+    ],
+    # devbox/nix — needed when installing packages at RUNTIME inside the
+    # agent (image build happens on the host, outside the proxy).
+    "nix": [
+        "cache.nixos.org",
+        "channels.nixos.org",
+        "releases.nixos.org",
+        "search.devbox.sh",
+    ],
+    "vscode": [
+        "update.code.visualstudio.com",
+        "marketplace.visualstudio.com",
+        "*.vsassets.io",
+        "main.vscode-cdn.net",
+    ],
+    "jetbrains": [
+        "plugins.jetbrains.com",
+        "downloads.marketplace.jetbrains.com",
+    ],
+    "github": [
+        "github.com",
+        "*.github.com",
+        "*.githubusercontent.com",
+    ],
+    "anthropic": [
+        "*.anthropic.com",
+        "*.claude.ai",
+        "*.claude.com",
+    ],
+    "openai": [
+        "api.openai.com",
+        "*.openai.com",
+    ],
+}
+
 logger = logging.getLogger(__name__)
 
 
@@ -533,8 +633,42 @@ class SandcatAddon:
     # --------------------------------------------------------------- network
 
     def _load_network_rules(self, raw_rules: list):
-        self.network_rules = raw_rules
+        self.network_rules = self._expand_network_presets(raw_rules)
         ctx.log.info(f"Loaded {len(self.network_rules)} network rule(s)")
+
+    @classmethod
+    def _expand_network_presets(cls, raw_rules: list) -> list:
+        """Expand ``{"preset": "<name>"}`` entries into their predefined rules.
+
+        Each preset expands in place, so rule order — and therefore the
+        top-to-bottom / first-match-wins semantics — is preserved around it.
+        A preset entry must carry the ``preset`` key alone: combining it with
+        ``host``/``method``/``action`` has no defined meaning, and an unknown
+        preset name aborts the proxy start (RuntimeError) rather than
+        silently weakening or tightening the policy the user asked for.
+        """
+        expanded: list = []
+        for rule in raw_rules:
+            if not isinstance(rule, dict) or "preset" not in rule:
+                expanded.append(rule)
+                continue
+            extra_keys = sorted(set(rule) - {"preset"})
+            if extra_keys:
+                raise RuntimeError(
+                    f"network preset entry must not combine 'preset' with other "
+                    f"keys (got extra: {extra_keys}); put additional rules on "
+                    f"their own lines before or after the preset"
+                )
+            name = rule["preset"]
+            if name not in NETWORK_PRESETS:
+                raise RuntimeError(
+                    f"unknown network preset {name!r}; available presets: "
+                    f"{', '.join(sorted(NETWORK_PRESETS))}"
+                )
+            hosts = NETWORK_PRESETS[name]
+            expanded.extend({"action": "allow", "host": h} for h in hosts)
+            ctx.log.info(f"Network preset {name!r} expanded to {len(hosts)} allow rule(s)")
+        return expanded
 
     # ----------------------------------------------------------- DNS servers
 
