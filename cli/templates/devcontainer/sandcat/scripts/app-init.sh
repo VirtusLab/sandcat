@@ -124,7 +124,7 @@ else
 fi
 
 # Refresh image-managed home state (devbox profile, sandcat java-home
-# symlink and baseline cacerts, .bashrc env hooks) into the agent-home
+# symlink and baseline cacerts, .bashrc) into the agent-home
 # volume when the image snapshot has changed since last start.
 #
 # The volume masks anything the Dockerfile writes under /home/vscode after
@@ -202,6 +202,11 @@ done
 # (PATH/NVM/direnv, etc.) are applied. Re-source sandcat.env inside that
 # shell so app-user-init still receives sandcat placeholders and env vars.
 su - vscode -c '. /mitmproxy-config/sandcat.env 2>/dev/null || true; /usr/local/bin/app-user-init.sh'
+
+# app-user-init.sh has now refreshed the Java trust store. Source the same
+# profile script that login and interactive shells use so the agent process
+# and every shell it starts inherit the Java settings too.
+. /etc/profile.d/sandcat-java.sh
 
 # Source all sandcat profile.d scripts from /etc/bash.bashrc so env vars
 # are available in non-login shells (e.g. VS Code integrated terminals).

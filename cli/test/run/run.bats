@@ -21,6 +21,31 @@ teardown() {
 	unstub_all
 }
 
+@test "Java profile reaches non-login child shells" {
+	local sandcat_home="$BATS_TEST_TMPDIR/vscode"
+	local java_env="$SCT_ROOT/templates/devcontainer/sandcat/scripts/java-env.sh"
+	mkdir -p "$sandcat_home/.local/share/sandcat"
+	ln -s /nix/store/example-jdk "$sandcat_home/.local/share/sandcat/java-home"
+	touch "$sandcat_home/.local/share/sandcat/cacerts"
+
+	run env -i PATH="$PATH" SANDCAT_HOME="$sandcat_home" bash --noprofile --norc -c \
+		". '$java_env'; bash --noprofile --norc -c 'printf \"%s\\n%s\" \"\$JAVA_HOME\" \"\$JAVA_TOOL_OPTIONS\"'"
+	assert_success
+	assert_output "$sandcat_home/.local/share/sandcat/java-home
+-Djavax.net.ssl.trustStore=$sandcat_home/.local/share/sandcat/cacerts -Djavax.net.ssl.trustStorePassword=changeit"
+}
+
+@test "Java profile leaves non-JVM shells unconfigured" {
+	local sandcat_home="$BATS_TEST_TMPDIR/vscode"
+	local java_env="$SCT_ROOT/templates/devcontainer/sandcat/scripts/java-env.sh"
+	mkdir -p "$sandcat_home/.local/share/sandcat"
+
+	run env -i PATH="$PATH" SANDCAT_HOME="$sandcat_home" bash --noprofile --norc -c \
+		". '$java_env'; printf '<%s>|<%s>' \"\${JAVA_HOME-}\" \"\${JAVA_TOOL_OPTIONS-}\""
+	assert_success
+	assert_output "<>|<>"
+}
+
 # --- warn_stale_home_volume ---
 
 @test "no warning when volume does not exist (first run)" {
