@@ -1,6 +1,6 @@
 #!/bin/bash
 
-sandcat_home="${SANDCAT_HOME:-/home/vscode}"
+sandcat_home="${SANDCAT_USER_HOME:-/home/vscode}"
 if [ -L "$sandcat_home/.local/share/sandcat/java-home" ]; then
     export JAVA_HOME="$sandcat_home/.local/share/sandcat/java-home"
 fi

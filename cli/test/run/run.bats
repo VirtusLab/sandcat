@@ -28,7 +28,7 @@ teardown() {
 	ln -s /nix/store/example-jdk "$sandcat_home/.local/share/sandcat/java-home"
 	touch "$sandcat_home/.local/share/sandcat/cacerts"
 
-	run env -i PATH="$PATH" SANDCAT_HOME="$sandcat_home" bash --noprofile --norc -c \
+	run env -i PATH="$PATH" SANDCAT_USER_HOME="$sandcat_home" bash --noprofile --norc -c \
 		". '$java_env'; bash --noprofile --norc -c 'printf \"%s\\n%s\" \"\$JAVA_HOME\" \"\$JAVA_TOOL_OPTIONS\"'"
 	assert_success
 	assert_output "$sandcat_home/.local/share/sandcat/java-home
@@ -40,7 +40,7 @@ teardown() {
 	local java_env="$SCT_ROOT/templates/devcontainer/sandcat/scripts/java-env.sh"
 	mkdir -p "$sandcat_home/.local/share/sandcat"
 
-	run env -i PATH="$PATH" SANDCAT_HOME="$sandcat_home" bash --noprofile --norc -c \
+	run env -i PATH="$PATH" SANDCAT_USER_HOME="$sandcat_home" bash --noprofile --norc -c \
 		". '$java_env'; printf '<%s>|<%s>' \"\${JAVA_HOME-}\" \"\${JAVA_TOOL_OPTIONS-}\""
 	assert_success
 	assert_output "<>|<>"
