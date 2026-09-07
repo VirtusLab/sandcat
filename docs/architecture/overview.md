@@ -85,7 +85,7 @@ flowchart TB
 - **Claude Code customizations** (`CLAUDE.md`, `agents/`, `commands/`) and
   **Cursor host config** (`~/.cursor/*` — see Cursor section above) are
   bind-mounted from the host when enabled in `compose-all.yml`. Per-path toggles
-  are described in [Customizing optional volume mounts](https://github.com/VirtusLab/sandcat#customizing-optional-volume-mounts).
+  are described in [Customizing optional volume mounts](../getting-started/initialization.md#customizing-optional-volume-mounts).
 
 ## Startup sequence
 

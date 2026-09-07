@@ -5,6 +5,7 @@ Queries that aren't refused by the network rules are resolved by a small
 containers go to Docker's embedded resolver locally, everything else goes
 through the WireGuard tunnel to mitmproxy and out via the configured upstream.
 
+(custom-upstream-dns)=
 ## Custom upstream DNS — `dns_servers`
 
 Top-level optional array of IPv4/IPv6 addresses. Overrides the upstream DNS

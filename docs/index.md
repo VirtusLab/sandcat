@@ -17,29 +17,53 @@ Source code: [github.com/VirtusLab/sandcat](https://github.com/VirtusLab/sandcat
 Sandcat is part of [Visdom](https://virtuslab.com/services/visdom),
 VirtusLab's AI-driven software delivery infrastructure.
 
-```{note}
-This site is being migrated from the repository README section by section.
-Anything not yet covered here lives in the
-[README](https://github.com/VirtusLab/sandcat#readme).
-```
-
 ```{eval-rst}
 .. toctree::
    :maxdepth: 2
    :caption: Getting started
 
    getting-started/quickstart
+   getting-started/installation
+   getting-started/initialization
+   getting-started/running
 
 .. toctree::
    :maxdepth: 2
    :caption: Configuration
 
+   configuration/settings
+   configuration/applying-changes
    configuration/network-rules
    configuration/dns
+   configuration/secrets
+   configuration/generated-files
 
 .. toctree::
    :maxdepth: 2
-   :caption: Architecture
+   :caption: Architecture & security
 
    architecture/overview
+   security/vscode-hardening
+
+.. toctree::
+   :maxdepth: 2
+   :caption: Reference
+
+   reference/cli
+   reference/notes
+
+.. toctree::
+   :maxdepth: 2
+   :caption: Operations
+
+   operations/testing-proxy
+   operations/debugging
+   operations/unit-tests
+
+.. toctree::
+   :maxdepth: 2
+   :caption: Project
+
+   project/inspiration
+   project/development
 ```
