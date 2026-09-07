@@ -262,7 +262,7 @@ EOF
 		"'Select IDE:' vscode jetbrains none : echo vscode" \
 		"'Select secret provider:' 1password none protonpass : echo 1password"
 	stub select_multiple \
-		"'Select optional features (comma-separated numbers, empty for none):' 'tui (mitmproxy console instead of web UI)' 'no-shared-cache (per-project dep cache instead of shared)' 'no-gitignore (do not append Sandcat block to .gitignore)' 'no-rtk (do not install rtk shell hook)' : echo ''" \
+		"'Select optional features (comma-separated numbers, empty for none):' 'tui (mitmproxy console instead of web UI)' 'no-shared-cache (per-project dep cache instead of shared)' 'no-gitignore (do not append Sandcat block to .gitignore)' 'no-rtk (do not install rtk shell hook)' 'strict-network (stack presets instead of allow-all-GET wildcard)' : echo ''" \
 		"'Select development stacks (comma-separated numbers, empty for none):' node python java rust go scala ruby dotnet zig : echo ''"
 
 	local expected_name
@@ -343,7 +343,7 @@ EOF
 		"'Select IDE:' vscode jetbrains none : echo vscode" \
 		"'Select secret provider:' none 1password protonpass : echo none"
 	stub select_multiple \
-		"'Select optional features (comma-separated numbers, empty for none):' 'tui (mitmproxy console instead of web UI)' 'no-shared-cache (per-project dep cache instead of shared)' 'no-gitignore (do not append Sandcat block to .gitignore)' 'no-rtk (do not install rtk shell hook)' : echo ''" \
+		"'Select optional features (comma-separated numbers, empty for none):' 'tui (mitmproxy console instead of web UI)' 'no-shared-cache (per-project dep cache instead of shared)' 'no-gitignore (do not append Sandcat block to .gitignore)' 'no-rtk (do not install rtk shell hook)' 'strict-network (stack presets instead of allow-all-GET wildcard)' : echo ''" \
 		"'Select development stacks (comma-separated numbers, empty for none):' node python java rust go scala ruby dotnet zig : echo ''"
 
 	local expected_name
@@ -422,7 +422,7 @@ EOF
 		"'Select IDE:' vscode jetbrains none : echo vscode" \
 		"'Select secret provider:' none 1password protonpass : echo none"
 	stub select_multiple \
-		"'Select optional features (comma-separated numbers, empty for none):' 'tui (mitmproxy console instead of web UI)' 'no-shared-cache (per-project dep cache instead of shared)' 'no-gitignore (do not append Sandcat block to .gitignore)' 'no-rtk (do not install rtk shell hook)' : echo 'tui (mitmproxy console instead of web UI)'" \
+		"'Select optional features (comma-separated numbers, empty for none):' 'tui (mitmproxy console instead of web UI)' 'no-shared-cache (per-project dep cache instead of shared)' 'no-gitignore (do not append Sandcat block to .gitignore)' 'no-rtk (do not install rtk shell hook)' 'strict-network (stack presets instead of allow-all-GET wildcard)' : echo 'tui (mitmproxy console instead of web UI)'" \
 		"'Select development stacks (comma-separated numbers, empty for none):' node python java rust go scala ruby dotnet zig : echo ''"
 
 	local expected_name
@@ -661,4 +661,26 @@ EOF
 	run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" --stacks "" --features "bogus" --secret-provider none
 	assert_failure
 	assert_output --partial "no-rtk"
+	assert_output --partial "strict-network"
+}
+
+@test "init --features strict-network passes strict flags with resolved stacks to settings" {
+	stub settings \
+		"--strict-network --stacks python $PROJECT_DIR/.sandcat/settings.json claude vscode : :"
+	stub devcontainer \
+		"--settings-file .sandcat/settings.json --project-path * --agent claude --ide vscode --name test --stacks * --proxy web --secret-provider none : :"
+
+	run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" --stacks "python" --features "strict-network" --secret-provider none
+	assert_success
+	assert_output --partial "Network:          strict — stack presets: python"
+}
+
+@test "init without strict-network reports the default network policy" {
+	stub settings "$PROJECT_DIR/.sandcat/settings.json claude vscode : :"
+	stub devcontainer \
+		"--settings-file .sandcat/settings.json --project-path * --agent claude --ide vscode --name test --stacks * --proxy web --secret-provider none : :"
+
+	run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" --stacks "" --features "" --secret-provider none
+	assert_success
+	assert_output --partial "Network:          default (allow all GET"
 }
