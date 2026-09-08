@@ -12,7 +12,7 @@ import os
 # https://about.readthedocs.com/blog/2024/07/addons-by-default/
 html_baseurl = os.environ.get(
     "READTHEDOCS_CANONICAL_URL",
-    "https://sandcat.readthedocs.io/",
+    "https://sandcat.virtuslab.com/",
 )
 
 # Tell Jinja2 templates the build is running on Read the Docs.

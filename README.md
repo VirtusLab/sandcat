@@ -18,8 +18,8 @@ so the container never sees real values.
 
 ## Documentation
 
-**Full documentation lives in [`docs/`](docs/) and is published on Read the
-Docs** — installation, sandbox initialization, the settings format, network
+**Full documentation: [sandcat.virtuslab.com](https://sandcat.virtuslab.com)**
+— installation, sandbox initialization, the settings format, network
 access rules and presets, DNS, secret substitution (1Password / Proton Pass),
 architecture, VS Code hardening, the complete CLI reference, and
 debugging/testing guides.
