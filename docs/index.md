@@ -1,4 +1,4 @@
-# sandcat: a sandbox for securely running AI agents
+# Sandcat: sandbox for securely running AI agents in "dangerous" mode
 
 Sandcat is a Docker & [dev container](https://containers.dev) setup for
 securely running AI agents (Claude Code, Cursor CLI, Codex CLI, GitHub
@@ -14,8 +14,11 @@ through, and a secret substitution system injects credentials at the proxy
 level so the container never sees real values.
 
 Source code: [github.com/VirtusLab/sandcat](https://github.com/VirtusLab/sandcat).
+
+```{note}
 Sandcat is part of [Visdom](https://virtuslab.com/services/visdom),
-VirtusLab's AI-driven software delivery infrastructure.
+VirtusLab's AI-native SDLC platform.
+```
 
 ```{eval-rst}
 .. toctree::
@@ -67,3 +70,8 @@ VirtusLab's AI-driven software delivery infrastructure.
    project/inspiration
    project/development
 ```
+
+## Commercial Support
+
+We offer commercial services around AI-assisted software development. [Contact
+us](https://virtuslab.com) to learn more about our offer!

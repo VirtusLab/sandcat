@@ -14,20 +14,16 @@ through, and a secret substitution system injects credentials at the proxy level
 so the container never sees real values.
 
 > Sandcat is part of [Visdom](https://virtuslab.com/services/visdom),
-> VirtusLab's AI-driven software delivery infrastructure.
+> VirtusLab's AI-native SDLC platform.
 
 ## Documentation
 
 **Full documentation: [sandcat.virtuslab.com](https://sandcat.virtuslab.com)**
-— installation, sandbox initialization, the settings format, network
-access rules and presets, DNS, secret substitution (1Password / Proton Pass),
-architecture, VS Code hardening, the complete CLI reference, and
-debugging/testing guides.
+covering the entire Sandcat feature set.
 
 ## Quick start
 
-Requires `docker` (with `docker compose`) and
-[`yq`](https://github.com/mikefarah/yq) (Mike Farah's Go variant).
+Requires `docker` (with `docker compose`) and [`yq`](https://github.com/mikefarah/yq).
 
 ```bash
 # 1. Install the CLI
