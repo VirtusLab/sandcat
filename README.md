@@ -24,13 +24,6 @@ access rules and presets, DNS, secret substitution (1Password / Proton Pass),
 architecture, VS Code hardening, the complete CLI reference, and
 debugging/testing guides.
 
-To browse it locally:
-
-```bash
-cd docs && pip install -r requirements.txt && ./watch.sh
-# then open http://127.0.0.1:8000
-```
-
 ## Quick start
 
 Requires `docker` (with `docker compose`) and
