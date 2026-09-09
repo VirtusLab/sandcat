@@ -131,7 +131,7 @@ Options:
 Note: Cursor agent support uses placeholder-based API key substitution and
 Sandcat-managed CLI settings (`cursor.cli` in settings — permissions, model,
 network flags). Put the API key in `secrets.CURSOR_API_KEY`, not in
-`cursor.cli`. See the [Cursor CLI section](../configuration/secrets.md#cursor-cli) for details.
+`cursor.cli`. See the [Cursor CLI page](../agents/cursor.md) for details.
 
 #### `sandcat init settings`
 

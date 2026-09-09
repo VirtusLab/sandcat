@@ -1,8 +1,9 @@
 # Sandcat: sandbox for securely running AI agents in "dangerous" mode
 
 Sandcat is a Docker & [dev container](https://containers.dev) setup for
-securely running AI agents (Claude Code, Cursor CLI, Codex CLI, GitHub
-Copilot CLI). The environment is sandboxed, with controlled network access
+securely running AI agents ([Claude Code](agents/claude.md),
+[Cursor CLI](agents/cursor.md), [Codex CLI](agents/codex.md),
+[GitHub Copilot CLI](agents/copilot.md)). The environment is sandboxed, with controlled network access
 and transparent secret substitution — while retaining the convenience of
 working in an IDE — both [VS Code](ide/vscode.md) and
 [JetBrains](ide/jetbrains.md) are supported.
@@ -30,6 +31,16 @@ VirtusLab's AI-native SDLC platform.
    getting-started/installation
    getting-started/initialization
    getting-started/running
+
+.. toctree::
+   :maxdepth: 2
+   :caption: Agents
+
+   agents/claude
+   agents/cursor
+   agents/codex
+   agents/copilot
+   agents/rtk
 
 .. toctree::
    :maxdepth: 2

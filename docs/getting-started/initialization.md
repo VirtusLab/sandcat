@@ -115,7 +115,7 @@ flags today.
 | JetBrains | `SANDCAT_MOUNT_IDEA_READONLY` | `false` (active when `--ide jetbrains`) |
 | Any       | `SANDCAT_MOUNT_SHARED_CACHE`  | `true` — see [Shared dependency caches](#shared-dependency-caches) |
 | Any       | `SANDCAT_GITIGNORE`           | `true` (see [Gitignore defaults](#gitignore-defaults)) |
-| Any       | `SANDCAT_RTK`                 | `true` (see [RTK — LLM token compression](#rtk--llm-token-compression)) |
+| Any       | `SANDCAT_RTK`                 | `true` (see [RTK — LLM token compression](../agents/rtk.md)) |
 
 When an agent mount flag is `false`, Sandcat lists every path as a foot comment
 on the first volume entry — copy the lines you want into the active `volumes:`
@@ -132,25 +132,6 @@ or comment out mounts you do not want, then rebuild/reopen the devcontainer:
 **Do not re-run `sandcat init`** unless you intend to reset generated files —
 it recopies the template and overwrites manual compose edits. Commit your
 customized `compose-all.yml` to keep changes across the team.
-
-**Claude paths** (host `~/.claude/`, read-only when mounted):
-
-- `CLAUDE.md`, `agents/`, `commands/`
-
-**Cursor paths** (host `~/.cursor/`):
-
-| Path                                                                                         | Mode       | Typical use                           |
-|----------------------------------------------------------------------------------------------|------------|---------------------------------------|
-| `AGENTS.md`, `rules/`, `skills/`, `commands/`, `hooks.json`, `hooks/`, `agents/`, `mcp.json` | read-only  | Shared customization                  |
-| `projects/<workspace-id>/`                                                                   | read-write | This sandbox's transcripts/terminals  |
-
-Sandcat mounts only `projects/<workspace-id>/` for the current sandbox
-(`workspaces-<project-name>`), not the whole host `projects/` tree. `chats/`,
-`plugins/`, and `subagents/` stay in `agent-home` so other workspaces' runtime
-state is not exposed.
-
-Cursor CLI keys Sandcat manages (`cursor.cli` in settings) are **not**
-host-mounted — see the Cursor section below.
 
 **Project-local config** (per repository, via the workspace code mount — not
 controlled by `SANDCAT_MOUNT_*_CONFIG`):
@@ -300,177 +281,9 @@ outside the sandcat markers are always preserved.
 If the project is not a git working tree (no `.git/` directory), init
 silently skips the gitignore step — no `.gitignore` gets created.
 
-## RTK — LLM token compression
+## Agent-specific setup
 
-[rtk-ai/rtk](https://github.com/rtk-ai/rtk) ("Rust Token Killer") wraps
-shell commands invoked by AI agents and compresses their output before
-the agent reads it, cutting token consumption 60-90% on typical dev
-commands (test runs, grep output, build logs). `sandcat init` installs
-the `rtk` binary into every sandbox by default and wires the agent
-hook so the agent picks it up automatically. Setup differs slightly
-per agent — see below.
-
-**Opt out** if you'd rather run without it (e.g. debugging a shell
-command's raw output):
-
-```bash
-sandcat init --features no-rtk ...
-SANDCAT_RTK=false sandcat init ...
-```
-
-Both are equivalent — the env var is the scripted counterpart of the
-interactive/CSV feature flag. When disabled, the rtk binary is not
-installed into the image and no init hook is emitted for any agent.
-
-### Claude Code (`--agent claude`)
-
-Works out of the box, zero configuration. `sandcat init` generates an
-`app-user-init.sh` block that runs `rtk init -g --hook-only --auto-patch`
-on the first container start; the hook lands in the sandbox's
-`~/.claude/settings.json` (inside the `agent-home` volume, not
-bind-mounted). Subsequent starts are idempotent no-ops.
-
-### Cursor CLI (`--agent cursor`)
-
-Cursor's rtk hook lives in `~/.cursor/hooks.json`. Sandcat bind-mounts
-that file **read-only** from your host (`SANDCAT_MOUNT_CURSOR_CONFIG=true`
-default) so cursor customizations are shared across all your sandboxes.
-Because the mount is read-only, sandcat cannot install the rtk hook
-into the container's copy of `hooks.json`.
-
-**Setup — run once on your host:**
-
-```bash
-# Install rtk locally (needed once on the host)
-brew install rtk       # or: curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/b34be37caf3796b69a50952a28e60e32b5daad43/install.sh | RTK_VERSION=v0.45.0 sh
-
-# Register the cursor hook in your host ~/.cursor/hooks.json
-rtk init -g --hook-only --auto-patch --agent cursor
-```
-
-That writes the rtk hook to your host `~/.cursor/hooks.json`. Every
-sandcat cursor sandbox from now on bind-mounts that file into the
-container, so Cursor CLI sees the hook and calls `rtk hook cursor` on
-each `Bash` tool invocation. The container's own `rtk` binary
-(installed by sandcat) executes the hook — you never need rtk on the
-host for anything except this one-time init step, and you can
-uninstall it afterwards if you like.
-
-Bonus: the same host hook is picked up by every cursor sandbox you
-start on that machine (and by host Cursor CLI, if you use it directly).
-
-**If you skip the host init:** the container prints a one-time warning
-on start (`sandcat: rtk hook not found for cursor. Install rtk on your
-host …`) and Cursor CLI runs without the hook. The rtk binary is still
-on `PATH` inside the container, so you can invoke `rtk grep`, `rtk ls`,
-etc. by hand.
-
-### Codex CLI (`--agent codex`)
-
-Sandcat installs [OpenAI's Codex CLI](https://github.com/openai/codex)
-into every codex-agent sandbox and wires `OPENAI_API_KEY` through the
-mitmproxy secret substitution layer. Codex reads its config from
-`~/.codex/config.toml` (per-sandbox, agent-home volume) and picks up
-the API key directly from the environment — no `codex login` required.
-
-**Setup:**
-
-```bash
-sandcat init --agent codex --ide vscode
-# Edit ~/.config/sandcat/settings.json — set secrets.OPENAI_API_KEY.value
-sandcat run
-codex "explain this codebase"
-```
-
-**Bash alias:** `codex-yolo` (= `codex --yolo`) is available in every
-codex sandbox for parity with `claude-yolo`.
-
-**Host config sharing** (optional, default on): `~/.codex/AGENTS.md`,
-`~/.codex/skills/`, and `~/.codex/commands/` are bind-mounted read-only
-from the host into the container, matching how `~/.claude/` is handled.
-The rest of `~/.codex/` (config.toml, credentials, history) lives in
-the container's agent-home volume — per-sandbox persistent, per-sandbox
-isolated. Opt out with `SANDCAT_MOUNT_CODEX_CONFIG=false`.
-
-**RTK integration:** works out of the box. On first container start,
-sandcat seeds `~/.codex/AGENTS.md` (from the host bind-mount if
-present) and runs `rtk init -g --codex` to write `~/.codex/RTK.md`
-and add an `@RTK.md` reference to `AGENTS.md`. Idempotent: skipped
-once the reference is already there. Disable with `--features
-no-rtk` or `SANDCAT_RTK=false`.
-
-Note: because rtk needs to patch a writable `AGENTS.md`, sandcat
-mounts the host's `~/.codex/AGENTS.md` at `~/.codex-host/AGENTS.md`
-(a helper path) — the user-init step copies it into the writable
-`~/.codex/AGENTS.md`. Host edits to `AGENTS.md` take effect after a
-`docker compose down -v` (or manual rm inside). Skills and commands
-directories are bind-mounted normally at `~/.codex/skills` and
-`~/.codex/commands`, so those live-reload as usual.
-
-**Auth model:** first iteration supports `OPENAI_API_KEY` only.
-ChatGPT sign-in (`chatgpt.com` / `auth.openai.com`) is not in the
-default allowlist — users who want that flow can add the hosts to
-`.sandcat/settings.local.json` and run `codex login` manually inside
-the container.
-
-### GitHub Copilot CLI (`--agent copilot`)
-
-GitHub's [Copilot CLI](https://docs.github.com/copilot/how-tos/copilot-cli)
-(`@github/copilot`) is available as a first-class sandcat agent. Sandcat installs
-Node.js 22 and the Copilot package into every copilot-agent sandbox and wires
-`COPILOT_GITHUB_TOKEN` through the mitmproxy secret substitution layer.
-
-**Setup:**
-
-```bash
-sandcat init --agent copilot --ide vscode
-# Edit ~/.config/sandcat/settings.json — set secrets.COPILOT_GITHUB_TOKEN.value
-sandcat run
-copilot "explain this codebase"
-```
-
-**Authentication:** Copilot CLI requires a GitHub token. Choose one of:
-
-1. **Fine-grained Personal Access Token (recommended):** Create a PAT at
-   [`https://github.com/settings/personal-access-tokens`](https://github.com/settings/personal-access-tokens)
-   with the **"Copilot Requests"** permission (Read and write). Then add it to
-   `~/.config/sandcat/settings.json`:
-   ```json
-   {
-     "secrets": {
-       "COPILOT_GITHUB_TOKEN": {
-         "value": "github_pat_...",
-         "hosts": ["api.github.com", "*.github.com", "*.githubcopilot.com", "*.githubusercontent.com"]
-       }
-     }
-   }
-   ```
-
-2. **GitHub CLI OAuth token (quick setup):** If you already have `gh` CLI logged in,
-   run this once to write the token directly into `settings.json`:
-   ```bash
-   export TKN=$(gh auth token)
-   yq -i -o json '.secrets.COPILOT_GITHUB_TOKEN.value = strenv(TKN)' \
-     ~/.config/sandcat/settings.json
-   ```
-
-**Note:** Adding Node.js 22 and Copilot to the base image increases its size by
-approximately 120 MB. The image is built once and cached locally; rebuilds are
-fast.
-
-**VS Code integration:** When the IDE is `vscode`, the bundled `devcontainer.json`
-includes the `GitHub.copilot` extension. Note that the VS Code extension
-authenticates through VS Code's own GitHub sign-in (not the `COPILOT_GITHUB_TOKEN`
-env var used by the CLI), so you may need to sign in the first time you open the
-extension.
-
-**Placeholder:** Sandcat automatically sets the placeholder to
-`gho_SANDCAT_PLACEHOLDER_COPILOT_GITHUB_TOKEN`. The container sees only the
-placeholder; the real token is injected by mitmproxy only for allowed Copilot
-hosts. No manual configuration is needed.
-
-**Bash alias:** `copilot-yolo` (= `copilot --yolo`) is available in every
-copilot sandbox for parity with `claude-yolo` and `codex-yolo`. `--yolo` is
-equivalent to `--allow-all-tools --allow-all-paths --allow-all-urls` — the
-sandcat network isolation is the security boundary, so bypassing in-container
-permission prompts is the intended workflow.
+Per-agent onboarding, authentication, host paths, and RTK hooks live in the
+**Agents** section: [Claude Code](../agents/claude.md),
+[Cursor CLI](../agents/cursor.md), [Codex CLI](../agents/codex.md),
+[GitHub Copilot CLI](../agents/copilot.md), [RTK](../agents/rtk.md).
