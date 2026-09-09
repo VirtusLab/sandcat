@@ -47,7 +47,8 @@ VirtusLab's AI-native SDLC platform.
    ide/jetbrains
 
 .. toctree::
-   :maxdepth: 2
+   :maxdepth: 1
+   :caption: Installation
 
    installation
 
