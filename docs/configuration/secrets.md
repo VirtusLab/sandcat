@@ -24,6 +24,48 @@ If a placeholder appears in a request to a host **not** in the allowlist,
 mitmproxy blocks the request with HTTP 403 and logs a warning. This prevents
 accidental secret leakage to unintended services.
 
+## Basic Auth (git credentials)
+
+Placeholders hidden inside `Authorization: Basic` headers are substituted
+too. This matters for git over HTTPS: a credential helper (e.g. `gh auth
+git-credential`, or a stored placeholder) returns the placeholder as the
+*password*, and git then base64-encodes the whole `username:password` pair —
+so the placeholder never appears in plain text anywhere in the request.
+
+For every request whose `Authorization` header uses the `Basic` scheme, the
+addon decodes the blob, replaces any secret placeholder found inside, and
+re-encodes it. The [leak detection](#leak-detection) gate applies exactly as
+for plain-text substitution: the secret is only injected when the destination
+host matches the secret's `hosts` allowlist. Malformed or non-Basic headers
+pass through untouched. This works for every agent and every allowlisted
+host.
+
+Example — an on-prem GitLab:
+
+```json
+"secrets": {
+  "GITLAB_TOKEN": {
+    "value": "glpat-…",
+    "hosts": ["gitlab.corp.example"]
+  }
+}
+```
+
+Inside the container, authenticate with the placeholder as the password:
+
+```bash
+git clone https://oauth2:$GITLAB_TOKEN@gitlab.corp.example/group/repo.git
+# or let git prompt / a credential helper supply it:
+#   username: oauth2
+#   password: $GITLAB_TOKEN   (i.e. SANDCAT_PLACEHOLDER_GITLAB_TOKEN)
+```
+
+Git encodes `oauth2:SANDCAT_PLACEHOLDER_GITLAB_TOKEN` into the Basic header;
+mitmproxy decodes it, swaps in the real token for `gitlab.corp.example`, and
+re-encodes — the container never sees the token. For a self-signed GitLab
+also see [`upstream_ca_bundles`](../reference/notes.md#trusting-internal-cas-upstream)
+and [`extra_hosts`](dns.md).
+
 ## 1Password integration
 
 Instead of storing secret values directly in settings files, you can reference
