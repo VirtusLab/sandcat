@@ -1,6 +1,6 @@
-# Installing the sandcat CLI
+# Installation
 
-The [CLI](../reference/cli.md) is a helper script and thin wrapper around
+The [CLI](reference/cli.md) is a helper script and thin wrapper around
 docker-compose that simplifies the process of initializing and starting the
 sandbox.
 
@@ -22,7 +22,7 @@ curl -fsSL https://raw.githubusercontent.com/VirtusLab/sandcat/master/install.sh
 ```
 
 Ensure `~/.local/bin` is on your `PATH` (the installer prints a hint if it
-isn't), then jump to [Initialize the sandbox](quickstart.md#2-initialize-the-sandbox-for-your-project).
+isn't), then jump to [Initialize the sandbox](getting-started/quickstart.md#2-initialize-the-sandbox-for-your-project).
 
 **Upgrade:** re-run the same command. The installer atomically swaps the
 existing install; `~/.config/sandcat/` (user settings) is never touched.

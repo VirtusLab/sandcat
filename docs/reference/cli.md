@@ -4,7 +4,7 @@ Command-line tool for managing sandcat configurations and Docker Compose setups.
 
 Requires `docker` (and `docker compose`) and [`yq`](https://github.com/mikefarah/yq).
 
-See [Installing the sandcat CLI](../getting-started/installation.md) for install
+See [Installing the sandcat CLI](../installation.md) for install
 options: Docker image, shell installer (`curl … | sh`), or local git
 clone.
 
@@ -131,7 +131,7 @@ Options:
 Note: Cursor agent support uses placeholder-based API key substitution and
 Sandcat-managed CLI settings (`cursor.cli` in settings — permissions, model,
 network flags). Put the API key in `secrets.CURSOR_API_KEY`, not in
-`cursor.cli`. See the [Cursor CLI section](../configuration/secrets.md#cursor-cli) for details.
+`cursor.cli`. See the [Cursor CLI page](../agents/cursor.md) for details.
 
 #### `sandcat init settings`
 
@@ -157,7 +157,7 @@ Runs docker compose commands with the correct compose file automatically detecte
 ### `sandcat cache`
 
 Manages the host-scoped shared dependency-cache volumes (`sandcat-cache-*`)
-that back the shared-cache feature (see [Shared dependency caches](../getting-started/initialization.md#shared-dependency-caches)). Bare `sandcat cache` is a shorthand for `sandcat cache list`.
+that back the shared-cache feature (see [Shared dependency caches](../configuration/caches.md)). Bare `sandcat cache` is a shorthand for `sandcat cache list`.
 
 Subcommands:
 
@@ -250,7 +250,7 @@ except provider config mounts, which default to `true` for the selected agent.
 
 Per-folder mounts are **not** separate init flags — tune individual paths by
 editing `.devcontainer/compose-all.yml` after init. See the main
-[Customizing optional volume mounts](../getting-started/initialization.md#customizing-optional-volume-mounts).
+[Customizing optional volume mounts](../configuration/volume-mounts.md).
 
 - `SANDCAT_MOUNT_CLAUDE_CONFIG` - `true` to mount host `~/.claude` config (Claude agent only)
 - `SANDCAT_MOUNT_CURSOR_CONFIG` - `true` to mount host `~/.cursor` customization

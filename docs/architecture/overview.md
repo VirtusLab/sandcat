@@ -85,7 +85,38 @@ flowchart TB
 - **Claude Code customizations** (`CLAUDE.md`, `agents/`, `commands/`) and
   **Cursor host config** (`~/.cursor/*` — see Cursor section above) are
   bind-mounted from the host when enabled in `compose-all.yml`. Per-path toggles
-  are described in [Customizing optional volume mounts](../getting-started/initialization.md#customizing-optional-volume-mounts).
+  are described in [Customizing optional volume mounts](../configuration/volume-mounts.md).
+
+## Agent container hardening
+
+The agent container is where untrusted code runs, so beyond the network
+boundary it is stripped of every escalation path it does not need:
+
+- **`no-new-privileges`** — the agent service runs with
+  `security_opt: no-new-privileges`, so no process inside can gain
+  privileges through setuid/setgid binaries or file capabilities.
+- **No sudo** — the base devcontainer image grants the `vscode` user
+  passwordless sudo; sandcat's `Dockerfile.app` removes that grant
+  (`rm -f /etc/sudoers.d/vscode`). Root-phase setup runs in the entrypoint
+  before it drops to `vscode` via `gosu`; nothing in the sandbox needs sudo
+  afterwards. Combined with `no-new-privileges`, `sudo` is blocked twice
+  over even if reinstalled.
+- **No `NET_ADMIN`** — only `wg-client` holds it. The agent shares
+  wg-client's network namespace, so it *sees* the tunnel, routing tables,
+  and iptables kill switch, but cannot modify any of them.
+- **No key material** — the agent mounts only the `mitmproxy-public`
+  volume (CA *certificate*, `sandcat.env`); the CA private key and
+  WireGuard keys stay on the private volume it never sees (see
+  [Volumes](#volumes) above).
+- **Read-only sandbox config** — `.devcontainer/` is overlaid read-only on
+  the workspace mount, so the agent cannot rewrite its own entrypoint,
+  compose files, or `devcontainer.json`.
+
+With `--ide jetbrains` the agent additionally gets
+`DAC_OVERRIDE`/`CHOWN`/`FOWNER` (the backend IDE manages files it does not
+own) — still under `no-new-privileges` and still without `NET_ADMIN`. The
+IDE-side trust boundary is covered separately in
+[VS Code → Security hardening](../ide/vscode.md#security-hardening).
 
 ## Startup sequence
 
