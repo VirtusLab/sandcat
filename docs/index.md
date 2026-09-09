@@ -25,6 +25,7 @@ VirtusLab's AI-native SDLC platform.
 ```{eval-rst}
 .. toctree::
    :maxdepth: 2
+   :caption: Getting started
 
    getting-started/quickstart
 
