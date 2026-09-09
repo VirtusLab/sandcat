@@ -22,4 +22,4 @@ the mitmproxy CA — see [TLS and CA certificates](../reference/notes.md#tls-and
 
 **`devcontainer.json`** — includes VS Code hardening settings (credential socket
 cleanup, workspace trust, disabled local terminal). See [Hardening the VS Code
-setup](../security/vscode-hardening.md#hardening-the-vs-code-setup) for details.
+setup](../ide/vscode.md#security-hardening) for details.

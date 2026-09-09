@@ -51,10 +51,9 @@ VirtusLab's AI-native SDLC platform.
 
 .. toctree::
    :maxdepth: 2
-   :caption: Architecture & security
+   :caption: Architecture
 
    architecture/overview
-   security/vscode-hardening
 
 .. toctree::
    :maxdepth: 2
