@@ -83,6 +83,14 @@ pygments_style = "default"
 # -- Options for HTML output ----------------------------------------------
 
 html_theme = "sphinx_rtd_theme"
+html_theme_options = {
+    # Keep the sidebar tree expanded so the Quick start steps (and every
+    # group's pages) are visible without clicking into a page first.
+    "collapse_navigation": False,
+    # Sidebar shows groups → pages → page sections; deeper heading levels
+    # (####) stay out of the tree.
+    "navigation_depth": 3,
+}
 htmlhelp_basename = "sandcatdoc"
 
 highlight_language = "bash"
