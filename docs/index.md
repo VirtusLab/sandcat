@@ -28,9 +28,6 @@ VirtusLab's AI-native SDLC platform.
    :caption: Getting started
 
    getting-started/quickstart
-   getting-started/installation
-   getting-started/initialization
-   getting-started/running
 
 .. toctree::
    :maxdepth: 2
@@ -51,6 +48,11 @@ VirtusLab's AI-native SDLC platform.
 
 .. toctree::
    :maxdepth: 2
+
+   installation
+
+.. toctree::
+   :maxdepth: 2
    :caption: Configuration
 
    configuration/settings
@@ -59,6 +61,10 @@ VirtusLab's AI-native SDLC platform.
    configuration/dns
    configuration/secrets
    configuration/generated-files
+   configuration/stacks
+   configuration/volume-mounts
+   configuration/caches
+   configuration/gitignore
 
 .. toctree::
    :maxdepth: 2

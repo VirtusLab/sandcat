@@ -16,7 +16,7 @@ mount whose source does not exist on your host.
 [devbox](https://www.jetify.com/devbox), a wrapper over Nix. Stack
 toolchains and user tools are merged from `devbox.stack.json` +
 `devbox.tools.json` into a single devbox global profile at build time —
-see [Stack and tool packages via devbox](../getting-started/initialization.md#stack-and-tool-packages-via-devbox)
+see [Stack and tool packages via devbox](stacks.md)
 for the two-file model. Some runtimes need extra configuration to trust
 the mitmproxy CA — see [TLS and CA certificates](../reference/notes.md#tls-and-ca-certificates).
 

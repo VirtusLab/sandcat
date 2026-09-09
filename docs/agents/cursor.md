@@ -98,7 +98,7 @@ host-mounted — see the Cursor section below.
 
 Project-local configuration (`.cursor/` in the repo) and the isolation
 semantics of these mounts are described in
-[Customizing optional volume mounts](../getting-started/initialization.md#customizing-optional-volume-mounts).
+[Customizing optional volume mounts](../configuration/volume-mounts.md).
 
 ## RTK hook
 

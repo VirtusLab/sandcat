@@ -77,7 +77,7 @@ Use one of these instead:
 
 Project-local configuration (`.claude/` in the repo) and the isolation
 semantics of these mounts are described in
-[Customizing optional volume mounts](../getting-started/initialization.md#customizing-optional-volume-mounts).
+[Customizing optional volume mounts](../configuration/volume-mounts.md).
 
 ## RTK hook
 

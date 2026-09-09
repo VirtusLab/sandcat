@@ -70,7 +70,7 @@ Optionally, the host project's `.idea/` directory can be mounted read-only
 into the workspace with `SANDCAT_MOUNT_IDEA_READONLY=true` at init time
 (defaults to on for the JetBrains IDE path), so run configurations and code
 styles carry over. See [Customizing optional volume
-mounts](../getting-started/initialization.md#customizing-optional-volume-mounts).
+mounts](../configuration/volume-mounts.md).
 
 ## Network
 
