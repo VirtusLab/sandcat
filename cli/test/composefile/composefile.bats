@@ -40,6 +40,23 @@ teardown() {
 	unstub_all
 }
 
+# Count in-place yq writes without needing a real binary. Non-inplace
+# queries (e.g. array length) print 1 so foot-comment helpers proceed.
+stub_yq_inplace_counter() {
+	YQ_INPLACE_COUNT=0
+	require() { return 0; }
+	yq() {
+		local a
+		for a in "$@"; do
+			if [[ "$a" == "-i" || "$a" == "--inplace" ]]; then
+				YQ_INPLACE_COUNT=$((YQ_INPLACE_COUNT + 1))
+				return 0
+			fi
+		done
+		echo 1
+	}
+}
+
 @test "add_settings_volume adds settings mount to proxy service" {
 	add_settings_volume "$PROXY_COMPOSE_FILE" ".sandcat/settings.json"
 
@@ -367,6 +384,42 @@ EOF
 EOF
 }
 
+@test "add_volume_entry with comment uses one in-place yq" {
+	stub_yq_inplace_counter
+	add_volume_entry "$COMPOSE_FILE" "../test:/workspace/test:ro" "true" "Test volume"
+	assert_equal "$YQ_INPLACE_COUNT" 1
+}
+
+@test "add_cursor_config_volumes uses one in-place yq for active mounts" {
+	stub_yq_inplace_counter
+	add_cursor_config_volumes "$COMPOSE_FILE" true "test-project"
+	assert_equal "$YQ_INPLACE_COUNT" 1
+}
+
+@test "add_cursor_config_volumes uses one in-place yq for inactive mounts" {
+	stub_yq_inplace_counter
+	add_cursor_config_volumes "$COMPOSE_FILE" false "test-project"
+	assert_equal "$YQ_INPLACE_COUNT" 1
+}
+
+@test "add_claude_config_volumes uses one in-place yq" {
+	stub_yq_inplace_counter
+	add_claude_config_volumes "$COMPOSE_FILE"
+	assert_equal "$YQ_INPLACE_COUNT" 1
+}
+
+@test "set_workspace uses one in-place yq" {
+	stub_yq_inplace_counter
+	set_workspace "$COMPOSE_FILE" "my-project"
+	assert_equal "$YQ_INPLACE_COUNT" 1
+}
+
+@test "add_jetbrains_capabilities uses one in-place yq" {
+	stub_yq_inplace_counter
+	add_jetbrains_capabilities "$COMPOSE_FILE"
+	assert_equal "$YQ_INPLACE_COUNT" 1
+}
+
 @test "set_workspace adds working_dir and workspace volumes" {
 	set_workspace "$COMPOSE_FILE" "my-project"
 
@@ -375,8 +428,11 @@ EOF
 
 	yq -e '.services.agent.volumes[] | select(. == "..:/workspaces/my-project")' "$COMPOSE_FILE"
 	yq -e '.services.agent.volumes[] | select(. == "../.devcontainer:/workspaces/my-project/.devcontainer:ro")' "$COMPOSE_FILE"
+	# Unset SANDCAT_AGENT_SANDCAT must not fall back to the live project .sandcat.
 	# shellcheck disable=SC2016
-	yq -e '.services.agent.volumes[] | select(. == "${SANDCAT_AGENT_SANDCAT:-../.sandcat}:/workspaces/my-project/.sandcat:ro")' "$COMPOSE_FILE"
+	yq -e '.services.agent.volumes[] | select(. == "${SANDCAT_AGENT_SANDCAT:?}:/workspaces/my-project/.sandcat:ro")' "$COMPOSE_FILE"
+	run yq -r '.services.agent.volumes[] | select(test(".sandcat:ro"))' "$COMPOSE_FILE"
+	refute_output --partial ':-'
 }
 
 # shellcheck disable=SC2016
