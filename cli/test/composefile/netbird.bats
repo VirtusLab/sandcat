@@ -60,7 +60,7 @@ teardown() {
     enable_netbird "$COMPOSE_FILE" "" "test-proxy"
 
     run yq -r '.services.mitmproxy.build.args.BASE_IMAGE' "$COMPOSE_FILE"
-    assert_output "ghcr.io/virtuslab/sandcat-mitmproxy-pass:latest"
+    assert_output "ghcr.io/virtuslab/sandcat-mitmproxy-pass:${SCT_MITMPROXY_VERSION}"
 }
 
 @test "enable_netbird keeps NetBird build args alongside BASE_IMAGE" {
@@ -68,7 +68,7 @@ teardown() {
     enable_netbird "$COMPOSE_FILE" "" "test-proxy"
 
     run yq -r '.services.mitmproxy.build.args.BASE_IMAGE' "$COMPOSE_FILE"
-    assert_output "ghcr.io/virtuslab/sandcat-mitmproxy-op:latest"
+    assert_output "ghcr.io/virtuslab/sandcat-mitmproxy-op:${SCT_MITMPROXY_VERSION}"
     yq -e '.services.mitmproxy.build.args | has("NETBIRD_VERSION")' "$COMPOSE_FILE"
 }
 
