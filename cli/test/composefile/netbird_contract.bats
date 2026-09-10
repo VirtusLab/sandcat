@@ -103,6 +103,22 @@ setup() {
     assert_success
 }
 
+@test "mitmproxy-init enrolls NetBird in the background after clearing health sentinels" {
+    local init="$SCT_TEMPLATEDIR/devcontainer/sandcat/scripts/mitmproxy-init.sh"
+    local main_body clear_line enroll_line exec_line
+    main_body=$(awk '/^main\(\)/,/^}/' "$init")
+    printf '%s\n' "$main_body" | grep -F 'clear_mitmproxy_health_sentinels'
+    printf '%s\n' "$main_body" | grep -F 'maybe_start_netbird_mesh &'
+    printf '%s\n' "$main_body" | grep -F 'exec docker-entrypoint.sh'
+    run grep -F 'INPUT -i "$iface" -p tcp --dport 8081 -j DROP' "$init"
+    assert_success
+    clear_line=$(printf '%s\n' "$main_body" | grep -n -m1 'clear_mitmproxy_health_sentinels' | cut -d: -f1)
+    enroll_line=$(printf '%s\n' "$main_body" | grep -n -m1 'maybe_start_netbird_mesh &' | cut -d: -f1)
+    exec_line=$(printf '%s\n' "$main_body" | grep -n -m1 'exec docker-entrypoint.sh' | cut -d: -f1)
+    [[ "$clear_line" -lt "$enroll_line" ]]
+    [[ "$enroll_line" -lt "$exec_line" ]]
+}
+
 @test "mitmproxy-init keeps NetBird WG port off mitmproxy WireGuard 51820" {
     local init="$SCT_TEMPLATEDIR/devcontainer/sandcat/scripts/mitmproxy-init.sh"
     # NetBird and mitmproxy --mode wireguard cannot both bind UDP 51820 in the
@@ -119,4 +135,12 @@ setup() {
     local dockerfile="$SCT_TEMPLATEDIR/devcontainer/sandcat/Dockerfile.wg-client"
     run grep -i 'netbird' "$dockerfile"
     assert_failure
+}
+
+@test "compose run attach restart export a filtered agent .sandcat mount" {
+    local f
+    for f in compose/compose run/run attach/attach restart/restart; do
+        run grep -F 'export_agent_sandcat_mount' "$SCT_ROOT/libexec/$f"
+        assert_success
+    done
 }

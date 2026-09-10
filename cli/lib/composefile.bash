@@ -516,7 +516,10 @@ set_workspace() {
 
 	add_volume_entry "$compose_file" "${project_rel}:${workspace}" "true" "Mount the project's code"
 	add_volume_entry "$compose_file" "${project_rel}/.devcontainer:${workspace}/.devcontainer:ro" "true" "Read-only devcontainer directory"
-	add_volume_entry "$compose_file" "${project_rel}/.sandcat:${workspace}/.sandcat:ro" "true" "Read-only settings directory"
+	add_volume_entry "$compose_file" \
+		"\${SANDCAT_AGENT_SANDCAT:-${project_rel}/.sandcat}:${workspace}/.sandcat:ro" \
+		"true" \
+		'Read-only settings directory (NetBird secrets stripped at compose/run)'
 }
 
 # Adds JetBrains-specific capabilities to the agent service.
@@ -701,7 +704,8 @@ apply_netbird_build_args() {
 # When NetBird is enabled, this function:
 #   1. Switches mitmproxy from the stock image to a build using Dockerfile.mitmproxy
 #      (which installs the pinned NetBird binary and mitmproxy-init.sh entrypoint).
-#   2. Removes the compose-level entrypoint override (mitmproxy-init.sh handles it).
+#   2. Removes the compose-level entrypoint override. mitmproxy-init.sh
+#      restores master's CA publish, dns.conf clear, and docker-entrypoint.sh.
 #   3. Adds cap_add: [NET_ADMIN] and the WireGuard src_valid_mark sysctl.
 #   4. Adds NB_SETUP_KEY (and optionally NB_MANAGEMENT_URL) to the environment.
 #   5. Injects NetBird build args (version + per-arch checksums) from netbird.env.

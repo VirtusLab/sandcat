@@ -42,6 +42,7 @@ run() {
 
 	export_netbird_compose_env
 	export_netbird_management_url
+	export_agent_sandcat_mount
 
 	local rc=0
 	docker compose -f "$compose_file" run --rm "${run_opts[@]+"${run_opts[@]}"}" agent "${1-bash}" "${@:2}" || rc=$?

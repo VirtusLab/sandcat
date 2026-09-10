@@ -29,6 +29,25 @@ teardown() {
 	assert_output "nbp_x"
 }
 
+@test "netbird_flatten_secret_setting keeps digit-only JSON strings" {
+	run netbird_flatten_secret_setting '"0123456789"'
+	assert_success
+	assert_output "0123456789"
+}
+
+@test "netbird_flatten_secret_setting keeps boolean-looking JSON strings" {
+	run netbird_flatten_secret_setting '"true"'
+	assert_success
+	assert_output "true"
+}
+
+@test "export_netbird_compose_env keeps a digit-only API token from user settings" {
+	printf '%s\n' '{"netbird_api_token":"0123456789"}' >"$HOME/.config/sandcat/settings.json"
+	unset NB_API_TOKEN
+	export_netbird_compose_env
+	[[ "$NB_API_TOKEN" == "0123456789" ]]
+}
+
 @test "netbird_flatten_secret_setting unwraps op object" {
 	run netbird_flatten_secret_setting '{"op":"op://Vault/Item/credential"}'
 	assert_success
@@ -87,4 +106,32 @@ teardown() {
 	PATH="$yq_dir:/usr/bin:/bin"
 	export_netbird_compose_env
 	[[ "$NB_API_TOKEN" == "op://Vault/Item/credential" ]]
+}
+
+@test "export_netbird_compose_env ignores a project-only API token" {
+	printf '%s\n' '{}' >"$HOME/.config/sandcat/settings.json"
+	printf '%s\n' '{"netbird_api_token":"project-token"}' >"$PROJECT_DIR/.sandcat/settings.json"
+	unset NB_API_TOKEN
+	export_netbird_compose_env
+	[[ -z "${NB_API_TOKEN:-}" ]]
+}
+
+@test "prepare_agent_sandcat_mount strips NetBird secrets and keeps other keys" {
+	mkdir -p "$PROJECT_DIR/.sandcat"
+	printf '%s\n' '{"netbird_api_token":"tok","netbird_enrollment_key":"key","network":[{"action":"allow"}]}' \
+		>"$PROJECT_DIR/.sandcat/settings.json"
+	printf '%s\n' '{"netbird_api_token":"local-tok","env":{"FOO":"bar"}}' \
+		>"$PROJECT_DIR/.sandcat/settings.local.json"
+	local dest="$BATS_TEST_TMPDIR/filtered"
+	prepare_agent_sandcat_mount "$PROJECT_DIR/.sandcat" "$dest"
+	run yq -r '.netbird_api_token' "$dest/settings.json"
+	assert_output "null"
+	run yq -r '.netbird_enrollment_key' "$dest/settings.json"
+	assert_output "null"
+	run yq -r '.network[0].action' "$dest/settings.json"
+	assert_output "allow"
+	run yq -r '.netbird_api_token' "$dest/settings.local.json"
+	assert_output "null"
+	run yq -r '.env.FOO' "$dest/settings.local.json"
+	assert_output "bar"
 }

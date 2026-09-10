@@ -136,8 +136,8 @@ devcontainer() {
 		# shellcheck source=../../lib/netbird.bash
 		source "$SCT_LIBDIR/netbird.bash"
 		mkdir -p "$project_path/$SCT_PROJECT_DIR"
+		peer_name_proxy="${project_name}-proxy"
 		netbird_ensure_peer_name_settings "$project_settings" "$project_name"
-		peer_name_proxy=$(yq -r '.netbird_peer_name_proxy // ""' "$project_settings")
 	fi
 
 	if [[ "$netbird" == "true" ]]; then

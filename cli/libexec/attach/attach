@@ -16,6 +16,7 @@ attach() {
 
 	export_netbird_compose_env
 	export_netbird_management_url
+	export_agent_sandcat_mount
 
 	if (($# == 0))
 	then

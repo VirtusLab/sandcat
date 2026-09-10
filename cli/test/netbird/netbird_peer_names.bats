@@ -35,14 +35,14 @@ JSON
 	assert_output "myapp-sandbox-proxy"
 }
 
-@test "netbird_ensure_peer_name_settings preserves non-empty overrides" {
+@test "netbird_ensure_peer_name_settings overwrites non-empty committed names" {
 	cat >"$SETTINGS" <<'JSON'
-{"netbird_peer_name_proxy": "custom-proxy"}
+{"netbird_peer_name_proxy": "victim-peer"}
 JSON
 	netbird_ensure_peer_name_settings "$SETTINGS" "myapp-sandbox"
 
 	run yq -r '.netbird_peer_name_proxy' "$SETTINGS"
-	assert_output "custom-proxy"
+	assert_output "myapp-sandbox-proxy"
 }
 
 @test "netbird_ensure_peer_name_settings creates settings file when missing" {

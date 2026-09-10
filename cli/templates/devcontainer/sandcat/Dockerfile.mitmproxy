@@ -67,7 +67,6 @@ COPY scripts/netbird-peer-lifecycle.sh /usr/local/lib/netbird-peer-lifecycle.sh
 COPY scripts/mitmproxy-init.sh /usr/local/bin/mitmproxy-init.sh
 RUN chmod +x /usr/local/bin/mitmproxy-init.sh
 
-# mitmproxy-init.sh runs as root, sets up NetBird, then drops to the
-# mitmproxy user via gosu before executing the mitmweb command passed
-# as arguments (the compose `command:` key).
+# mitmproxy-init.sh runs as root, sets up NetBird in the background, then
+# execs docker-entrypoint.sh so mitmweb still drops to the mitmproxy user.
 ENTRYPOINT ["/usr/local/bin/mitmproxy-init.sh"]

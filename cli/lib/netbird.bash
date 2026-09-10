@@ -11,6 +11,7 @@ source "${BASH_SOURCE%/*}/require.bash"
 
 # Reads a NetBird setting from sandcat settings layers. Later layers win when
 # non-empty (user < project < project local), matching mitmproxy addon precedence.
+# netbird_api_token and netbird_enrollment_key skip project layers.
 # Args:
 #   $1 - settings key (e.g. netbird_api_token)
 netbird_read_setting() {
@@ -22,9 +23,11 @@ netbird_read_setting() {
 
 	local -a layers=()
 	layers+=("$(sct_home)/settings.json")
-	if repo_root=$(find_repo_root 2>/dev/null); then
-		layers+=("$repo_root/$SCT_PROJECT_DIR/settings.json")
-		layers+=("$repo_root/$SCT_PROJECT_DIR/settings.local.json")
+	if ! netbird_setting_is_secret_key "$key"; then
+		if repo_root=$(find_repo_root 2>/dev/null); then
+			layers+=("$repo_root/$SCT_PROJECT_DIR/settings.json")
+			layers+=("$repo_root/$SCT_PROJECT_DIR/settings.local.json")
+		fi
 	fi
 
 	for file in "${layers[@]}"; do
@@ -38,8 +41,16 @@ netbird_read_setting() {
 	printf '%s' "$value"
 }
 
+# Enrollment key and API token are operator credentials. Project files are
+# cloned with the repo, so those two keys are read from user settings only.
+netbird_setting_is_secret_key() {
+	local key=$1
+	[[ "$key" == "netbird_api_token" || "$key" == "netbird_enrollment_key" ]]
+}
+
 # Same layers as netbird_read_setting, but each value is JSON (yq -o json).
-# Later non-null layers win. Prints `null` when unset.
+# Later non-null layers win. Prints `null` when unset. Keeps JSON string quotes
+# so digit-only or boolean-looking tokens are not re-parsed as YAML scalars.
 netbird_read_setting_json() {
 	local key=$1
 	require yq
@@ -47,13 +58,16 @@ netbird_read_setting_json() {
 	local file layer_value repo_root
 	local -a layers=()
 	layers+=("$(sct_home)/settings.json")
-	if repo_root=$(find_repo_root 2>/dev/null); then
-		layers+=("$repo_root/$SCT_PROJECT_DIR/settings.json")
-		layers+=("$repo_root/$SCT_PROJECT_DIR/settings.local.json")
+	if ! netbird_setting_is_secret_key "$key"; then
+		if repo_root=$(find_repo_root 2>/dev/null); then
+			layers+=("$repo_root/$SCT_PROJECT_DIR/settings.json")
+			layers+=("$repo_root/$SCT_PROJECT_DIR/settings.local.json")
+		fi
 	fi
 	for file in "${layers[@]}"; do
 		[[ -f "$file" ]] || continue
-		layer_value=$(yq -o json -r ".$key" "$file")
+		layer_value=$(yq -o json ".$key" "$file")
+		layer_value=${layer_value%$'\n'}
 		if [[ "$layer_value" != "null" ]]; then
 			value="$layer_value"
 		fi
@@ -70,21 +84,23 @@ netbird_flatten_secret_setting() {
 		printf ''
 		return 0
 	fi
+	# Parse as JSON so quoted digit-only / boolean-looking strings stay strings.
+	# YAML input would type 0123456789 as !!float and abort compose/run.
 	local typ
-	typ=$(printf '%s' "$json" | yq -r 'type')
+	typ=$(printf '%s' "$json" | yq -p json -r 'type')
 	case "$typ" in
-	string | !!str)
-		printf '%s' "$(printf '%s' "$json" | yq -r '.')"
+	string | !!str | number | !!float | !!int | bool | !!bool)
+		printf '%s' "$(printf '%s' "$json" | yq -p json -r '.')"
 		return 0
 		;;
 	object | !!map)
 		local n
-		n=$(printf '%s' "$json" | yq '[.value, .op, .pass] | map(select(. != null)) | length')
+		n=$(printf '%s' "$json" | yq -p json '[.value, .op, .pass] | map(select(. != null)) | length')
 		if [[ "$n" != "1" ]]; then
 			echo "netbird secret must specify exactly one of 'value', 'op', or 'pass'" >&2
 			return 1
 		fi
-		printf '%s' "$(printf '%s' "$json" | yq -r '.value // .op // .pass')"
+		printf '%s' "$(printf '%s' "$json" | yq -p json -r '.value // .op // .pass')"
 		return 0
 		;;
 	*)
@@ -94,8 +110,8 @@ netbird_flatten_secret_setting() {
 	esac
 }
 
-# Fills netbird_peer_name_proxy when absent or empty.
-# Does not overwrite non-empty values (operator overrides).
+# Always writes netbird_peer_name_proxy as {project}-proxy.
+# Committed settings must not choose the name: replace DELETEs that peer.
 # Args:
 #   $1 - path to a JSON settings file (usually .sandcat/settings.json)
 #   $2 - compose project name (e.g. myapp-sandbox)
@@ -110,11 +126,41 @@ netbird_ensure_peer_name_settings() {
 	local proxy
 	proxy=$(printf '%s-proxy' "$project_name")
 
-	proxy="$proxy" yq -i -o json '
-		.netbird_peer_name_proxy = (
-			.netbird_peer_name_proxy | select(. != null and . != "") // env(proxy)
-		)
-	' "$settings_file"
+	proxy="$proxy" yq -i -o json '.netbird_peer_name_proxy = env(proxy)' "$settings_file"
+}
+
+# Copies project .sandcat to dest and drops enrollment/API secrets so the
+# agent bind-mount cannot read them even if they were committed.
+# Args:
+#   $1 - source .sandcat directory
+#   $2 - destination directory (replaced)
+prepare_agent_sandcat_mount() {
+	local src=$1
+	local dest=$2
+	require yq
+
+	[[ -n "$dest" && "$dest" != "/" ]] || return 1
+	rm -rf "$dest"
+	mkdir -p "$dest"
+	[[ -d "$src" ]] || return 0
+	cp -a "$src/." "$dest/"
+
+	local f
+	for f in "$dest/settings.json" "$dest/settings.local.json"; do
+		[[ -f "$f" ]] || continue
+		yq -i -o json 'del(.netbird_api_token) | del(.netbird_enrollment_key)' "$f"
+	done
+}
+
+# Prepares a filtered .sandcat copy and exports SANDCAT_AGENT_SANDCAT for compose.
+export_agent_sandcat_mount() {
+	local repo_root src dest
+	repo_root=$(find_repo_root 2>/dev/null) || return 0
+	src="$repo_root/$SCT_PROJECT_DIR"
+	[[ -d "$src" ]] || return 0
+	dest="$(sct_home)/agent-sandcat/${repo_root//\//_}"
+	prepare_agent_sandcat_mount "$src" "$dest"
+	export SANDCAT_AGENT_SANDCAT="$dest"
 }
 
 # Export NB_SETUP_KEY from settings when not already set in the environment.
