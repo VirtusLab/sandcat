@@ -55,7 +55,22 @@ customize_compose_file() {
 		: "${SANDCAT_MOUNT_IDEA_READONLY:=true}"
 	fi
 
-	set_workspace "$compose_file" "$project_name"
+	# Agent is declared by the included sandcat/compose-agent.yml. Declaring
+	# it again in compose-all.yml makes Compose reject the project
+	# ("conflicts with imported resource") — include copies resources into
+	# the model, it never merges them (same rule as mitmproxy below). Write
+	# user-facing agent mounts into the included file and re-base relative
+	# paths one level deeper (sandcat/ → project root needs ../..).
+	local agent_compose="$compose_dir/sandcat/compose-agent.yml"
+	local agent_target="$compose_file"
+	local project_rel=".."
+	if [[ -f "$agent_compose" ]]
+	then
+		agent_target="$agent_compose"
+		project_rel="../.."
+	fi
+
+	set_workspace "$agent_target" "$project_name" "$project_rel"
 
 	# mitmproxy is declared by the included sandcat/compose-proxy.yml, so the
 	# mount has to go there. Declaring the service here as well makes Compose
@@ -71,34 +86,34 @@ customize_compose_file() {
 
 	case "$agent" in
 		claude)
-			add_claude_config_volumes "$compose_file" "${SANDCAT_MOUNT_CLAUDE_CONFIG:=true}"
+			add_claude_config_volumes "$agent_target" "${SANDCAT_MOUNT_CLAUDE_CONFIG:=true}"
 			;;
 		codex)
-			add_codex_config_volumes "$compose_file" "${SANDCAT_MOUNT_CODEX_CONFIG:=true}"
+			add_codex_config_volumes "$agent_target" "${SANDCAT_MOUNT_CODEX_CONFIG:=true}"
 			;;
 		copilot)
-			add_copilot_config_volumes "$compose_file" "${SANDCAT_MOUNT_COPILOT_CONFIG:=true}"
+			add_copilot_config_volumes "$agent_target" "${SANDCAT_MOUNT_COPILOT_CONFIG:=true}"
 			;;
 		cursor)
-			add_cursor_config_volumes "$compose_file" "${SANDCAT_MOUNT_CURSOR_CONFIG:=true}" "$project_name"
+			add_cursor_config_volumes "$agent_target" "${SANDCAT_MOUNT_CURSOR_CONFIG:=true}" "$project_name"
 			;;
 	esac
 
-	add_git_readonly_volume "$compose_file" "${SANDCAT_MOUNT_GIT_READONLY:=false}"
-	add_idea_readonly_volume "$compose_file" "${SANDCAT_MOUNT_IDEA_READONLY:-false}"
+	add_git_readonly_volume "$agent_target" "${SANDCAT_MOUNT_GIT_READONLY:=false}" "$project_rel"
+	add_idea_readonly_volume "$agent_target" "${SANDCAT_MOUNT_IDEA_READONLY:-false}" "$project_rel"
 
 	local -a stacks_arr=()
 	if [[ -n "$stacks" ]]; then
 		read -ra stacks_arr <<< "$stacks"
 	fi
-	add_shared_cache_volumes "$compose_file" "${SANDCAT_MOUNT_SHARED_CACHE:=true}" "${stacks_arr[@]+"${stacks_arr[@]}"}"
+	add_shared_cache_volumes "$agent_target" "${SANDCAT_MOUNT_SHARED_CACHE:=true}" "${stacks_arr[@]+"${stacks_arr[@]}"}"
 
 	if [[ $ide == "jetbrains" ]]
 	then
-		add_jetbrains_capabilities "$compose_file"
+		add_jetbrains_capabilities "$agent_target"
 	fi
 
-	strip_entry_blank_lines "$compose_file"
+	strip_entry_blank_lines "$agent_target"
 	if [[ -f "$proxy_compose" ]]
 	then
 		strip_entry_blank_lines "$proxy_compose"
@@ -391,22 +406,26 @@ add_cursor_config_volumes() {
 # Args:
 #   $1 - Path to the Docker Compose file
 #   $2 - true to add as active, false to add as comment
+#   $3 - Relative path from that compose file to the project root (default: ..)
 add_git_readonly_volume() {
 	local compose_file=$1
 	local active=${2:-true}
+	local project_rel=${3:-..}
 
-	add_volume_entry "$compose_file" '../.git:/workspace/.git:ro' "$active" 'Read-only Git directory'
+	add_volume_entry "$compose_file" "${project_rel}/.git:/workspace/.git:ro" "$active" 'Read-only Git directory'
 }
 
 # Adds .idea directory mount as read-only to the agent service.
 # Args:
 #   $1 - Path to the Docker Compose file
 #   $2 - true to add as active, false to add as comment
+#   $3 - Relative path from that compose file to the project root (default: ..)
 add_idea_readonly_volume() {
 	local compose_file=$1
 	local active=${2:-true}
+	local project_rel=${3:-..}
 
-	add_volume_entry "$compose_file" '../.idea:/workspace/.idea:ro' "$active" 'Read-only IntelliJ IDEA project directory'
+	add_volume_entry "$compose_file" "${project_rel}/.idea:/workspace/.idea:ro" "$active" 'Read-only IntelliJ IDEA project directory'
 }
 
 # Adds shared-cache mount entries + top-level external volume declarations
@@ -481,21 +500,23 @@ add_shared_cache_volumes() {
 
 # Sets the working directory and adds workspace volume mounts for the agent service.
 # Args:
-#   $1 - Path to the Docker Compose file
+#   $1 - Path to the Docker Compose file that declares services.agent
 #   $2 - Project name (used to construct /workspaces/<project_name>)
+#   $3 - Relative path from that compose file to the project root (default: ..)
 set_workspace() {
 	require yq
 	local compose_file=$1
 	local project_name=$2
+	local project_rel=${3:-..}
 
 	local workspace="/workspaces/$project_name"
 
 	project_name="$project_name" yq -i \
 		'.services.agent.working_dir = "/workspaces/" + env(project_name)' "$compose_file"
 
-	add_volume_entry "$compose_file" "..:${workspace}" "true" "Mount the project's code"
-	add_volume_entry "$compose_file" "../.devcontainer:${workspace}/.devcontainer:ro" "true" "Read-only devcontainer directory"
-	add_volume_entry "$compose_file" "../.sandcat:${workspace}/.sandcat:ro" "true" "Read-only settings directory"
+	add_volume_entry "$compose_file" "${project_rel}:${workspace}" "true" "Mount the project's code"
+	add_volume_entry "$compose_file" "${project_rel}/.devcontainer:${workspace}/.devcontainer:ro" "true" "Read-only devcontainer directory"
+	add_volume_entry "$compose_file" "${project_rel}/.sandcat:${workspace}/.sandcat:ro" "true" "Read-only settings directory"
 }
 
 # Adds JetBrains-specific capabilities to the agent service.

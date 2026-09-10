@@ -341,8 +341,8 @@ teardown() {
 }
 
 @test "compose-agent.yml mounts agent from mitmproxy-public (not mitmproxy-config)" {
-	# The agent's constant volumes live in sandcat/compose-agent.yml since the
-	# #22 split; compose-all.yml only carries user-editable overrides.
+	# The agent's volumes live in sandcat/compose-agent.yml; compose-all.yml
+	# must not redeclare services.agent (Compose include rejects that).
 	yq -e '.services.agent.volumes[] | select(. == "mitmproxy-public:/mitmproxy-config:ro")' \
 		"$SCT_TEMPLATEDIR/devcontainer/sandcat/compose-agent.yml"
 
@@ -350,6 +350,11 @@ teardown() {
 	run yq -e '.services.agent.volumes[] | select(. == "mitmproxy-config:/mitmproxy-config:ro")' \
 		"$SCT_TEMPLATEDIR/devcontainer/sandcat/compose-agent.yml"
 	[ "$status" -ne 0 ]
+
+	# compose-all.yml must stay free of services.agent.
+	run yq -e '.services | has("agent")' \
+		"$SCT_TEMPLATEDIR/devcontainer/compose-all.yml"
+	assert_failure
 }
 
 # --------------------------------------------------- upstream CA bundles

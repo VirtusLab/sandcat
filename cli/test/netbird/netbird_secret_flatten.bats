@@ -77,7 +77,14 @@ teardown() {
 @test "export_netbird_compose_env does not invoke op" {
 	echo '{"netbird_api_token":{"op":"op://Vault/Item/credential"}}' > "$HOME/.config/sandcat/settings.json"
 	unset NB_API_TOKEN
-	PATH="/usr/local/bin:/usr/bin:/bin"
+	# require.bash defines a yq() function, so `command -v yq` is the function
+	# name — use type -P for the real binary. Keep that dir on PATH while
+	# dropping any `op` so a mistaken resolve would fail loudly.
+	local yq_bin yq_dir
+	yq_bin=$(type -P yq)
+	[[ -n "$yq_bin" ]]
+	yq_dir=$(dirname "$yq_bin")
+	PATH="$yq_dir:/usr/bin:/bin"
 	export_netbird_compose_env
 	[[ "$NB_API_TOKEN" == "op://Vault/Item/credential" ]]
 }
