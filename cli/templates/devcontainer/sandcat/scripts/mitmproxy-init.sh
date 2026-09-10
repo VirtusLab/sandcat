@@ -2,10 +2,9 @@
 # cli/templates/devcontainer/sandcat/scripts/mitmproxy-init.sh
 #
 # Entrypoint wrapper for the mitmproxy container when NetBird is enabled.
-# Runs as root, optionally enrolls mitmproxy as a NetBird peer on wt0,
-# starts a DNS publishing loop so wg-client dnsmasq can resolve mesh FQDNs,
-# then drops privileges to the mitmproxy user and execs the mitmweb command
-# passed as arguments (the compose `command:` value).
+# Clears healthcheck sentinels, publishes the CA cert, optionally enrolls
+# mitmproxy as a NetBird peer on wt0 in the background, then execs
+# docker-entrypoint.sh with the compose `command:` (mitmweb).
 #
 # NetBird enrollment is optional: if NB_SETUP_KEY is not set (directly or via
 # settings.json), mitmproxy starts normally without mesh connectivity.
@@ -41,6 +40,9 @@ NETBIRD_DNS_DOMAIN="${NETBIRD_DNS_DOMAIN:-netbird.selfhosted}"
 NETBIRD_DNS_CONF_PATH="${NETBIRD_DNS_CONF_PATH:-/home/mitmproxy/.mitmproxy/netbird-peers.conf}"
 NETBIRD_PEER_LOG_PREFIX="${NETBIRD_PEER_LOG_PREFIX:-mitmproxy}"
 NETBIRD_PEER_LIFECYCLE_PATH="${NETBIRD_PEER_LIFECYCLE_PATH:-/usr/local/lib/netbird-peer-lifecycle.sh}"
+MITMPROXY_HOME="${MITMPROXY_HOME:-/home/mitmproxy/.mitmproxy}"
+MITMPROXY_PUBLIC="${MITMPROXY_PUBLIC:-/mitmproxy-public}"
+MITMPROXY_WEB_PASSWORD_FILE="${MITMPROXY_WEB_PASSWORD_FILE:-$MITMPROXY_HOME/web_password}"
 
 # shellcheck source=/usr/local/lib/netbird-peer-lifecycle.sh
 source "$NETBIRD_PEER_LIFECYCLE_PATH"
@@ -205,6 +207,7 @@ start_netbird() {
         ip link show "${iface}" >/dev/null 2>&1; then
         return 1
     fi
+    lockdown_wt0_ingress "$iface"
 }
 
 supervise_netbird_daemon() {
@@ -234,6 +237,7 @@ supervise_netbird_daemon() {
                     --hostname "${NB_PEER_NAME}" \
                     --interface-name "${iface}" \
                     --wireguard-port "${NETBIRD_WG_PORT}" || true
+                lockdown_wt0_ingress "$iface"
             fi
         fi
     done
@@ -323,17 +327,58 @@ supervise_netbird_dns_publish() {
     done
 }
 
-main() {
-    # ── Read NetBird credentials from settings if not in environment ─────────────
-    # Prefer NB_SETUP_KEY from compose passthrough (sandcat exports it from layered
-    # settings). Leave env empty when unset so prepare can flatten object-shaped
-    # secrets from the mounted user settings.json (not project .sandcat/settings.json).
+# Drop stale healthcheck sentinels before mitmweb or NetBird start. The
+# mitmproxy-config volume persists across restarts; leaving dns.conf in place
+# lets the healthcheck pass and wg-client read the previous run's upstream.
+clear_mitmproxy_health_sentinels() {
+    mkdir -p "$MITMPROXY_PUBLIC" "$MITMPROXY_HOME"
+    chown -R mitmproxy:mitmproxy "$MITMPROXY_PUBLIC" 2>/dev/null || true
+    rm -f "$MITMPROXY_HOME/dns.conf" "$MITMPROXY_PUBLIC/mitmproxy-ca-cert.pem"
+}
+
+# Copy the CA cert onto the agent-facing volume once mitmproxy writes it.
+# Healthcheck gates on this file (same as the stock compose entrypoint).
+publish_mitmproxy_ca_loop() {
+    (
+        while [[ ! -f "$MITMPROXY_HOME/mitmproxy-ca-cert.pem" ]]; do
+            sleep 1
+        done
+        cp "$MITMPROXY_HOME/mitmproxy-ca-cert.pem" "$MITMPROXY_PUBLIC/mitmproxy-ca-cert.pem.tmp"
+        mv "$MITMPROXY_PUBLIC/mitmproxy-ca-cert.pem.tmp" "$MITMPROXY_PUBLIC/mitmproxy-ca-cert.pem"
+    ) &
+}
+
+# wt0 is in this netns and NetBird's default policy is all-to-all. Without an
+# INPUT drop, any mesh peer can open mitmweb (8081) or the NetBird WG port.
+lockdown_wt0_ingress() {
+    local iface="${1:-$NETBIRD_IFACE}"
+    local wg_port="${NETBIRD_WG_PORT:-51821}"
+    command -v iptables >/dev/null 2>&1 || return 0
+    ip link show "$iface" >/dev/null 2>&1 || return 0
+    iptables -C INPUT -i "$iface" -p tcp --dport 8081 -j DROP 2>/dev/null \
+        || iptables -I INPUT -i "$iface" -p tcp --dport 8081 -j DROP
+    iptables -C INPUT -i "$iface" -p udp --dport "$wg_port" -j DROP 2>/dev/null \
+        || iptables -I INPUT -i "$iface" -p udp --dport "$wg_port" -j DROP
+}
+
+ensure_mitmweb_password() {
+    local pwfile="${MITMPROXY_WEB_PASSWORD_FILE}"
+    mkdir -p "$(dirname "$pwfile")"
+    if [[ ! -s "$pwfile" ]]; then
+        umask 077
+        dd if=/dev/urandom bs=18 count=1 2>/dev/null | base64 | tr -d '/+\n=' >"$pwfile"
+        echo "[mitmproxy] generated mitmweb password; cat $pwfile" >&2
+    fi
+    cat "$pwfile"
+}
+
+# Mesh enrollment must not block the L7 proxy (healthcheck / wg-client).
+maybe_start_netbird_mesh() {
     local _settings_file="/config/settings.json"
     local _setup_key_from_compose=0
     [[ -n "${NB_SETUP_KEY:-}" ]] && _setup_key_from_compose=1
     if [[ -f "$_settings_file" ]] && command -v jq >/dev/null 2>&1; then
         if [[ -z "${NB_MANAGEMENT_URL:-}" ]]; then
-            # Prefer enrollment-specific URL for container-side access to self-hosted server.
             local _enrollment_url
             _enrollment_url=$(jq -r '.netbird_enrollment_management_url // .netbird_management_url // empty' "$_settings_file" 2>/dev/null || true)
             if [[ -n "$_enrollment_url" ]]; then
@@ -343,11 +388,9 @@ main() {
         fi
     fi
 
-    # ── NetBird enrollment (optional, best-effort) ───────────────────────────────
-    # Mesh enrollment must not block the L7 proxy. Prepare before the gate so
-    # object-shaped settings secrets flatten; skip mesh if prepare fails.
     if ! netbird_prepare_enroll_credentials; then
         echo "[mitmproxy] Failed to prepare NetBird enroll credentials; starting L7 proxy without mesh." >&2
+        return 0
     elif [[ -n "${NB_SETUP_KEY:-}" ]]; then
         if [[ "$_setup_key_from_compose" -eq 0 ]]; then
             echo "[mitmproxy] Loaded NB_SETUP_KEY from $_settings_file (compose did not pass it)." >&2
@@ -361,7 +404,6 @@ main() {
         else
             echo "[mitmproxy] NetBird enrollment failed; starting L7 proxy without mesh." >&2
             echo "[mitmproxy] Check netbird_enrollment_key / NB_MANAGEMENT_URL, then recreate mitmproxy." >&2
-            # Keep a supervisor so a later fix of the key/server can still bring wt0 up.
             supervise_netbird_daemon "$NETBIRD_IFACE" &
             supervise_netbird_dns_publish &
         fi
@@ -369,15 +411,30 @@ main() {
         echo "[mitmproxy] NB_SETUP_KEY not set; starting without NetBird mesh." >&2
         echo "[mitmproxy] Hint: ensure compose passes NB_SETUP_KEY (enable_netbird) and sandcat exports netbird_enrollment_key." >&2
     fi
+}
 
-    # ── Clear stale dns.conf sentinel ────────────────────────────────────────────
-    # The mitmproxy-config volume persists across restarts. Clearing here
-    # (rather than in the compose entrypoint override) ensures the addon rewrites
-    # it fresh on each start before wg-client reads it.
-    rm -f /home/mitmproxy/.mitmproxy/dns.conf
+main() {
+    # Restore the stock compose entrypoint's healthcheck contract, then enroll
+    # in the background so NetBird cannot stall mitmweb / wg-client.
+    clear_mitmproxy_health_sentinels
+    publish_mitmproxy_ca_loop
 
-    # ── Drop privileges and start mitmweb ────────────────────────────────────────
-    exec gosu mitmproxy "$@"
+    local password
+    password=$(ensure_mitmweb_password)
+    local -a cmd_args=()
+    while [[ $# -gt 0 ]]; do
+        if [[ "$1" == "--set" && "${2-}" == web_password=* ]]; then
+            cmd_args+=(--set "web_password=${password}")
+            shift 2
+            continue
+        fi
+        cmd_args+=("$1")
+        shift
+    done
+
+    maybe_start_netbird_mesh &
+
+    exec docker-entrypoint.sh "${cmd_args[@]}"
 }
 
 if [[ "${BASH_SOURCE[0]}" = "${0}" ]]; then

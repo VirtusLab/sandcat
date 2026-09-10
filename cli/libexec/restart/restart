@@ -20,6 +20,7 @@ restart() {
 
 	export_netbird_compose_env
 	export_netbird_management_url
+	export_agent_sandcat_mount
 
 	local proxy_status
 	proxy_status=$(docker compose -f "$compose_file" ps mitmproxy --status running --quiet 2>/dev/null) || true

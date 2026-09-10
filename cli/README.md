@@ -307,10 +307,11 @@ sandcat edit user-settings
 ```
 
 `sandcat compose` and `sandcat run` read `netbird_enrollment_key` and
-`netbird_api_token` from the same settings layers (project settings override
-user settings when non-empty) and export `NB_SETUP_KEY` / `NB_API_TOKEN`
-when starting containers. Environment variables `NB_SETUP_KEY` and
-`NB_API_TOKEN` override settings when set.
+`netbird_api_token` from **user** settings (`~/.config/sandcat/settings.json`)
+only — not from project `.sandcat/` files, which are bind-mounted into the
+agent. Environment variables `NB_SETUP_KEY` and `NB_API_TOKEN` override
+user settings when set. The agent mount is a filtered copy with those two
+keys stripped.
 
 ### Management server
 

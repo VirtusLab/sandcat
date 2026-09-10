@@ -114,3 +114,29 @@ JSON
 
 	[[ ! -f "$NETBIRD_DNS_CONF_PATH" ]]
 }
+
+@test "clear_mitmproxy_health_sentinels deletes stale dns.conf and published CA first" {
+	MITMPROXY_HOME="$BATS_TEST_TMPDIR/mitm-home"
+	MITMPROXY_PUBLIC="$BATS_TEST_TMPDIR/mitm-public"
+	mkdir -p "$MITMPROXY_HOME" "$MITMPROXY_PUBLIC"
+	printf 'stale\n' >"$MITMPROXY_HOME/dns.conf"
+	printf 'old-ca\n' >"$MITMPROXY_PUBLIC/mitmproxy-ca-cert.pem"
+
+	clear_mitmproxy_health_sentinels
+
+	[[ ! -e "$MITMPROXY_HOME/dns.conf" ]]
+	[[ ! -e "$MITMPROXY_PUBLIC/mitmproxy-ca-cert.pem" ]]
+}
+
+@test "ensure_mitmweb_password persists a generated password" {
+	MITMPROXY_HOME="$BATS_TEST_TMPDIR/mitm-home"
+	MITMPROXY_WEB_PASSWORD_FILE="$MITMPROXY_HOME/web_password"
+	mkdir -p "$MITMPROXY_HOME"
+
+	ensure_mitmweb_password >/dev/null
+	local pw
+	pw=$(cat "$MITMPROXY_WEB_PASSWORD_FILE")
+	[[ ${#pw} -ge 16 ]]
+	ensure_mitmweb_password >/dev/null
+	[[ "$(cat "$MITMPROXY_WEB_PASSWORD_FILE")" == "$pw" ]]
+}

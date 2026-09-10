@@ -96,6 +96,22 @@ assert_no_include_conflicts() {
 	assert_output "0"
 }
 
+@test "init --netbird derives NB_PEER_NAME from the project and ignores settings" {
+	printf '%s\n' '{"netbird_peer_name_proxy":"victim-peer"}' >"$PROJECT_DIR/.sandcat/settings.json"
+	stub settings "$PROJECT_DIR/.sandcat/settings.json cursor : :"
+
+	run init --agent cursor --ide none --name myapp-sandbox --path "$PROJECT_DIR" \
+		--stacks "" --proxy web --features "" --secret-provider none \
+		--netbird
+	assert_success
+
+	run yq -r '.services.mitmproxy.environment[] | select(test("^NB_PEER_NAME="))' \
+		"$PROJECT_DIR/.devcontainer/sandcat/compose-proxy.yml"
+	assert_output "NB_PEER_NAME=myapp-sandbox-proxy"
+	run yq -r '.netbird_peer_name_proxy' "$PROJECT_DIR/.sandcat/settings.json"
+	assert_output "myapp-sandbox-proxy"
+}
+
 @test "init mounts project settings on the imported mitmproxy service" {
 	stub settings "$PROJECT_DIR/.sandcat/settings.json claude vscode : :"
 

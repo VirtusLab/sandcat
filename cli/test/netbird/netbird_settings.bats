@@ -28,21 +28,29 @@ teardown() {
     assert_output "user-token"
 }
 
-@test "netbird_read_setting prefers project settings over user settings" {
+@test "netbird_read_setting ignores project-layer API token" {
     echo '{"netbird_api_token": "user-token"}' > "$HOME/.config/sandcat/settings.json"
     echo '{"netbird_api_token": "project-token"}' > "$PROJECT_DIR/.sandcat/settings.json"
 
     run netbird_read_setting netbird_api_token
-    assert_output "project-token"
+    assert_output "user-token"
 }
 
-@test "netbird_read_setting prefers local project settings over project settings" {
+@test "netbird_read_setting ignores local project API token" {
     echo '{"netbird_api_token": "user-token"}' > "$HOME/.config/sandcat/settings.json"
     echo '{"netbird_api_token": "project-token"}' > "$PROJECT_DIR/.sandcat/settings.json"
     echo '{"netbird_api_token": "local-token"}' > "$PROJECT_DIR/.sandcat/settings.local.json"
 
     run netbird_read_setting netbird_api_token
-    assert_output "local-token"
+    assert_output "user-token"
+}
+
+@test "netbird_read_setting still prefers project settings for management URL" {
+    echo '{"netbird_management_url": "https://user.example.com"}' > "$HOME/.config/sandcat/settings.json"
+    echo '{"netbird_management_url": "https://project.example.com"}' > "$PROJECT_DIR/.sandcat/settings.json"
+
+    run netbird_read_setting netbird_management_url
+    assert_output "https://project.example.com"
 }
 
 @test "export_netbird_compose_env exports enrollment key from user settings" {

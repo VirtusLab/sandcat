@@ -375,7 +375,8 @@ EOF
 
 	yq -e '.services.agent.volumes[] | select(. == "..:/workspaces/my-project")' "$COMPOSE_FILE"
 	yq -e '.services.agent.volumes[] | select(. == "../.devcontainer:/workspaces/my-project/.devcontainer:ro")' "$COMPOSE_FILE"
-	yq -e '.services.agent.volumes[] | select(. == "../.sandcat:/workspaces/my-project/.sandcat:ro")' "$COMPOSE_FILE"
+	# shellcheck disable=SC2016
+	yq -e '.services.agent.volumes[] | select(. == "${SANDCAT_AGENT_SANDCAT:-../.sandcat}:/workspaces/my-project/.sandcat:ro")' "$COMPOSE_FILE"
 }
 
 # shellcheck disable=SC2016

@@ -1078,7 +1078,7 @@ class TestConfigLoading:
              patch(f"{_COMMON}.SANDCAT_ENV_PATH", str(env_path)):
             addon.load(MagicMock())
         content = env_path.read_text()
-        assert 'export SANDCAT_NETBIRD_DNS_DOMAIN="netbird.selfhosted"' in content
+        assert "export SANDCAT_NETBIRD_DNS_DOMAIN=netbird.selfhosted" in content
 
     def test_netbird_dns_domain_not_emitted_when_env_var_absent(
         self, addon_cls, tmp_path, monkeypatch
@@ -1108,7 +1108,7 @@ class TestConfigLoading:
              patch(f"{_COMMON}.SANDCAT_ENV_PATH", str(env_path)):
             addon.load(MagicMock())
         content = env_path.read_text()
-        assert 'export SANDCAT_NETBIRD_DNS_DOMAIN="nb.corp.example.com"' in content
+        assert "export SANDCAT_NETBIRD_DNS_DOMAIN=nb.corp.example.com" in content
 
 
 # ---------------------------------------------------------------------------
@@ -1346,7 +1346,7 @@ class TestOpSecretResolution:
         assert value == "secret-value"
         mock_run.assert_called_once_with(
             ["pass-cli", "item", "view", "pass://vault/item/field"],
-            capture_output=True, text=True, timeout=30,
+            capture_output=True, text=True, timeout=60,
         )
 
     def test_pass_without_prefix_raises(self, addon_cls):
@@ -1362,7 +1362,8 @@ class TestOpSecretResolution:
 
     def test_pass_cli_failure_raises(self, addon_cls):
         entry = {"pass": "pass://vault/item/field", "hosts": []}
-        with patch(f"{_COMMON}.subprocess.run") as mock_run:
+        with patch(f"{_COMMON}.subprocess.run") as mock_run, \
+             patch(f"{_COMMON}.time.sleep"):
             mock_run.return_value = MagicMock(
                 returncode=1, stdout="", stderr="unauthorized"
             )
