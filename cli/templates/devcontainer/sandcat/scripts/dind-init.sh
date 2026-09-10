@@ -36,6 +36,11 @@ echo "[dind] default route via wg-client ($WG_IP)"
 
 mkdir -p /docker-sock/bin
 cp /usr/local/bin/docker /docker-sock/bin/docker
+# CLI plugins (compose, buildx) are client-side binaries — without them the
+# agent's `docker compose` / `docker build` would fail even though the
+# daemon is fine. Publish them next to the CLI so versions cannot drift.
+mkdir -p /docker-sock/cli-plugins
+cp /usr/local/libexec/docker/cli-plugins/* /docker-sock/cli-plugins/
 
 # Group 1000 matches the agent's vscode gid; dockerd chgrps the socket to it.
 addgroup -g 1000 sandcat 2>/dev/null || true

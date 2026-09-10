@@ -473,6 +473,17 @@ EOF
 	[ "$status" -ne 0 ]
 }
 
+@test "dind-init publishes the docker CLI and its plugins for the agent" {
+	local s="$SCT_TEMPLATEDIR/devcontainer/sandcat/scripts/dind-init.sh"
+	run grep -F "cp /usr/local/bin/docker /docker-sock/bin/docker" "$s"
+	assert_success
+	run grep -F "cp /usr/local/libexec/docker/cli-plugins/* /docker-sock/cli-plugins/" "$s"
+	assert_success
+	run grep -F "TESTCONTAINERS_HOST_OVERRIDE" \
+		"$SCT_TEMPLATEDIR/devcontainer/sandcat/scripts/docker-env.sh"
+	assert_success
+}
+
 @test "Dockerfile.app installs the guarded docker-env profile script" {
 	run grep -F "COPY --chmod=644 sandcat/scripts/docker-env.sh /etc/profile.d/sandcat-docker.sh" \
 		"$SCT_TEMPLATEDIR/devcontainer/Dockerfile.app"

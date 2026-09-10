@@ -11,3 +11,16 @@ if [ -d /docker-sock/bin ]; then
         *) export PATH="/docker-sock/bin:$PATH" ;;
     esac
 fi
+# The docker CLI discovers plugins client-side (~/.docker/cli-plugins);
+# link the set the dind service published so `docker compose` / `docker
+# buildx` work. agent-home is a writable volume, so the link persists;
+# the guard keeps this a one-time, idempotent action.
+if [ -d /docker-sock/cli-plugins ] && [ ! -e "$HOME/.docker/cli-plugins" ]; then
+    mkdir -p "$HOME/.docker" 2>/dev/null \
+        && ln -s /docker-sock/cli-plugins "$HOME/.docker/cli-plugins" 2>/dev/null
+fi
+# Testcontainers assumes "docker host = localhost" for a unix socket, but
+# inner ports publish in the dind service's namespace — point it there.
+if [ -S /docker-sock/docker.sock ]; then
+    export TESTCONTAINERS_HOST_OVERRIDE="dind"
+fi
