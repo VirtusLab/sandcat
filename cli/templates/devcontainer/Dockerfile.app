@@ -30,6 +30,7 @@ RUN rm -f /etc/sudoers.d/vscode
 COPY --chmod=755 sandcat/scripts/app-init.sh /usr/local/bin/app-init.sh
 COPY --chmod=755 sandcat/scripts/app-user-init.sh /usr/local/bin/app-user-init.sh
 COPY --chmod=644 sandcat/scripts/java-env.sh /etc/profile.d/sandcat-java.sh
+COPY --chmod=644 sandcat/scripts/docker-env.sh /etc/profile.d/sandcat-docker.sh
 COPY --chown=vscode:vscode sandcat/tmux.conf /home/vscode/.tmux.conf
 
 USER vscode

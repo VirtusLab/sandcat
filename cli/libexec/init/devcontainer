@@ -120,6 +120,10 @@ devcontainer() {
 	apply_upstream_ca_bundles "$devcontainer_dir/sandcat/compose-proxy.yml" "$project_path"
 
 	customize_compose_file "$rel_settings_file" "$compose_file" "$agent" "$ide" "$project_name" "$stacks"
+
+	if [[ "${SANDCAT_DOCKER:-false}" == "true" ]]; then
+		enable_docker "$compose_file"
+	fi
 	set_project_name "$compose_file" "$project_name"
 
 	customize_devcontainer_json "$devcontainer_dir/devcontainer.json" "$project_name" "$ide"
