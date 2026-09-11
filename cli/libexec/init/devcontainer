@@ -136,6 +136,7 @@ devcontainer() {
 		# shellcheck source=../../lib/netbird.bash
 		source "$SCT_LIBDIR/netbird.bash"
 		mkdir -p "$project_path/$SCT_PROJECT_DIR"
+		export SANDCAT_PROJECT_ROOT="$project_path"
 		peer_name_proxy="${project_name}-proxy"
 		netbird_ensure_peer_name_settings "$project_settings" "$project_name"
 	fi
@@ -161,6 +162,14 @@ devcontainer() {
 		read -ra stacks_arr_jb <<< "$stacks"
 		customize_devcontainer_plugins "$devcontainer_dir/devcontainer.json" "${stacks_arr_jb[@]}"
 	fi
+
+	# Compose interpolates ${SANDCAT_AGENT_SANDCAT:?} with no fallback to the
+	# live project .sandcat. Write .devcontainer/.env now so `docker compose
+	# config` and Dev Containers work before initializeCommand runs.
+	# shellcheck source=../../lib/netbird.bash
+	source "$SCT_LIBDIR/netbird.bash"
+	export SANDCAT_PROJECT_ROOT="$project_path"
+	export_agent_sandcat_mount
 
 	echo "Devcontainer dir created at ${devcontainer_dir#"$project_path"/}" | info
 }

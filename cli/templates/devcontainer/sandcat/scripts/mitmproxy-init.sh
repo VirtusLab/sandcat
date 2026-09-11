@@ -3,8 +3,8 @@
 #
 # Entrypoint wrapper for the mitmproxy container when NetBird is enabled.
 # Clears healthcheck sentinels, publishes the CA cert, optionally enrolls
-# mitmproxy as a NetBird peer on wt0 in the background, then execs
-# docker-entrypoint.sh with the compose `command:` (mitmweb).
+# mitmproxy as a NetBird peer on wt0 in the background, then runs
+# docker-entrypoint.sh as a child so SIGTERM can call netbird down.
 #
 # NetBird enrollment is optional: if NB_SETUP_KEY is not set (directly or via
 # settings.json), mitmproxy starts normally without mesh connectivity.
@@ -47,200 +47,12 @@ MITMPROXY_WEB_PASSWORD_FILE="${MITMPROXY_WEB_PASSWORD_FILE:-$MITMPROXY_HOME/web_
 # shellcheck source=/usr/local/lib/netbird-peer-lifecycle.sh
 source "$NETBIRD_PEER_LIFECYCLE_PATH"
 
-wait_until() {
-    local max="$1" delay="$2" msg="$3"
-    shift 3
-    local attempt=0
-    while ! "$@"; do
-        if [[ "$attempt" -ge "$max" ]]; then
-            echo "$msg" >&2
-            return 1
-        fi
-        sleep "$delay"
-        attempt=$((attempt + 1))
-    done
-}
-
-netbird_management_url_host() {
-    local url=$1
-    [[ "$url" =~ ^https?://([^/:]+) ]] || return 1
-    printf '%s' "${BASH_REMATCH[1]}"
-}
-
-netbird_management_url_host_is_literal_ipv4() {
-    local host=$1
-    [[ "$host" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]
-}
-
-netbird_management_url_port() {
-    local url=$1
-    if [[ "$url" =~ :([0-9]+)(/|$|\?) ]]; then
-        printf '%s' "${BASH_REMATCH[1]}"
-        return 0
-    fi
-    if [[ "$url" =~ ^https:// ]]; then
-        printf '443'
-    else
-        printf '80'
-    fi
-}
-
-netbird_host_route_uses_gateway() {
-    local host_ip=$1
-    local docker_gateway=$2
-    [[ -n "$host_ip" && -n "$docker_gateway" ]] || return 1
-    [[ "$host_ip" != "$docker_gateway" ]]
-}
-
-# Allow enrollment against a self-hosted management server on the Docker host.
-# mitmproxy has no iptables kill switch, so management traffic already leaves
-# freely via eth0. This function adds explicit routing rules to ensure host-IP
-# management traffic prefers eth0 even when NetBird later adds ip rules of its
-# own, and opens any iptables OUTPUT rules needed for STUN/TURN.
-# Args:
-#   $1 - Docker bridge gateway IP
-configure_netbird_host_management_access() {
-    local docker_gateway=$1
-    local mgmt_url="${NB_MANAGEMENT_URL:-https://api.netbird.io}"
-    local host_ip port
-
-    [[ -n "$docker_gateway" ]] || return 0
-
-    host_ip=$(netbird_management_url_host "$mgmt_url") || return 0
-    netbird_management_url_host_is_literal_ipv4 "$host_ip" || return 0
-
-    port=$(netbird_management_url_port "$mgmt_url")
-
-    if netbird_host_route_uses_gateway "$host_ip" "$docker_gateway"; then
-        echo "[mitmproxy] Routing NetBird management traffic to ${host_ip}:${port} via eth0 (via ${docker_gateway})." >&2
-        ip -4 route add "${host_ip}/32" via "${docker_gateway}" dev eth0 2>/dev/null || true
-    else
-        echo "[mitmproxy] Routing NetBird management traffic to ${host_ip}:${port} via eth0." >&2
-    fi
-
-    # Priority 50 ensures management traffic wins over NetBird's own ip rules.
-    ip -4 rule add to "${host_ip}/32" lookup main priority 50 2>/dev/null || true
-
-    iptables -C OUTPUT -o eth0 -d "$host_ip" -p tcp --dport "$port" -j ACCEPT 2>/dev/null \
-        || iptables -I OUTPUT 1 -o eth0 -d "$host_ip" -p tcp --dport "$port" -j ACCEPT
-    # STUN/TURN (UDP 3478) used by NetBird signal relay.
-    iptables -C OUTPUT -o eth0 -d "$host_ip" -p udp --dport 3478 -j ACCEPT 2>/dev/null \
-        || iptables -I OUTPUT 1 -o eth0 -d "$host_ip" -p udp --dport 3478 -j ACCEPT
-}
-
-netbird_verify_host_management_reachable() {
-    local mgmt_url="${NB_MANAGEMENT_URL:-}"
-    local host_ip port check_url
-
-    host_ip=$(netbird_management_url_host "$mgmt_url") || return 0
-    netbird_management_url_host_is_literal_ipv4 "$host_ip" || return 0
-
-    port=$(netbird_management_url_port "$mgmt_url")
-    command -v curl >/dev/null 2>&1 || return 0
-
-    check_url="${mgmt_url%/}/api/instance"
-    wait_until 15 1 \
-        "[mitmproxy] Cannot reach NetBird management at ${mgmt_url}; is the server running on the host (port ${port})?" \
-        curl -sf --max-time 5 "$check_url" >/dev/null
-}
-
-netbird_export_service_env() {
-    local mgmt_url="${NB_MANAGEMENT_URL:-https://api.netbird.io}"
-    export NB_MANAGEMENT_URL="$mgmt_url"
-    # Keep NetBird's WG listener off mitmproxy's WireGuard server port (51820).
-    export NB_WIREGUARD_PORT="${NETBIRD_WG_PORT}"
-    if netbird_management_url_host_is_literal_ipv4 "$(netbird_management_url_host "$mgmt_url" 2>/dev/null)"; then
-        export NB_USE_LEGACY_ROUTING=true
-    fi
-}
-
-netbird_daemon_ready() {
-    netbird status >/dev/null 2>&1
-}
-
-ensure_netbird_service() {
-    netbird_prepare_local_management_profile
-    netbird_export_service_env
-    if netbird_daemon_ready; then
-        return 0
-    fi
-
-    echo "[mitmproxy] Starting NetBird service daemon ($(netbird version 2>/dev/null || echo unknown))." >&2
-    netbird service run --log-file console &
-
-    wait_until 30 1 \
-        "[mitmproxy] Timed out waiting for NetBird service daemon" \
-        netbird_daemon_ready
-}
-
-start_netbird() {
-    local iface="${1:-wt0}"
-    local docker_gateway
-
-    docker_gateway=$(ip -4 route show default dev eth0 2>/dev/null | awk '{print $3}')
-
-    ensure_netbird_service
-    configure_netbird_host_management_access "$docker_gateway"
-    netbird_verify_host_management_reachable
-    netbird_prepare_local_management_profile
-    if [[ -f /var/lib/netbird/default.json ]] \
-        && grep -qE 'localhost|127\.0\.0\.1|\[::1\]' /var/lib/netbird/default.json 2>/dev/null; then
-        netbird down 2>/dev/null || true
-    fi
-    netbird_export_service_env
-
-    netbird_prepare_enroll_credentials || return 1
-    netbird_replace_same_name_peer_if_needed || return 1
-    echo "[mitmproxy] Enrolling NetBird peer on ${iface} as '${NB_PEER_NAME}' (WG port ${NETBIRD_WG_PORT})." >&2
-    if ! netbird up \
-        --setup-key "${NB_SETUP_KEY}" \
-        --management-url "${NB_MANAGEMENT_URL:-https://api.netbird.io}" \
-        --hostname "${NB_PEER_NAME}" \
-        --interface-name "${iface}" \
-        --wireguard-port "${NETBIRD_WG_PORT}"; then
-        echo "[mitmproxy] netbird up failed for ${iface}." >&2
-        return 1
-    fi
-
-    if ! wait_until 30 1 \
-        "[mitmproxy] Timed out waiting for NetBird to bring up ${iface}" \
-        ip link show "${iface}" >/dev/null 2>&1; then
-        return 1
-    fi
-    lockdown_wt0_ingress "$iface"
-}
-
-supervise_netbird_daemon() {
-    local iface="${1:-wt0}"
-
-    while true; do
-        sleep 10
-        if ! netbird_daemon_ready; then
-            echo "[mitmproxy] NetBird service daemon not responding; restarting." >&2
-            netbird_export_service_env
-            netbird service run --log-file console &
-            wait_until 15 1 \
-                "[mitmproxy] Timed out waiting for NetBird service daemon" \
-                netbird_daemon_ready || true
-        fi
-        if ! ip link show "${iface}" >/dev/null 2>&1; then
-            echo "[mitmproxy] NetBird interface ${iface} down; re-enrolling." >&2
-            docker_gateway=$(ip -4 route show default dev eth0 2>/dev/null | awk '{print $3}')
-            configure_netbird_host_management_access "$docker_gateway"
-            netbird_prepare_local_management_profile
-            netbird_export_service_env
-            if netbird_prepare_enroll_credentials \
-                && netbird_replace_same_name_peer_if_needed; then
-                netbird up \
-                    --setup-key "${NB_SETUP_KEY}" \
-                    --management-url "${NB_MANAGEMENT_URL:-https://api.netbird.io}" \
-                    --hostname "${NB_PEER_NAME}" \
-                    --interface-name "${iface}" \
-                    --wireguard-port "${NETBIRD_WG_PORT}" || true
-                lockdown_wt0_ingress "$iface"
-            fi
-        fi
-    done
+# True when $1 is a DNS-safe FQDN under $NETBIRD_DNS_DOMAIN (suffix match).
+# Rejects substring matches (evil.<domain>.attacker) and names with '/'.
+netbird_dns_fqdn_allowed() {
+    local fqdn=$1
+    [[ "$fqdn" =~ ^[A-Za-z0-9._-]+$ ]] || return 1
+    [[ "$fqdn" == "$NETBIRD_DNS_DOMAIN" || "$fqdn" == *".$NETBIRD_DNS_DOMAIN" ]]
 }
 
 # Write dnsmasq-compatible address= records for all connected NetBird peers
@@ -251,13 +63,14 @@ supervise_netbird_daemon() {
 # Also writes a `server=/<domain>/<ns_ip>` forward line when the management
 # server has published a nameserver group (NetBird >= 0.28 with DNS enabled in
 # the dashboard), enabling full wildcard resolution under the mesh domain.
+# `local=/<domain>/` is omitted when forwarding: it cancels `server=/`.
 publish_netbird_dns() {
     command -v jq >/dev/null 2>&1 || return 0
     local status_json
     status_json=$(netbird status --json 2>/dev/null) || return 0
     [[ -n "$status_json" ]] || return 0
 
-    local tmp_file peer_records
+    local tmp_file peer_records have_server=false
     tmp_file=$(mktemp)
     peer_records=$(mktemp)
 
@@ -274,6 +87,7 @@ publish_netbird_dns() {
     ' 2>/dev/null) || true
     if [[ -n "$ns_ip" ]] && [[ "$ns_ip" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ || ( "$ns_ip" =~ ^[0-9a-fA-F:]+$ && "$ns_ip" == *:* ) ]]; then
         printf 'server=/%s/%s\n' "$NETBIRD_DNS_DOMAIN" "$ns_ip" >> "$tmp_file"
+        have_server=true
     fi
 
     # Per-peer address= records.
@@ -282,18 +96,20 @@ publish_netbird_dns() {
     # across client versions; strip a trailing /prefix if present.
     while IFS=$'\t' read -r fqdn ip; do
         [[ -n "$fqdn" && -n "$ip" ]] || continue
-        [[ "$fqdn" == *"${NETBIRD_DNS_DOMAIN}"* ]] || continue
+        netbird_dns_fqdn_allowed "$fqdn" || continue
         [[ "$ip" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]] || continue
         # host-record= gives an exact FQDN mapping; address= also covers subdomains.
         printf 'host-record=%s,%s\n' "$fqdn" "$ip" >> "$peer_records"
         printf 'address=/%s/%s\n' "$fqdn" "$ip" >> "$peer_records"
-        # Alias without auto-generated IP suffix (e.g. myproject-proxy-peer.netbird.selfhosted
-        # in addition to myproject-proxy-peer-100-64-0-5.netbird.selfhosted).
+        # Alias without auto-generated four-octet IP suffix
+        # (myproject-proxy-100-64-0-5.netbird.selfhosted → myproject-proxy).
         local hostname="${fqdn%.${NETBIRD_DNS_DOMAIN}}"
-        if [[ "$hostname" =~ ^(.+)-[0-9]{1,3}-[0-9]{1,3}$ ]]; then
+        if [[ "$hostname" =~ ^(.+)-[0-9]{1,3}-[0-9]{1,3}-[0-9]{1,3}-[0-9]{1,3}$ ]]; then
             local alias_fqdn="${BASH_REMATCH[1]}.${NETBIRD_DNS_DOMAIN}"
-            printf 'host-record=%s,%s\n' "$alias_fqdn" "$ip" >> "$peer_records"
-            printf 'address=/%s/%s\n' "$alias_fqdn" "$ip" >> "$peer_records"
+            if netbird_dns_fqdn_allowed "$alias_fqdn"; then
+                printf 'host-record=%s,%s\n' "$alias_fqdn" "$ip" >> "$peer_records"
+                printf 'address=/%s/%s\n' "$alias_fqdn" "$ip" >> "$peer_records"
+            fi
         fi
     done < <(printf '%s' "$status_json" | jq -r '
         (.peers.details // [])[]
@@ -304,15 +120,18 @@ publish_netbird_dns() {
     ' 2>/dev/null)
 
     if [[ -s "$peer_records" ]]; then
-        printf 'local=/%s/\n' "$NETBIRD_DNS_DOMAIN" >> "$tmp_file"
+        if [[ "$have_server" != true ]]; then
+            printf 'local=/%s/\n' "$NETBIRD_DNS_DOMAIN" >> "$tmp_file"
+        fi
         cat "$peer_records" >> "$tmp_file"
     fi
     rm -f "$peer_records"
 
-    # Atomically replace the published file only when content changed.
-    if [[ -s "$tmp_file" ]]; then
+    # Atomically replace, including an empty file so vanished peers truncate.
+    if [[ -s "$tmp_file" || -e "$NETBIRD_DNS_CONF_PATH" ]]; then
         if ! diff -q "$tmp_file" "$NETBIRD_DNS_CONF_PATH" >/dev/null 2>&1; then
-            cp "$tmp_file" "$NETBIRD_DNS_CONF_PATH"
+            cp "$tmp_file" "${NETBIRD_DNS_CONF_PATH}.tmp"
+            mv "${NETBIRD_DNS_CONF_PATH}.tmp" "$NETBIRD_DNS_CONF_PATH"
             echo "[mitmproxy] Published NetBird DNS records to volume." >&2
         fi
     fi
@@ -348,17 +167,41 @@ publish_mitmproxy_ca_loop() {
     ) &
 }
 
-# wt0 is in this netns and NetBird's default policy is all-to-all. Without an
-# INPUT drop, any mesh peer can open mitmweb (8081) or the NetBird WG port.
+# Extra CA bundles bind-mounted by apply_upstream_ca_bundles. enable_netbird
+# deletes the compose entrypoint that used to install them, so the NetBird
+# image entrypoint must do it before docker-entrypoint.sh drops privileges.
+install_upstream_ca_bundles() {
+    local src="${UPSTREAM_CA_DIR:-/upstream-ca}"
+    local dest="${UPSTREAM_CA_INSTALL_DIR:-/usr/local/share/ca-certificates}"
+    local bundle="${UPSTREAM_CA_CERTIFI_BUNDLE:-}"
+    [[ -d "$src" ]] || return 0
+    shopt -s nullglob
+    local certs=("$src"/*.crt)
+    ((${#certs[@]} > 0)) || return 0
+    mkdir -p "$dest"
+    cp "$src"/*.crt "$dest/" || return 1
+    if [[ "$dest" == "/usr/local/share/ca-certificates" ]] \
+        && command -v update-ca-certificates >/dev/null 2>&1; then
+        update-ca-certificates >/dev/null || return 1
+    fi
+    if [[ -z "$bundle" ]]; then
+        command -v python3 >/dev/null 2>&1 || return 1
+        bundle=$(python3 -c 'import certifi; print(certifi.where())') || return 1
+    fi
+    cat "$src"/*.crt >> "$bundle"
+}
+
+# wt0 is in this netns and NetBird's default policy is all-to-all. mitmproxy
+# is a mesh client here: allow only replies to connections it initiated.
+# A port list would miss mitmproxy's userspace WireGuard (UDP 51820).
 lockdown_wt0_ingress() {
     local iface="${1:-$NETBIRD_IFACE}"
-    local wg_port="${NETBIRD_WG_PORT:-51821}"
     command -v iptables >/dev/null 2>&1 || return 0
     ip link show "$iface" >/dev/null 2>&1 || return 0
-    iptables -C INPUT -i "$iface" -p tcp --dport 8081 -j DROP 2>/dev/null \
-        || iptables -I INPUT -i "$iface" -p tcp --dport 8081 -j DROP
-    iptables -C INPUT -i "$iface" -p udp --dport "$wg_port" -j DROP 2>/dev/null \
-        || iptables -I INPUT -i "$iface" -p udp --dport "$wg_port" -j DROP
+    iptables -C INPUT -i "$iface" -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT 2>/dev/null \
+        || iptables -I INPUT -i "$iface" -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+    iptables -C INPUT -i "$iface" -j DROP 2>/dev/null \
+        || iptables -A INPUT -i "$iface" -j DROP
 }
 
 ensure_mitmweb_password() {
@@ -374,6 +217,7 @@ ensure_mitmweb_password() {
 
 # Mesh enrollment must not block the L7 proxy (healthcheck / wg-client).
 maybe_start_netbird_mesh() {
+    export NETBIRD_AFTER_UP=lockdown_wt0_ingress
     local _settings_file="/config/settings.json"
     local _setup_key_from_compose=0
     [[ -n "${NB_SETUP_KEY:-}" ]] && _setup_key_from_compose=1
@@ -413,10 +257,25 @@ maybe_start_netbird_mesh() {
     fi
 }
 
+netbird_mitmproxy_cleanup() {
+    netbird_shutdown
+    if [[ -n "${MITMPROXY_CHILD_PID:-}" ]]; then
+        kill "$MITMPROXY_CHILD_PID" 2>/dev/null || true
+    fi
+    local job
+    for job in $(jobs -p); do
+        kill "$job" 2>/dev/null || true
+    done
+    if [[ -n "${MITMPROXY_CHILD_PID:-}" ]]; then
+        wait "$MITMPROXY_CHILD_PID" 2>/dev/null || true
+    fi
+}
+
 main() {
-    # Restore the stock compose entrypoint's healthcheck contract, then enroll
-    # in the background so NetBird cannot stall mitmweb / wg-client.
+    # Stay PID 1 so SIGTERM can run netbird down. Enrollment stays in the
+    # background so NetBird cannot stall mitmweb / wg-client.
     clear_mitmproxy_health_sentinels
+    install_upstream_ca_bundles || exit 1
     publish_mitmproxy_ca_loop
 
     local password
@@ -434,7 +293,14 @@ main() {
 
     maybe_start_netbird_mesh &
 
-    exec docker-entrypoint.sh "${cmd_args[@]}"
+    docker-entrypoint.sh "${cmd_args[@]}" &
+    MITMPROXY_CHILD_PID=$!
+    trap netbird_mitmproxy_cleanup TERM INT
+    wait "$MITMPROXY_CHILD_PID"
+    local status=$?
+    trap - TERM INT
+    netbird_shutdown
+    exit "$status"
 }
 
 if [[ "${BASH_SOURCE[0]}" = "${0}" ]]; then

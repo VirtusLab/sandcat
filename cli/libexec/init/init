@@ -93,6 +93,65 @@ ensure_cursor_user_settings_defaults() {
 	fi
 }
 
+persist_netbird_management_url() {
+	local user_settings=$1
+	local selected_management_url=${2:-}
+	if [[ -f "$user_settings" ]]; then
+		netbird_management_url="$selected_management_url" yq -i -o json '
+			.netbird_management_url = strenv(netbird_management_url)
+		' "$user_settings"
+	fi
+}
+
+# Asks for an address the mitmproxy container can dial when the chosen
+# management URL is localhost-only. Without this the compose file gets no
+# NB_MANAGEMENT_URL and netbird silently enrolls against the cloud
+# default, which rejects a self-hosted setup key.
+prompt_netbird_enrollment_url() {
+	local user_settings=$1
+	local netbird_management_url=$2
+	local host_ip mgmt_port default_url entered_url
+	host_ip=$(netbird_detect_docker_host_ip)
+	mgmt_port="${netbird_management_url##*:}"
+	mgmt_port="${mgmt_port%%/*}"
+	if [[ ! "$mgmt_port" =~ ^[0-9]+$ ]]; then
+		mgmt_port="33073"
+	fi
+	default_url=""
+	if [[ -n "$host_ip" ]]; then
+		default_url="http://${host_ip}:${mgmt_port}"
+	fi
+
+	echo "    $netbird_management_url is not reachable from inside the container." | info
+	echo "    Enter an address the container can dial (your Docker host's LAN IP)." | info
+	while true; do
+		if [[ -n "$default_url" ]]; then
+			entered_url=$(read_line "Enrollment URL [$default_url]:")
+			entered_url="${entered_url:-$default_url}"
+		else
+			entered_url=$(read_line "Enrollment URL (e.g. http://192.168.1.10:${mgmt_port}):")
+		fi
+		if [[ -n "$entered_url" ]]; then
+			break
+		fi
+		echo "Enrollment URL is required for a localhost management server" | error
+	done
+
+	if [[ -f "$user_settings" ]]; then
+		enrollment_url="$entered_url" yq -i -o json '
+			.netbird_enrollment_management_url = strenv(enrollment_url)
+		' "$user_settings"
+	fi
+}
+
+maybe_prompt_enrollment_url() {
+	local user_settings=$1
+	local netbird_management_url=$2
+	if [[ -z "$(netbird_enrollment_management_url_from "$netbird_management_url")" ]]; then
+		prompt_netbird_enrollment_url "$user_settings" "$netbird_management_url"
+	fi
+}
+
 # Ensures codex-specific defaults exist in an already-created user settings file
 # without overriding user-provided values.
 ensure_codex_user_settings_defaults() {
@@ -427,52 +486,6 @@ init() {
 	if [[ "$netbird" == "true" ]]; then
 		local user_settings
 		user_settings="$(sct_home)/settings.json"
-		persist_netbird_management_url() {
-			local selected_management_url=${1:-}
-			if [[ -f "$user_settings" ]]; then
-				netbird_management_url="$selected_management_url" yq -i -o json '
-					.netbird_management_url = strenv(netbird_management_url)
-				' "$user_settings"
-			fi
-		}
-		# Asks for an address the mitmproxy container can dial when the chosen
-		# management URL is localhost-only. Without this the compose file gets no
-		# NB_MANAGEMENT_URL and netbird silently enrolls against the cloud
-		# default, which rejects a self-hosted setup key.
-		prompt_netbird_enrollment_url() {
-			local host_ip mgmt_port default_url entered_url
-			host_ip=$(netbird_detect_docker_host_ip)
-			mgmt_port="${netbird_management_url##*:}"
-			mgmt_port="${mgmt_port%%/*}"
-			if [[ ! "$mgmt_port" =~ ^[0-9]+$ ]]; then
-				mgmt_port="33073"
-			fi
-			default_url=""
-			if [[ -n "$host_ip" ]]; then
-				default_url="http://${host_ip}:${mgmt_port}"
-			fi
-
-			echo "    $netbird_management_url is not reachable from inside the container." | info
-			echo "    Enter an address the container can dial (your Docker host's LAN IP)." | info
-			while true; do
-				if [[ -n "$default_url" ]]; then
-					entered_url=$(read_line "Enrollment URL [$default_url]:")
-					entered_url="${entered_url:-$default_url}"
-				else
-					entered_url=$(read_line "Enrollment URL (e.g. http://192.168.1.10:${mgmt_port}):")
-				fi
-				if [[ -n "$entered_url" ]]; then
-					break
-				fi
-				echo "Enrollment URL is required for a localhost management server" | error
-			done
-
-			if [[ -f "$user_settings" ]]; then
-				enrollment_url="$entered_url" yq -i -o json '
-					.netbird_enrollment_management_url = strenv(enrollment_url)
-				' "$user_settings"
-			fi
-		}
 		if [[ -f "$user_settings" ]]; then
 			yq -i -o json '
 				.netbird_enrollment_key = (.netbird_enrollment_key // "") |
@@ -481,16 +494,10 @@ init() {
 			' "$user_settings"
 		fi
 
-		maybe_prompt_enrollment_url() {
-			if [[ -z "$(netbird_enrollment_management_url_from "$netbird_management_url")" ]]; then
-				prompt_netbird_enrollment_url
-			fi
-		}
-
 		if [[ "$netbird_management_url_provided" == "true" ]]; then
-			persist_netbird_management_url "$netbird_management_url"
+			persist_netbird_management_url "$user_settings" "$netbird_management_url"
 			if [[ "$init_prompted" == "true" ]]; then
-				maybe_prompt_enrollment_url
+				maybe_prompt_enrollment_url "$user_settings" "$netbird_management_url"
 			fi
 		elif [[ "$init_prompted" == "true" ]]; then
 			local netbird_server_selection=""
@@ -525,8 +532,8 @@ init() {
 						echo "URL is required" | error
 						continue
 					fi
-					persist_netbird_management_url "$netbird_management_url"
-					maybe_prompt_enrollment_url
+					persist_netbird_management_url "$user_settings" "$netbird_management_url"
+					maybe_prompt_enrollment_url "$user_settings" "$netbird_management_url"
 					break
 				done
 				;;
@@ -536,7 +543,7 @@ init() {
 			netbird_management_url=""
 		fi
 
-		persist_netbird_management_url "$netbird_management_url"
+		persist_netbird_management_url "$user_settings" "$netbird_management_url"
 	fi
 
 	local settings_args=()

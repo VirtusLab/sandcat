@@ -74,14 +74,6 @@ def yaml_scalar(text: str, key: str) -> str:
     return raw
 
 
-def set_env(text: str, key: str, value: str) -> str:
-    if re.search(rf"^{re.escape(key)}=", text, flags=re.M):
-        return re.sub(rf"^{re.escape(key)}=.*$", f"{key}={value}", text, flags=re.M)
-    if not text.endswith("\n"):
-        text += "\n"
-    return text + f"{key}={value}\n"
-
-
 def new_secret() -> str:
     return base64.b64encode(secrets.token_bytes(32)).decode()
 
@@ -92,14 +84,12 @@ mapping = (
 )
 
 values = {}
-persist_env = True
 if secrets_from:
     src = pathlib.Path(secrets_from).expanduser()
     if not src.is_file():
         print(f"start.sh: --secrets-from file not found: {src}", file=sys.stderr)
         sys.exit(1)
     src_text = src.read_text()
-    persist_env = False
     for env_key, yaml_key in mapping:
         value = yaml_scalar(src_text, yaml_key)
         if not value:
@@ -109,20 +99,21 @@ if secrets_from:
     print(f"loaded secrets from {src} (not written to netbird-server.env)")
 else:
     generated = []
+    local_existing = local_path.read_text() if local_path.is_file() else ""
     for env_key, yaml_key in mapping:
-        value = env_value(env_text, env_key) or yaml_scalar(cfg_text, yaml_key)
+        value = (
+            yaml_scalar(local_existing, yaml_key)
+            or env_value(env_text, env_key)
+            or yaml_scalar(cfg_text, yaml_key)
+        )
         if not value:
             value = new_secret()
             generated.append(env_key)
         values[env_key] = value
-        env_text = set_env(env_text, env_key, value)
     if generated:
-        print("generated: " + ", ".join(generated) + " (kept in netbird-server.env)")
+        print("generated: " + ", ".join(generated) + " (kept in config.local.yaml)")
     else:
-        print("reusing secrets from netbird-server.env")
-
-if persist_env:
-    env_path.write_text(env_text)
+        print("reusing secrets from config.local.yaml or netbird-server.env")
 
 local = cfg_text
 for env_key, yaml_key in mapping:
@@ -133,7 +124,12 @@ for env_key, yaml_key in mapping:
         count=1,
         flags=re.M,
     )
+os.umask(0o077)
 local_path.write_text(local)
+try:
+    os.chmod(local_path, 0o600)
+except OSError:
+    pass
 print(f"wrote {local_path}")
 PY
 
@@ -146,4 +142,4 @@ if [[ ! -f config.local.yaml ]]; then
 	exit 1
 fi
 
-exec docker compose --env-file netbird-server.env up -d "${COMPOSE_ARGS[@]}"
+exec docker compose --env-file netbird-server.env up -d ${COMPOSE_ARGS[@]+"${COMPOSE_ARGS[@]}"}

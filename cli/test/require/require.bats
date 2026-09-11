@@ -108,10 +108,15 @@ echo "yq 3.0.0"
 @test "require yq fails when no binary is on PATH" {
 	# shellcheck source=../../lib/require.bash
 	source "$SCT_LIBDIR/require.bash"
-	PATH="/usr/bin:/bin"
+	# CI installs mikefarah yq in /usr/bin (often usr-merged with /bin), so
+	# PATH=/usr/bin:/bin still finds it. Isolate to an empty dir. Prefix
+	# PATH on the require invocation only — bats `run` itself needs mktemp.
+	local empty_path="$BATS_TEST_TMPDIR/empty-path"
+	mkdir -p "$empty_path"
 
-	run require yq
-	assert_failure
+	status=0
+	PATH="$empty_path" require yq 2>"$BATS_TEST_TMPDIR/require.err" || status=$?
 	assert_equal "$status" "$exitcode_expectation_failed"
+	run cat "$BATS_TEST_TMPDIR/require.err"
 	assert_output --partial "yq required"
 }

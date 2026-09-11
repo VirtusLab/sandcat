@@ -68,5 +68,5 @@ COPY scripts/mitmproxy-init.sh /usr/local/bin/mitmproxy-init.sh
 RUN chmod +x /usr/local/bin/mitmproxy-init.sh
 
 # mitmproxy-init.sh runs as root, sets up NetBird in the background, then
-# execs docker-entrypoint.sh so mitmweb still drops to the mitmproxy user.
+# runs docker-entrypoint.sh as a child so SIGTERM can call netbird down.
 ENTRYPOINT ["/usr/local/bin/mitmproxy-init.sh"]

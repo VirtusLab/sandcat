@@ -151,12 +151,14 @@ write_resolv_conf() {
 #   $1 - path to the dnsmasq config file to update
 restart_dnsmasq() {
     local conf="$1"
+    local killed=false
 
     if [[ -f "$DNSMASQ_PID_FILE" ]]; then
         local dnsmasq_pid
         dnsmasq_pid=$(tr -d '[:space:]' <"$DNSMASQ_PID_FILE" 2>/dev/null) || true
         if [[ -n "$dnsmasq_pid" ]] && kill -0 "$dnsmasq_pid" 2>/dev/null; then
             kill "$dnsmasq_pid" 2>/dev/null || true
+            killed=true
             local attempt=0
             while dnsmasq-ready && [[ "$attempt" -lt 25 ]]; do
                 sleep 0.2
@@ -166,11 +168,21 @@ restart_dnsmasq() {
         rm -f "$DNSMASQ_PID_FILE"
     fi
 
+    if dnsmasq-ready 2>/dev/null; then
+        if [[ "$killed" == true ]]; then
+            echo "wg-client: previous dnsmasq still listening; not starting a second process" >&2
+            return 1
+        fi
+        return 0
+    fi
+
     mkdir -p "$(dirname "$DNSMASQ_PID_FILE")"
     dnsmasq --conf-file="$conf" --pid-file="$DNSMASQ_PID_FILE"
-    wait_until 25 0.2 \
+    if ! wait_until 25 0.2 \
         "dnsmasq did not start after NetBird DNS restart" \
-        dnsmasq-ready
+        dnsmasq-ready; then
+        return 1
+    fi
     echo "wg-client: dnsmasq restarted for NetBird DNS records." >&2
 }
 
@@ -211,6 +223,12 @@ patch_dnsmasq_from_netbird_volume() {
     peers_mtime=$(stat -c %Y "$peers_conf" 2>/dev/null || echo 0)
     local recorded_mtime=0
     [[ -f "$peers_stamp" ]] && recorded_mtime=$(tr -d '[:space:]' <"$peers_stamp" 2>/dev/null || echo 0)
+
+    # Unchanged source: skip the merge. The 5s supervisor would otherwise
+    # rewrite dnsmasq.conf on every tick.
+    if [[ -f "$peers_stamp" && "$peers_mtime" == "$recorded_mtime" ]]; then
+        return 0
+    fi
 
     local begin="# BEGIN SANDCAT-NETBIRD-DNS"
     local end="# END SANDCAT-NETBIRD-DNS"

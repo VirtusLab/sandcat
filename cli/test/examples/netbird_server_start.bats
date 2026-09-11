@@ -13,16 +13,16 @@ setup() {
 		"$WORKDIR/netbird-server.env"
 }
 
-@test "start.sh --prepare-only generates secrets and config.local.yaml" {
+@test "start.sh --prepare-only generates secrets into config.local.yaml not env" {
 	run bash "$WORKDIR/start.sh" --prepare-only
 	assert_success
 	assert_output --partial "generated:"
 	[[ -f "$WORKDIR/config.local.yaml" ]]
 
 	run grep -E '^NETBIRD_RELAY_AUTH_SECRET=.+' "$WORKDIR/netbird-server.env"
-	assert_success
+	assert_failure
 	run grep -E '^NETBIRD_ENCRYPTION_KEY=.+' "$WORKDIR/netbird-server.env"
-	assert_success
+	assert_failure
 
 	run grep -E '^  authSecret: ".+"' "$WORKDIR/config.local.yaml"
 	assert_success
@@ -30,6 +30,10 @@ setup() {
 	assert_success
 	run grep -F 'authSecret: ""' "$WORKDIR/config.local.yaml"
 	assert_failure
+	local mode
+	mode=$(stat -c '%a' "$WORKDIR/config.local.yaml" 2>/dev/null \
+		|| stat -f '%OLp' "$WORKDIR/config.local.yaml")
+	assert_equal "$mode" "600"
 }
 
 @test "start.sh --prepare-only reuses existing env secrets" {
@@ -82,5 +86,10 @@ YAML
 
 @test "example gitignores config.local.yaml" {
 	run grep -F 'docs/examples/netbird-server/config.local.yaml' "$SCT_ROOT/../.gitignore"
+	assert_success
+}
+
+@test "start.sh expands empty COMPOSE_ARGS without set -u failure" {
+	run grep -F 'COMPOSE_ARGS[@]+"${COMPOSE_ARGS[@]}"' "$EXAMPLE/start.sh"
 	assert_success
 }
