@@ -45,8 +45,8 @@ teardown() {
 	export NB_API_TOKEN="tok"
 	stub netbird "status --json : echo '{\"status\":\"NeedsLogin\"}'"
 	stub curl \
-		"-sf --max-time 10 -H 'Authorization: Token tok' http://mgmt.test:33073/api/peers : echo '[{\"id\":\"abc\",\"name\":\"myapp-sandbox-proxy\"}]'" \
-		"-sf --max-time 10 -X DELETE -H 'Authorization: Token tok' http://mgmt.test:33073/api/peers/abc : :"
+		"-sf --max-time 10 -H * http://mgmt.test:33073/api/peers : echo '[{\"id\":\"abc\",\"name\":\"myapp-sandbox-proxy\"}]'" \
+		"-sf --max-time 10 -H * -X DELETE http://mgmt.test:33073/api/peers/abc : :"
 
 	run netbird_replace_same_name_peer_if_needed
 
@@ -57,8 +57,8 @@ teardown() {
 @test "missing local state replaces an existing peer" {
 	export NB_API_TOKEN="tok"
 	stub curl \
-		"-sf --max-time 10 -H 'Authorization: Token tok' http://mgmt.test:33073/api/peers : echo '[{\"id\":\"abc\",\"name\":\"myapp-sandbox-proxy\"}]'" \
-		"-sf --max-time 10 -X DELETE -H 'Authorization: Token tok' http://mgmt.test:33073/api/peers/abc : :"
+		"-sf --max-time 10 -H * http://mgmt.test:33073/api/peers : echo '[{\"id\":\"abc\",\"name\":\"myapp-sandbox-proxy\"}]'" \
+		"-sf --max-time 10 -H * -X DELETE http://mgmt.test:33073/api/peers/abc : :"
 
 	run netbird_replace_same_name_peer_if_needed
 
@@ -76,8 +76,8 @@ teardown() {
 @test "netbird_mgmt_delete_peer_by_name deletes matched peer by id" {
 	export NB_API_TOKEN="tok"
 	stub curl \
-		"-sf --max-time 10 -H 'Authorization: Token tok' http://mgmt.test:33073/api/peers : echo '[{\"id\":\"abc\",\"name\":\"myapp-sandbox-proxy\"}]'" \
-		"-sf --max-time 10 -X DELETE -H 'Authorization: Token tok' http://mgmt.test:33073/api/peers/abc : :"
+		"-sf --max-time 10 -H * http://mgmt.test:33073/api/peers : echo '[{\"id\":\"abc\",\"name\":\"myapp-sandbox-proxy\"}]'" \
+		"-sf --max-time 10 -H * -X DELETE http://mgmt.test:33073/api/peers/abc : :"
 
 	run netbird_mgmt_delete_peer_by_name "myapp-sandbox-proxy"
 
@@ -87,7 +87,7 @@ teardown() {
 @test "replacement fails when multiple management peers match the name" {
 	export NB_API_TOKEN="tok"
 	stub curl \
-		"-sf --max-time 10 -H 'Authorization: Token tok' http://mgmt.test:33073/api/peers : echo '[{\"id\":\"abc\",\"name\":\"myapp-sandbox-proxy\"},{\"id\":\"def\",\"hostname\":\"MYAPP-SANDBOX-PROXY\"}]'"
+		"-sf --max-time 10 -H * http://mgmt.test:33073/api/peers : echo '[{\"id\":\"abc\",\"name\":\"myapp-sandbox-proxy\"},{\"id\":\"def\",\"hostname\":\"MYAPP-SANDBOX-PROXY\"}]'"
 
 	run netbird_replace_same_name_peer_if_needed
 
@@ -98,9 +98,9 @@ teardown() {
 @test "peer lookup matches name hostname and dns_label case-insensitively" {
 	export NB_API_TOKEN="tok"
 	stub curl \
-		"-sf --max-time 10 -H 'Authorization: Token tok' http://mgmt.test:33073/api/peers : echo '[{\"id\":\"by-name\",\"name\":\"NAME-TARGET\"},{\"id\":\"by-hostname\",\"hostname\":\"Hostname-Target\"},{\"id\":\"by-label\",\"dns_label\":\"label-target\"}]'" \
-		"-sf --max-time 10 -H 'Authorization: Token tok' http://mgmt.test:33073/api/peers : echo '[{\"id\":\"by-name\",\"name\":\"NAME-TARGET\"},{\"id\":\"by-hostname\",\"hostname\":\"Hostname-Target\"},{\"id\":\"by-label\",\"dns_label\":\"label-target\"}]'" \
-		"-sf --max-time 10 -H 'Authorization: Token tok' http://mgmt.test:33073/api/peers : echo '[{\"id\":\"by-name\",\"name\":\"NAME-TARGET\"},{\"id\":\"by-hostname\",\"hostname\":\"Hostname-Target\"},{\"id\":\"by-label\",\"dns_label\":\"label-target\"}]'"
+		"-sf --max-time 10 -H * http://mgmt.test:33073/api/peers : echo '[{\"id\":\"by-name\",\"name\":\"NAME-TARGET\"},{\"id\":\"by-hostname\",\"hostname\":\"Hostname-Target\"},{\"id\":\"by-label\",\"dns_label\":\"label-target\"}]'" \
+		"-sf --max-time 10 -H * http://mgmt.test:33073/api/peers : echo '[{\"id\":\"by-name\",\"name\":\"NAME-TARGET\"},{\"id\":\"by-hostname\",\"hostname\":\"Hostname-Target\"},{\"id\":\"by-label\",\"dns_label\":\"label-target\"}]'" \
+		"-sf --max-time 10 -H * http://mgmt.test:33073/api/peers : echo '[{\"id\":\"by-name\",\"name\":\"NAME-TARGET\"},{\"id\":\"by-hostname\",\"hostname\":\"Hostname-Target\"},{\"id\":\"by-label\",\"dns_label\":\"label-target\"}]'"
 
 	lookup_all_peer_names() {
 		netbird_mgmt_find_peer_id_by_name "name-target"
@@ -118,8 +118,8 @@ teardown() {
 	stub netbird \
 		"status --json : echo '{\"fqdn\":\"myapp-sandbox-proxy-100-64-0-5.netbird.selfhosted\"}'"
 	stub curl \
-		"-sf --max-time 10 -H 'Authorization: Token tok' http://mgmt.test:33073/api/peers : echo '[{\"id\":\"abc\",\"fqdn\":\"myapp-sandbox-proxy-100-64-0-5.netbird.selfhosted\"}]'" \
-		"-sf --max-time 10 -X PUT -H 'Authorization: Token tok' -H 'Content-Type: application/json' -d '{\"dns_label\":\"myapp-sandbox-proxy\"}' http://mgmt.test:33073/api/peers/abc : echo '{\"fqdn\":\"myapp-sandbox-proxy.netbird.selfhosted\"}'"
+		"-sf --max-time 10 -H * http://mgmt.test:33073/api/peers : echo '[{\"id\":\"abc\",\"fqdn\":\"myapp-sandbox-proxy-100-64-0-5.netbird.selfhosted\"}]'" \
+		"-sf --max-time 10 -H * -X PUT -H 'Content-Type: application/json' -d '{\"dns_label\":\"myapp-sandbox-proxy\"}' http://mgmt.test:33073/api/peers/abc : echo '{\"fqdn\":\"myapp-sandbox-proxy.netbird.selfhosted\"}'"
 
 	run netbird_set_dns_label
 
@@ -180,11 +180,12 @@ teardown() {
 		"info : echo '  - Personal Access Token: pst_test'"
 	stub timeout \
 		"60 pass-cli vault list : :" \
-		"60 pass-cli item view pass://Vault/Item/password : exit 1" \
+		"60 pass-cli item view pass://Vault/Item/password : printf PARTIAL; exit 1" \
 		"60 pass-cli item view pass://Vault/Item/password : echo secret-a"
 	run netbird_resolve_secret_ref "pass://Vault/Item/password"
 	assert_success
 	assert_output "secret-a"
+	refute_output --partial "PARTIAL"
 }
 
 @test "pass-cli login rejects non-PAT session" {
@@ -202,7 +203,7 @@ teardown() {
 	export NB_SETUP_KEY="setup-literal"
 	stub timeout "60 op read op://Vault/x/credential : echo tok"
 	stub curl \
-		"-sf --max-time 10 -H 'Authorization: Token tok' http://mgmt.test:33073/api/peers : echo '[]'"
+		"-sf --max-time 10 -H * http://mgmt.test:33073/api/peers : echo '[]'"
 	netbird_prepare_enroll_credentials
 	run netbird_replace_same_name_peer_if_needed
 	assert_success
@@ -243,19 +244,19 @@ teardown() {
 }
 
 @test "mitmproxy-init aborts start_netbird when same-name replace fails" {
-	local init="$SCT_TEMPLATEDIR/devcontainer/sandcat/scripts/mitmproxy-init.sh"
-	run awk '/^start_netbird\(\)/,/^}/' "$init"
+	local lifecycle="$SCT_TEMPLATEDIR/devcontainer/sandcat/scripts/netbird-peer-lifecycle.sh"
+	run awk '/^netbird_start\(\)/,/^}/' "$lifecycle"
 	assert_success
 	assert_output --partial "netbird_replace_same_name_peer_if_needed || return 1"
 	refute_output --partial "continuing with netbird up"
 }
 
-@test "proxy-peer-init aborts start_netbird when same-name replace fails" {
+@test "proxy-peer-init uses the shared lifecycle start path" {
 	local init="$SCT_ROOT/../docs/examples/proxy-peer/scripts/proxy-peer-init.sh"
-	run awk '/^start_netbird\(\)/,/^}/' "$init"
+	run grep -F 'netbird_start' "$init"
 	assert_success
-	assert_output --partial "netbird_replace_same_name_peer_if_needed || return 1"
-	refute_output --partial "continuing with netbird up"
+	run grep -F -- '--setup-key "${NB_SETUP_KEY}"' "$init"
+	assert_failure
 }
 
 @test "example does not keep a second lifecycle script" {
@@ -263,19 +264,25 @@ teardown() {
 }
 
 @test "supervise_netbird_daemon re-enroll prepares credentials" {
-	local init="$SCT_TEMPLATEDIR/devcontainer/sandcat/scripts/mitmproxy-init.sh"
-	run awk '/^supervise_netbird_daemon\(\)/,/^}/' "$init"
+	local lifecycle="$SCT_TEMPLATEDIR/devcontainer/sandcat/scripts/netbird-peer-lifecycle.sh"
+	run awk '/^netbird_supervise_daemon\(\)/,/^}/' "$lifecycle"
 	assert_success
-	assert_output --partial "netbird_prepare_enroll_credentials"
+	assert_output --partial "netbird_start"
 	refute_output --partial "netbird_replace_same_name_peer_if_needed || true"
 }
 
-@test "proxy-peer supervise_netbird_daemon re-enroll prepares credentials" {
+@test "proxy-peer supervise uses the shared lifecycle supervisor" {
 	local init="$SCT_ROOT/../docs/examples/proxy-peer/scripts/proxy-peer-init.sh"
-	run awk '/^supervise_netbird_daemon\(\)/,/^}/' "$init"
+	run grep -F 'netbird_supervise_daemon' "$init"
 	assert_success
-	assert_output --partial "netbird_prepare_enroll_credentials"
-	refute_output --partial "netbird_replace_same_name_peer_if_needed || true"
+}
+
+@test "netbird_up_enroll uses a setup-key file and a timeout" {
+	run awk '/^netbird_up_enroll\(\)/,/^}/' "$SCRIPT"
+	assert_success
+	assert_output --partial "--setup-key-file"
+	assert_output --partial "timeout"
+	refute_output --partial '--setup-key "${NB_SETUP_KEY}"'
 }
 
 @test "mitmproxy-init does not copy enrollment key into NB_SETUP_KEY with raw jq" {
@@ -330,6 +337,54 @@ teardown() {
 	run jq -c '{host:.ManagementURL.Host, key:.PrivateKey}' "$NETBIRD_STATE_ROOT/default.json"
 	assert_success
 	assert_output '{"host":"host.docker.internal:33073","key":"keep-me"}'
+}
+
+@test "prepare profile leaves default.json untouched when jq fails" {
+	mkdir -p "$NETBIRD_STATE_ROOT"
+	printf 'not-json\n' >"$NETBIRD_STATE_ROOT/default.json"
+	export NB_MANAGEMENT_URL="http://192.0.2.1:33073"
+
+	run netbird_prepare_local_management_profile
+
+	assert_failure
+	run cat "$NETBIRD_STATE_ROOT/default.json"
+	assert_output "not-json"
+}
+
+@test "prepare profile rewrites a stale self-hosted URL for cloud enrollment" {
+	mkdir -p "$NETBIRD_STATE_ROOT"
+	printf '%s\n' '{"ManagementURL":{"Scheme":"http","Host":"192.0.2.8:33073","Path":""},"AdminURL":{"Scheme":"http","Host":"192.0.2.8:33073","Path":""},"PrivateKey":"keep-me"}' \
+		>"$NETBIRD_STATE_ROOT/default.json"
+	export NB_MANAGEMENT_URL="https://api.netbird.io"
+
+	netbird_prepare_local_management_profile
+
+	run jq -c '{scheme:.ManagementURL.Scheme, host:.ManagementURL.Host, key:.PrivateKey}' \
+		"$NETBIRD_STATE_ROOT/default.json"
+	assert_success
+	assert_output '{"scheme":"https","host":"api.netbird.io","key":"keep-me"}'
+}
+
+@test "replacement fails when the management GET fails" {
+	export NB_API_TOKEN="tok"
+	stub curl \
+		"-sf --max-time 10 -H * http://mgmt.test:33073/api/peers : exit 22"
+
+	run netbird_replace_same_name_peer_if_needed
+
+	assert_failure
+}
+
+@test "replacement fails when the management DELETE fails" {
+	export NB_API_TOKEN="tok"
+	stub curl \
+		"-sf --max-time 10 -H * http://mgmt.test:33073/api/peers : echo '[{\"id\":\"abc\",\"name\":\"myapp-sandbox-proxy\"}]'" \
+		"-sf --max-time 10 -H * -X DELETE http://mgmt.test:33073/api/peers/abc : exit 22"
+
+	run netbird_replace_same_name_peer_if_needed
+
+	assert_failure
+	assert_output --partial "replace"
 }
 
 @test "prepare profile refreshes an existing object URL from NB_MANAGEMENT_URL" {

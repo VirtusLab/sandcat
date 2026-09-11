@@ -16,7 +16,6 @@ source "${BASH_SOURCE%/*}/require.bash"
 #   $1 - settings key (e.g. netbird_api_token)
 netbird_read_setting() {
 	local key=$1
-	require yq
 
 	local value=""
 	local file layer_value repo_root
@@ -24,7 +23,7 @@ netbird_read_setting() {
 	local -a layers=()
 	layers+=("$(sct_home)/settings.json")
 	if ! netbird_setting_is_secret_key "$key"; then
-		if repo_root=$(find_repo_root 2>/dev/null); then
+		if repo_root=$(netbird_project_root 2>/dev/null); then
 			layers+=("$repo_root/$SCT_PROJECT_DIR/settings.json")
 			layers+=("$repo_root/$SCT_PROJECT_DIR/settings.local.json")
 		fi
@@ -32,6 +31,8 @@ netbird_read_setting() {
 
 	for file in "${layers[@]}"; do
 		[[ -f "$file" ]] || continue
+		grep -q "\"$key\"" "$file" 2>/dev/null || continue
+		require yq || return 1
 		layer_value=$(yq -r ".$key // \"\"" "$file")
 		if [[ -n "$layer_value" ]]; then
 			value="$layer_value"
@@ -48,24 +49,35 @@ netbird_setting_is_secret_key() {
 	[[ "$key" == "netbird_api_token" || "$key" == "netbird_enrollment_key" ]]
 }
 
+# Settings lookup start dir. `sandcat init --path other` exports
+# SANDCAT_PROJECT_ROOT so we do not read $PWD's .sandcat.
+netbird_project_root() {
+	if [[ -n "${SANDCAT_PROJECT_ROOT:-}" ]]; then
+		find_repo_root "$SANDCAT_PROJECT_ROOT"
+	else
+		find_repo_root
+	fi
+}
+
 # Same layers as netbird_read_setting, but each value is JSON (yq -o json).
 # Later non-null layers win. Prints `null` when unset. Keeps JSON string quotes
 # so digit-only or boolean-looking tokens are not re-parsed as YAML scalars.
 netbird_read_setting_json() {
 	local key=$1
-	require yq
 	local value="null"
 	local file layer_value repo_root
 	local -a layers=()
 	layers+=("$(sct_home)/settings.json")
 	if ! netbird_setting_is_secret_key "$key"; then
-		if repo_root=$(find_repo_root 2>/dev/null); then
+		if repo_root=$(netbird_project_root 2>/dev/null); then
 			layers+=("$repo_root/$SCT_PROJECT_DIR/settings.json")
 			layers+=("$repo_root/$SCT_PROJECT_DIR/settings.local.json")
 		fi
 	fi
 	for file in "${layers[@]}"; do
 		[[ -f "$file" ]] || continue
+		grep -q "\"$key\"" "$file" 2>/dev/null || continue
+		require yq || return 1
 		layer_value=$(yq -o json ".$key" "$file")
 		layer_value=${layer_value%$'\n'}
 		if [[ "$layer_value" != "null" ]]; then
@@ -79,11 +91,11 @@ netbird_read_setting_json() {
 # Object must have exactly one of value, op, pass.
 netbird_flatten_secret_setting() {
 	local json=${1-}
-	require yq
 	if [[ -z "$json" || "$json" == "null" ]]; then
 		printf ''
 		return 0
 	fi
+	require yq || return 1
 	# Parse as JSON so quoted digit-only / boolean-looking strings stay strings.
 	# YAML input would type 0123456789 as !!float and abort compose/run.
 	local typ
@@ -137,30 +149,52 @@ netbird_ensure_peer_name_settings() {
 prepare_agent_sandcat_mount() {
 	local src=$1
 	local dest=$2
-	require yq
 
 	[[ -n "$dest" && "$dest" != "/" ]] || return 1
 	rm -rf "$dest"
 	mkdir -p "$dest"
 	[[ -d "$src" ]] || return 0
-	cp -a "$src/." "$dest/"
+	if ! cp -a "$src/." "$dest/"; then
+		rm -rf "$dest"
+		return 1
+	fi
 
 	local f
 	for f in "$dest/settings.json" "$dest/settings.local.json"; do
-		[[ -f "$f" ]] || continue
-		yq -i -o json 'del(.netbird_api_token) | del(.netbird_enrollment_key)' "$f"
+		[[ -s "$f" ]] || continue
+		if ! require yq || ! yq -i -o json 'del(.netbird_api_token) | del(.netbird_enrollment_key)' "$f"; then
+			rm -rf "$dest"
+			return 1
+		fi
 	done
 }
 
 # Prepares a filtered .sandcat copy and exports SANDCAT_AGENT_SANDCAT for compose.
 export_agent_sandcat_mount() {
 	local repo_root src dest
-	repo_root=$(find_repo_root 2>/dev/null) || return 0
+	repo_root=$(netbird_project_root 2>/dev/null) || return 0
 	src="$repo_root/$SCT_PROJECT_DIR"
-	[[ -d "$src" ]] || return 0
 	dest="$(sct_home)/agent-sandcat/${repo_root//\//_}"
-	prepare_agent_sandcat_mount "$src" "$dest"
+	prepare_agent_sandcat_mount "$src" "$dest" || return 1
+	write_agent_sandcat_compose_env "$repo_root" "$dest" || return 1
 	export SANDCAT_AGENT_SANDCAT="$dest"
+}
+
+# Writes SANDCAT_AGENT_SANDCAT into .devcontainer/.env so Dev Containers
+# compose interpolation works (initializeCommand cannot export into compose).
+write_agent_sandcat_compose_env() {
+	local repo_root=$1
+	local dest=$2
+	local envf tmp
+	envf="$repo_root/.devcontainer/.env"
+	[[ -d "$(dirname "$envf")" ]] || return 0
+	tmp=$(mktemp)
+	if [[ -f "$envf" ]]; then
+		grep -v '^SANDCAT_AGENT_SANDCAT=' "$envf" >"$tmp" || true
+	fi
+	printf 'SANDCAT_AGENT_SANDCAT=%s\n' "$dest" >>"$tmp"
+	chmod 600 "$tmp"
+	mv "$tmp" "$envf"
 }
 
 # Export NB_SETUP_KEY from settings when not already set in the environment.

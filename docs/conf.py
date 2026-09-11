@@ -74,6 +74,8 @@ exclude_patterns = [
     "**/site-packages/**",
     "**/node_modules/**",
     "_templates",
+    "examples/**",
+    "superpowers/**",
     "requirements.txt",
     "README.md",
 ]

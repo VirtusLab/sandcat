@@ -8,16 +8,30 @@ source "$SCT_LIBDIR/require.bash"
 # Parse a Docker ISO-8601 timestamp to epoch seconds (GNU date or BSD date).
 _volume_timestamp_epoch() {
 	local timestamp=$1
-	local normalized epoch
+	local no_frac epoch bsd
 
-	normalized=$(printf '%s' "$timestamp" | sed -E 's/\.[0-9]+Z$/Z/; s/Z$//')
+	no_frac=$(printf '%s' "$timestamp" | sed -E 's/\.[0-9]+//')
 
-	if epoch=$(date -d "${normalized} UTC" +%s 2>/dev/null); then
+	if epoch=$(date -d "$timestamp" +%s 2>/dev/null); then
+		printf '%s' "$epoch"
+		return 0
+	fi
+	if epoch=$(date -d "$no_frac" +%s 2>/dev/null); then
+		printf '%s' "$epoch"
+		return 0
+	fi
+	if [[ "$no_frac" == *Z ]] && epoch=$(date -d "${no_frac%Z} UTC" +%s 2>/dev/null); then
 		printf '%s' "$epoch"
 		return 0
 	fi
 
-	if epoch=$(date -ju -f '%Y-%m-%dT%H:%M:%S' "$normalized" +%s 2>/dev/null); then
+	bsd=$no_frac
+	if [[ "$bsd" == *Z ]]; then
+		bsd="${bsd%Z}+0000"
+	elif [[ "$bsd" =~ ([+-][0-9]{2}):([0-9]{2})$ ]]; then
+		bsd=$(printf '%s' "$bsd" | sed -E 's/([+-][0-9]{2}):([0-9]{2})$/\1\2/')
+	fi
+	if epoch=$(date -ju -f '%Y-%m-%dT%H:%M:%S%z' "$bsd" +%s 2>/dev/null); then
 		printf '%s' "$epoch"
 		return 0
 	fi

@@ -46,21 +46,27 @@ netbird_pass_cli_warmup_once() {
 
 netbird_resolve_secret_ref() {
 	local value=${1-}
+	local output
 	if [[ "$value" == op://* ]]; then
-		timeout 60 op read "$value" || {
+		output=$(timeout 60 op read "$value") || {
 			netbird_peer_log "op read failed for ${value}"
 			return 1
 		}
+		printf '%s\n' "$output"
 		return 0
 	fi
 	if [[ "$value" == pass://* ]]; then
 		netbird_pass_cli_login_once || return 1
 		netbird_pass_cli_warmup_once
-		timeout 60 pass-cli item view "$value" && return 0
-		timeout 60 pass-cli item view "$value" || {
+		if output=$(timeout 60 pass-cli item view "$value"); then
+			printf '%s\n' "$output"
+			return 0
+		fi
+		output=$(timeout 60 pass-cli item view "$value") || {
 			netbird_peer_log "pass-cli item view failed for ${value}"
 			return 1
 		}
+		printf '%s\n' "$output"
 		return 0
 	fi
 	printf '%s' "$value"
@@ -159,33 +165,28 @@ netbird_go_url_json() {
 
 # NetBird 0.72 unmarshals ManagementURL/AdminURL as *url.URL. A JSON string
 # (0.28 seed format) fatal's the daemon. Never create default.json; only
-# coerce leftover string URLs and refresh IPv4 self-hosted fields in place.
+# coerce leftover string URLs and refresh ManagementURL from NB_MANAGEMENT_URL
+# so a cloud enroll cannot inherit a stale self-hosted host from the volume.
 netbird_prepare_local_management_profile() {
 	local mgmt_url="${NB_MANAGEMENT_URL:-https://api.netbird.io}"
 	local state_root="${NETBIRD_STATE_ROOT:-/var/lib/netbird}"
 	local profile_file="${state_root}/default.json"
-	local host update_urls=false url_json tmp
+	local url_json tmp
 
 	command -v jq >/dev/null 2>&1 || return 0
 	[[ -f "$profile_file" ]] || return 0
 
-	if [[ "$mgmt_url" =~ ^https?://([^/:]+) ]]; then
-		host="${BASH_REMATCH[1]}"
-		if [[ "$host" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
-			update_urls=true
-		fi
-	fi
-
 	tmp=$(mktemp)
-	if [[ "$update_urls" == true ]] && url_json=$(netbird_go_url_json "$mgmt_url"); then
+	local jq_rc=0
+	if url_json=$(netbird_go_url_json "$mgmt_url"); then
 		if [[ -n "${NETBIRD_WG_PORT:-}" ]]; then
 			jq --argjson mgmt "$url_json" --arg iface "${NETBIRD_IFACE:-wt0}" --argjson port "${NETBIRD_WG_PORT}" \
 				'.ManagementURL = $mgmt | .AdminURL = $mgmt | .WgIface = $iface | .WgPort = $port' \
-				"$profile_file" >"$tmp"
+				"$profile_file" >"$tmp" || jq_rc=$?
 		else
 			jq --argjson mgmt "$url_json" --arg iface "${NETBIRD_IFACE:-wt0}" \
 				'.ManagementURL = $mgmt | .AdminURL = $mgmt | .WgIface = $iface' \
-				"$profile_file" >"$tmp"
+				"$profile_file" >"$tmp" || jq_rc=$?
 		fi
 	else
 		jq '
@@ -195,7 +196,11 @@ netbird_prepare_local_management_profile() {
 			  else . end;
 			.ManagementURL |= coerce
 			| .AdminURL |= coerce
-		' "$profile_file" >"$tmp"
+		' "$profile_file" >"$tmp" || jq_rc=$?
+	fi
+	if [[ "$jq_rc" -ne 0 ]]; then
+		rm -f "$tmp"
+		return "$jq_rc"
 	fi
 	mv "$tmp" "$profile_file"
 }
@@ -227,9 +232,7 @@ netbird_mgmt_find_peer_id_by_name() {
 		return 1
 	}
 
-	peers=$(curl -sf --max-time 10 \
-		-H "Authorization: Token ${token}" \
-		"${management_url%/}/api/peers") || return 1
+	peers=$(netbird_curl "$token" "${management_url%/}/api/peers") || return 1
 	matches=$(printf '%s' "$peers" \
 		| jq -c --arg name "$peer_name" \
 			'[.[] | select(
@@ -246,6 +249,24 @@ netbird_mgmt_find_peer_id_by_name() {
 	printf '%s' "$matches" | jq -r '.[0] // empty'
 }
 
+# curl against the management API without putting the PAT on argv.
+# $1 is the token; remaining args are extra curl arguments (URL last).
+netbird_curl() {
+	local token=$1
+	shift
+	local header_file rc
+	local old_umask
+	old_umask=$(umask)
+	umask 077
+	header_file=$(mktemp)
+	umask "$old_umask"
+	printf 'Authorization: Token %s\n' "$token" >"$header_file"
+	curl -sf --max-time 10 -H "@${header_file}" "$@"
+	rc=$?
+	rm -f "$header_file"
+	return "$rc"
+}
+
 netbird_mgmt_delete_peer_by_id() {
 	local peer_id=$1
 	local token
@@ -255,8 +276,7 @@ netbird_mgmt_delete_peer_by_id() {
 		return 1
 	}
 
-	curl -sf --max-time 10 -X DELETE \
-		-H "Authorization: Token ${token}" \
+	netbird_curl "$token" -X DELETE \
 		"${NB_MANAGEMENT_URL%/}/api/peers/${peer_id}" >/dev/null
 }
 
@@ -321,9 +341,7 @@ netbird_set_dns_label() {
 		return 0
 	fi
 
-	peer_id=$(curl -sf --max-time 10 \
-		-H "Authorization: Token ${token}" \
-		"${management_url%/}/api/peers" \
+	peer_id=$(netbird_curl "$token" "${management_url%/}/api/peers" \
 		| jq -r --arg fqdn "$current_fqdn" \
 			'first(.[] | select(.fqdn == $fqdn) | .id) // empty' 2>/dev/null || true)
 	if [[ -z "$peer_id" ]]; then
@@ -332,8 +350,7 @@ netbird_set_dns_label() {
 	fi
 
 	payload=$(jq -cn --arg dns_label "$peer_name" '{dns_label: $dns_label}')
-	result=$(curl -sf --max-time 10 -X PUT \
-		-H "Authorization: Token ${token}" \
+	result=$(netbird_curl "$token" -X PUT \
 		-H "Content-Type: application/json" \
 		-d "$payload" \
 		"${management_url%/}/api/peers/${peer_id}" 2>/dev/null) || {
@@ -343,4 +360,229 @@ netbird_set_dns_label() {
 
 	new_fqdn=$(printf '%s' "$result" | jq -r '.fqdn // empty' 2>/dev/null || true)
 	netbird_peer_log "dns_label set → FQDN: ${new_fqdn:-${peer_name}.<domain>}"
+}
+
+wait_until() {
+	local max="$1" delay="$2" msg="$3"
+	shift 3
+	local attempt=0
+	while ! "$@"; do
+		if [[ "$attempt" -ge "$max" ]]; then
+			echo "$msg" >&2
+			return 1
+		fi
+		sleep "$delay"
+		attempt=$((attempt + 1))
+	done
+}
+
+netbird_management_url_host() {
+	local url=$1
+	[[ "$url" =~ ^https?://([^/:]+) ]] || return 1
+	printf '%s' "${BASH_REMATCH[1]}"
+}
+
+netbird_management_url_host_is_literal_ipv4() {
+	local host=$1
+	[[ "$host" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]
+}
+
+netbird_management_url_port() {
+	local url=$1
+	if [[ "$url" =~ :([0-9]+)(/|$|\?) ]]; then
+		printf '%s' "${BASH_REMATCH[1]}"
+		return 0
+	fi
+	if [[ "$url" =~ ^https:// ]]; then
+		printf '443'
+	else
+		printf '80'
+	fi
+}
+
+netbird_host_route_uses_gateway() {
+	local host_ip=$1
+	local docker_gateway=$2
+	[[ -n "$host_ip" && -n "$docker_gateway" ]] || return 1
+	[[ "$host_ip" != "$docker_gateway" ]]
+}
+
+# Allow enrollment against a self-hosted management server on the Docker host.
+configure_netbird_host_management_access() {
+	local docker_gateway=$1
+	local mgmt_url="${NB_MANAGEMENT_URL:-https://api.netbird.io}"
+	local host_ip port
+
+	[[ -n "$docker_gateway" ]] || return 0
+
+	host_ip=$(netbird_management_url_host "$mgmt_url") || return 0
+	netbird_management_url_host_is_literal_ipv4 "$host_ip" || return 0
+
+	port=$(netbird_management_url_port "$mgmt_url")
+
+	if netbird_host_route_uses_gateway "$host_ip" "$docker_gateway"; then
+		netbird_peer_log "Routing NetBird management traffic to ${host_ip}:${port} via eth0 (via ${docker_gateway})."
+		ip -4 route add "${host_ip}/32" via "${docker_gateway}" dev eth0 2>/dev/null || true
+	else
+		netbird_peer_log "Routing NetBird management traffic to ${host_ip}:${port} via eth0."
+		ip -4 route add "${host_ip}/32" dev eth0 2>/dev/null || true
+	fi
+
+	ip -4 rule add to "${host_ip}/32" lookup main priority 50 2>/dev/null || true
+
+	iptables -C OUTPUT -o eth0 -d "$host_ip" -p tcp --dport "$port" -j ACCEPT 2>/dev/null \
+		|| iptables -I OUTPUT 1 -o eth0 -d "$host_ip" -p tcp --dport "$port" -j ACCEPT
+	iptables -C OUTPUT -o eth0 -d "$host_ip" -p udp --dport 3478 -j ACCEPT 2>/dev/null \
+		|| iptables -I OUTPUT 1 -o eth0 -d "$host_ip" -p udp --dport 3478 -j ACCEPT
+}
+
+netbird_verify_host_management_reachable() {
+	local mgmt_url="${NB_MANAGEMENT_URL:-}"
+	local host_ip port check_url
+
+	host_ip=$(netbird_management_url_host "$mgmt_url") || return 0
+	netbird_management_url_host_is_literal_ipv4 "$host_ip" || return 0
+
+	port=$(netbird_management_url_port "$mgmt_url")
+	command -v curl >/dev/null 2>&1 || return 0
+
+	check_url="${mgmt_url%/}/api/instance"
+	wait_until 15 1 \
+		"[${NETBIRD_PEER_LOG_PREFIX:-netbird}] Cannot reach NetBird management at ${mgmt_url}; is the server running on the host (port ${port})?" \
+		curl -sf --max-time 5 "$check_url" >/dev/null
+}
+
+netbird_export_service_env() {
+	local mgmt_url="${NB_MANAGEMENT_URL:-https://api.netbird.io}"
+	export NB_MANAGEMENT_URL="$mgmt_url"
+	if [[ -n "${NETBIRD_WG_PORT:-}" ]]; then
+		export NB_WIREGUARD_PORT="${NETBIRD_WG_PORT}"
+	fi
+	if netbird_management_url_host_is_literal_ipv4 "$(netbird_management_url_host "$mgmt_url" 2>/dev/null)"; then
+		export NB_USE_LEGACY_ROUTING=true
+	fi
+}
+
+netbird_daemon_ready() {
+	netbird status >/dev/null 2>&1
+}
+
+ensure_netbird_service() {
+	netbird_prepare_local_management_profile
+	netbird_export_service_env
+	if netbird_daemon_ready; then
+		return 0
+	fi
+
+	netbird_peer_log "Starting NetBird service daemon ($(netbird version 2>/dev/null || echo unknown))."
+	netbird service run --log-file console &
+
+	wait_until 30 1 \
+		"[${NETBIRD_PEER_LOG_PREFIX:-netbird}] Timed out waiting for NetBird service daemon" \
+		netbird_daemon_ready
+}
+
+# Enroll without putting the setup key on argv. Bound by NETBIRD_UP_TIMEOUT.
+netbird_up_enroll() {
+	local iface=$1
+	local keyfile rc
+	local old_umask
+	local -a up_args
+	old_umask=$(umask)
+	umask 077
+	keyfile=$(mktemp)
+	umask "$old_umask"
+	printf '%s' "${NB_SETUP_KEY}" >"$keyfile"
+
+	up_args=(
+		up
+		--setup-key-file "$keyfile"
+		--management-url "${NB_MANAGEMENT_URL:-https://api.netbird.io}"
+		--hostname "${NB_PEER_NAME}"
+		--interface-name "${iface}"
+	)
+	if [[ -n "${NETBIRD_WG_PORT:-}" ]]; then
+		up_args+=(--wireguard-port "${NETBIRD_WG_PORT}")
+	fi
+
+	netbird_peer_log "Enrolling NetBird peer on ${iface} as '${NB_PEER_NAME}'${NETBIRD_WG_PORT:+ (WG port ${NETBIRD_WG_PORT})}."
+	timeout "${NETBIRD_UP_TIMEOUT:-60}" netbird "${up_args[@]}"
+	rc=$?
+	rm -f "$keyfile"
+	if [[ "$rc" -ne 0 ]]; then
+		netbird_peer_log "netbird up failed for ${iface}."
+		return "$rc"
+	fi
+	return 0
+}
+
+netbird_start() {
+	local iface="${1:-wt0}"
+	local docker_gateway
+
+	docker_gateway=$(ip -4 route show default dev eth0 2>/dev/null | awk '{print $3}')
+
+	ensure_netbird_service
+	configure_netbird_host_management_access "$docker_gateway"
+	netbird_verify_host_management_reachable
+	netbird_prepare_local_management_profile
+	if [[ -f /var/lib/netbird/default.json ]] \
+		&& grep -qE 'localhost|127\.0\.0\.1|\[::1\]' /var/lib/netbird/default.json 2>/dev/null; then
+		netbird down 2>/dev/null || true
+	fi
+	netbird_export_service_env
+
+	netbird_prepare_enroll_credentials || return 1
+	netbird_replace_same_name_peer_if_needed || return 1
+	netbird_up_enroll "$iface" || return 1
+
+	if ! wait_until 30 1 \
+		"[${NETBIRD_PEER_LOG_PREFIX:-netbird}] Timed out waiting for NetBird to bring up ${iface}" \
+		ip link show "${iface}" >/dev/null 2>&1; then
+		return 1
+	fi
+	if [[ -n "${NETBIRD_AFTER_UP:-}" ]]; then
+		"${NETBIRD_AFTER_UP}" "$iface"
+	fi
+}
+
+start_netbird() {
+	netbird_start "$@"
+}
+
+netbird_shutdown() {
+	netbird down >/dev/null 2>&1 || true
+}
+
+netbird_supervise_daemon() {
+	local iface="${1:-wt0}"
+	local backoff="${NETBIRD_SUPERVISE_INTERVAL:-10}"
+	local max_backoff="${NETBIRD_SUPERVISE_MAX_BACKOFF:-60}"
+
+	while true; do
+		sleep "$backoff"
+		if ! netbird_daemon_ready; then
+			netbird_peer_log "NetBird service daemon not responding; restarting."
+			netbird_export_service_env
+			netbird service run --log-file console &
+			wait_until 15 1 \
+				"[${NETBIRD_PEER_LOG_PREFIX:-netbird}] Timed out waiting for NetBird service daemon" \
+				netbird_daemon_ready || true
+		fi
+		if ! ip link show "${iface}" >/dev/null 2>&1; then
+			netbird_peer_log "NetBird interface ${iface} down; re-enrolling."
+			if netbird_start "$iface"; then
+				backoff="${NETBIRD_SUPERVISE_INTERVAL:-10}"
+			else
+				backoff=$((backoff * 2))
+				if ((backoff > max_backoff)); then
+					backoff=$max_backoff
+				fi
+			fi
+		fi
+	done
+}
+
+supervise_netbird_daemon() {
+	netbird_supervise_daemon "$@"
 }
