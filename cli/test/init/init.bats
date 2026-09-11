@@ -675,6 +675,24 @@ EOF
 	assert_output --partial "Network:          strict — stack presets: python"
 }
 
+@test "init --features docker seeds the docker-registry preset into project settings" {
+	# Real settings-file semantics needed: the stub reproduces what the
+	# settings command does (copy the template), so the seeding step that
+	# follows in init has a file to mutate.
+	stub settings \
+		"$PROJECT_DIR/.sandcat/settings.json claude vscode : mkdir -p $PROJECT_DIR/.sandcat && cp $SCT_TEMPLATEDIR/settings.json $PROJECT_DIR/.sandcat/settings.json"
+	stub devcontainer \
+		"--settings-file .sandcat/settings.json --project-path * --agent claude --ide vscode --name test --stacks * --proxy web --secret-provider none : :"
+
+	run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" --stacks "" --features "docker" --secret-provider none
+	assert_success
+	run yq -r '.network[0].preset' "$PROJECT_DIR/.sandcat/settings.json"
+	assert_output "docker-registry"
+	# wildcard z szablonu zostaje za presetem
+	run yq -r '.network[1].host' "$PROJECT_DIR/.sandcat/settings.json"
+	assert_output "*"
+}
+
 @test "init without strict-network reports the default network policy" {
 	stub settings "$PROJECT_DIR/.sandcat/settings.json claude vscode : :"
 	stub devcontainer \

@@ -43,6 +43,15 @@ A dedicated `dind` compose service hosts the nested `dockerd`:
   wg-client's namespace — forwarding anywhere except into the tunnel is
   dropped.
 
+## Network policy
+
+`--features docker` seeds the [`docker-registry` network
+preset](network-rules.md#network-presets) into the project settings: BuildKit
+resolves registry manifests with **HEAD** requests, which the default
+allow-`*`-GET wildcard does not cover. The preset is host-scoped
+(Docker Hub + ghcr.io, all methods); add other registries your builds pull
+from the same way.
+
 ## Caveats
 
 - The `dind` service is `privileged` — required by the nested daemon

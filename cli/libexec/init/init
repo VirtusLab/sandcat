@@ -408,6 +408,13 @@ init() {
 		settings_args+=(--strict-network --stacks "$stacks_resolved")
 	fi
 	settings "${settings_args[@]+"${settings_args[@]}"}" "$project_path/$settings_file" "${services[@]}"
+	if [[ "$docker_enabled" == "true" && -f "$project_path/$settings_file" ]]; then
+		# BuildKit resolves registry manifests with HEAD, which the default
+		# allow-*-GET wildcard blocks — seed the registry preset so
+		# `docker build` works out of the box (all-method, host-scoped;
+		# expanded by the mitmproxy addon at proxy start).
+		yq -i -o=json '.network = [{"preset": "docker-registry"}] + .network' "$project_path/$settings_file"
+	fi
 	export SANDCAT_DOCKER="$docker_enabled"
 	local devcontainer_args=(
 		--settings-file "$settings_file"
