@@ -1,0 +1,39 @@
+# Local NetBird stack: dashboard + combined netbird-server (management, signal,
+# relay, STUN). Matches NetBird getting-started exposed-ports mode.
+
+services:
+  dashboard:
+    image: netbirdio/dashboard:${NETBIRD_DASHBOARD_VERSION}
+    restart: unless-stopped
+    ports:
+      - ${NETBIRD_DASHBOARD_HTTP_PORT:-8080}:80
+    env_file:
+      - dashboard.env
+    logging:
+      driver: json-file
+      options:
+        max-size: 500m
+        max-file: "2"
+
+  netbird-server:
+    image: netbirdio/netbird-server:${NETBIRD_SERVER_VERSION}
+    restart: unless-stopped
+    ports:
+      - ${NETBIRD_MGMT_API_PORT}:80
+      - ${NETBIRD_STUN_PORT}:3478/udp
+    volumes:
+      - netbird_data:/var/lib/netbird
+      # Produced by ./start.sh (secrets filled). Do not mount the tracked
+      # config.yaml placeholders — empty authSecret fails 0.72 local relay.
+      - ./config.local.yaml:/etc/netbird/config.yaml
+    command: ["--config", "/etc/netbird/config.yaml"]
+    environment:
+      - NB_SETUP_PAT_ENABLED=true
+    logging:
+      driver: json-file
+      options:
+        max-size: 500m
+        max-file: "2"
+
+volumes:
+  netbird_data:

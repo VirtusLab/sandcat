@@ -48,6 +48,7 @@ import re
 import shlex
 import subprocess
 import sys
+import time
 from fnmatch import fnmatch
 
 from mitmproxy import ctx, dns, http
@@ -199,6 +200,34 @@ def _pass_cli_session_is_pat(stdout: str) -> bool:
     return bool(_PAT_SESSION_MARKER.search(stdout or ""))
 
 
+_ENABLED_TRUE = {"true", "1", "yes", "on"}
+_ENABLED_FALSE = {"false", "0", "no", "off"}
+
+
+def _parse_rule_enabled(raw) -> bool | None:
+    """Interpret a network rule's ``enabled`` value; None when unrecognized.
+
+    JSON settings are hand-edited, so ``false``, ``"false"``, ``"0"`` and ``0``
+    all show up in the wild and must all disable the rule.
+    """
+    if isinstance(raw, bool):
+        return raw
+    if isinstance(raw, (int, float)):
+        return raw != 0
+    if isinstance(raw, str):
+        value = raw.strip().lower()
+        if value in _ENABLED_FALSE:
+            return False
+        if value in _ENABLED_TRUE:
+            return True
+    return None
+
+
+def _rule_enabled(rule: dict) -> bool:
+    """Whether a network rule applies. Unrecognized values keep the default (on)."""
+    return _parse_rule_enabled(rule.get("enabled", True)) is not False
+
+
 class SandcatAddon:
     """Base sandcat addon: network policy + secret substitution."""
 
@@ -241,6 +270,7 @@ class SandcatAddon:
         self._pass_cli_logged_in = self._pass_cli_login_if_needed(has_pass_secrets)
         if has_pass_secrets and self._pass_cli_logged_in:
             self._verify_pat_auth_or_die()
+            self._pass_cli_warmup()
 
         self.env = merged["env"]
         self._load_secrets(merged["secrets"])
@@ -258,6 +288,10 @@ class SandcatAddon:
 
     def _on_settings_merged(self, merged: dict):
         """Hook: subclasses may inspect merged settings (e.g., feature flags)."""
+        pass
+
+    def done(self):
+        """mitmproxy shutdown hook."""
         pass
 
     @staticmethod
@@ -413,6 +447,42 @@ class SandcatAddon:
             else:
                 result[key] = value
         return result
+
+    @staticmethod
+    def _pass_cli_warmup():
+        """Prime the local vault cache before reading individual items.
+
+        The first ``pass-cli item view`` after login triggers a full vault sync
+        from Proton's servers, which can take 30-60 s on a cold start and exceed
+        the per-item timeout.  Running ``pass-cli vault list`` first forces that
+        sync in one place with a generous timeout so subsequent item reads hit the
+        local cache.  Failures are non-fatal — item reads will attempt the sync
+        themselves and may fail if the network is truly unavailable.
+        """
+        attempts = 3
+        for attempt in range(1, attempts + 1):
+            try:
+                result = subprocess.run(
+                    ["pass-cli", "vault", "list"],
+                    capture_output=True, text=True, timeout=60,
+                )
+                if result.returncode == 0:
+                    ctx.log.info("pass-cli vault cache warmed up")
+                    return
+                ctx.log.warn(
+                    f"pass-cli vault list failed (attempt {attempt}/{attempts}): "
+                    f"{result.stderr.strip()}"
+                )
+            except subprocess.TimeoutExpired:
+                ctx.log.warn(
+                    f"pass-cli vault list timed out (attempt {attempt}/{attempts})"
+                )
+            if attempt < attempts:
+                time.sleep(5)
+        ctx.log.warn(
+            "pass-cli vault warmup failed after all attempts; "
+            "item reads will attempt their own sync"
+        )
 
     @staticmethod
     def _merge_settings(layers: list[dict]) -> dict:
@@ -610,20 +680,31 @@ class SandcatAddon:
             raise ValueError(
                 f"Secret {name!r}: 'pass' value must start with 'pass://', got {pass_ref!r}"
             )
-        try:
-            result = subprocess.run(
-                ["pass-cli", "item", "view", pass_ref],
-                capture_output=True, text=True, timeout=30,
-            )
-        except FileNotFoundError:
-            raise RuntimeError(
-                f"Secret {name!r}: 'pass-cli' not found. Install Proton Pass CLI to use pass:// references."
-            ) from None
-        if result.returncode != 0:
-            raise RuntimeError(
-                f"Secret {name!r}: 'pass-cli' read failed: {result.stderr.strip()}"
-            )
-        return cls._normalize_secret_value(result.stdout.strip())
+        attempts = 3
+        last_error = None
+        for attempt in range(1, attempts + 1):
+            try:
+                result = subprocess.run(
+                    ["pass-cli", "item", "view", pass_ref],
+                    capture_output=True, text=True, timeout=60,
+                )
+            except FileNotFoundError:
+                raise RuntimeError(
+                    f"Secret {name!r}: 'pass-cli' not found. Install Proton Pass CLI to use pass:// references."
+                ) from None
+            except subprocess.TimeoutExpired:
+                last_error = f"timed out after 60 s (attempt {attempt}/{attempts})"
+                if attempt < attempts:
+                    time.sleep(5)
+                continue
+            if result.returncode == 0:
+                return cls._normalize_secret_value(result.stdout.strip())
+            last_error = result.stderr.strip()
+            if attempt < attempts:
+                time.sleep(5)
+        raise RuntimeError(
+            f"Secret {name!r}: 'pass-cli' read failed after {attempts} attempts: {last_error}"
+        )
 
     @staticmethod
     def _normalize_secret_value(value) -> str:
@@ -634,6 +715,15 @@ class SandcatAddon:
 
     def _load_network_rules(self, raw_rules: list):
         self.network_rules = self._expand_network_presets(raw_rules)
+        for rule in self.network_rules:
+            if not isinstance(rule, dict) or "enabled" not in rule:
+                continue
+            if _parse_rule_enabled(rule["enabled"]) is None:
+                ctx.log.warn(
+                    f"Network rule for host {rule.get('host')!r}: unrecognized "
+                    f"'enabled' value {rule['enabled']!r}; the rule stays enabled. "
+                    "Use true/false to control it."
+                )
         ctx.log.info(f"Loaded {len(self.network_rules)} network rule(s)")
 
     @classmethod
@@ -799,6 +889,8 @@ class SandcatAddon:
     def _find_matching_rule(self, method: str | None, host: str) -> dict | None:
         host = host.lower().rstrip(".")
         for rule in self.network_rules:
+            if not _rule_enabled(rule):
+                continue
             if not fnmatch(host, rule["host"].lower()):
                 continue
             rule_method = rule.get("method")
@@ -843,6 +935,15 @@ class SandcatAddon:
             lines.append(f"export {name}={shlex.quote(value)}")
         for name, entry in self.secrets.items():
             lines.append(f"export {name}={shlex.quote(entry['placeholder'])}")
+        # Publish the NetBird mesh DNS domain so the agent can form FQDNs like
+        # <peer-name>.$SANDCAT_NETBIRD_DNS_DOMAIN without hard-coding the domain.
+        # Set on the mitmproxy container via NETBIRD_DNS_DOMAIN (injected by
+        # enable_netbird() in composefile.bash). Not emitted when NetBird is disabled.
+        netbird_dns_domain = os.environ.get("NETBIRD_DNS_DOMAIN", "")
+        if netbird_dns_domain:
+            lines.append(
+                f"export SANDCAT_NETBIRD_DNS_DOMAIN={shlex.quote(netbird_dns_domain)}"
+            )
         self._atomic_write_text(SANDCAT_ENV_PATH, "\n".join(lines) + "\n")
 
     def _write_cursor_cli_config(self, merged: dict):

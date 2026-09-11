@@ -122,6 +122,21 @@ teardown() {
 	refute_output --partial "rebuilt"
 }
 
+@test "warning when image is much newer than volume with a numeric offset" {
+	if ! date -d "2024-01-15T10:00:00-07:00" +%s &>/dev/null; then
+		skip "requires GNU date with numeric offsets"
+	fi
+
+	stub docker \
+		"volume inspect myproject-sandbox_agent-home : :" \
+		"volume inspect --format {{.CreatedAt}} myproject-sandbox_agent-home : echo '2024-01-15T10:00:00-07:00'" \
+		"image inspect --format {{.Created}} myproject-sandbox-agent : echo '2024-06-20T14:30:00.123456789-07:00'"
+
+	run --separate-stderr warn_stale_home_volume "$COMPOSE_FILE"
+	assert_success
+	assert_stderr --partial "agent image was rebuilt"
+}
+
 @test "no warning when compose file has no project name" {
 	cat > "$COMPOSE_FILE" <<-'EOF'
 		services:
@@ -133,4 +148,16 @@ teardown() {
 	run warn_stale_home_volume "$COMPOSE_FILE"
 	assert_success
 	refute_output --partial "volume"
+}
+
+@test "_volume_timestamp_epoch parses a trailing Z" {
+	run _volume_timestamp_epoch "2024-01-15T10:00:00Z"
+	assert_success
+	assert_output "1705312800"
+}
+
+@test "_volume_timestamp_epoch parses fractional seconds and a numeric offset" {
+	run _volume_timestamp_epoch "2024-06-20T14:30:00.123456789-07:00"
+	assert_success
+	assert_output "1718919000"
 }

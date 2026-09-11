@@ -281,6 +281,60 @@ class TestNetworkRules:
         assert addon._is_request_allowed(None, "api.github.com.") is True
         assert addon._is_request_allowed("GET", "api.github.com.") is True
 
+    def test_enabled_false_skips_rule(self, addon_cls):
+        addon = addon_cls()
+        addon.network_rules = [
+            {"action": "allow", "host": "api.example.com", "enabled": False},
+            {"action": "allow", "host": "*"},
+        ]
+        # First rule skipped → falls through to allow *
+        assert addon._is_request_allowed("GET", "api.example.com") is True
+        addon.network_rules = [
+            {"action": "allow", "host": "api.example.com", "enabled": False},
+        ]
+        assert addon._is_request_allowed("GET", "api.example.com") is False
+
+    def test_enabled_true_matches_as_today(self, addon_cls):
+        addon = addon_cls()
+        addon.network_rules = [
+            {"action": "allow", "host": "api.example.com", "enabled": True},
+        ]
+        assert addon._is_request_allowed("GET", "api.example.com") is True
+
+    def test_enabled_absent_defaults_true(self, addon_cls):
+        addon = addon_cls()
+        addon.network_rules = [
+            {"action": "allow", "host": "api.example.com"},
+        ]
+        assert addon._is_request_allowed("GET", "api.example.com") is True
+
+    @pytest.mark.parametrize("disabled", [False, "false", "False", "0", 0, "off", "no"])
+    def test_falsey_enabled_values_disable_rule(self, addon_cls, disabled):
+        addon = addon_cls()
+        addon.network_rules = [
+            {"action": "allow", "host": "api.example.com", "enabled": disabled},
+        ]
+        assert addon._is_request_allowed("GET", "api.example.com") is False
+
+    @pytest.mark.parametrize("truthy", [True, "true", "True", "1", 1, "on", "yes"])
+    def test_truthy_enabled_values_keep_rule(self, addon_cls, truthy):
+        addon = addon_cls()
+        addon.network_rules = [
+            {"action": "allow", "host": "api.example.com", "enabled": truthy},
+        ]
+        assert addon._is_request_allowed("GET", "api.example.com") is True
+
+    def test_unrecognized_enabled_value_keeps_rule_and_warns(self, addon_cls):
+        addon = addon_cls()
+        rules = [{"action": "allow", "host": "api.example.com", "enabled": "maybe"}]
+
+        with patch.object(common.ctx, "log") as log:
+            addon._load_network_rules(rules)
+
+        assert addon._is_request_allowed("GET", "api.example.com") is True
+        warning = " ".join(str(call) for call in log.warn.call_args_list)
+        assert "maybe" in warning
+
 
 # ---------------------------------------------------------------------------
 # Network presets — {"preset": "<name>"} expansion (issue #2).
@@ -1011,6 +1065,51 @@ class TestConfigLoading:
         assert "# names: K" in content
         assert "export K=SANDCAT_PLACEHOLDER_K" in content
 
+    def test_netbird_dns_domain_emitted_when_env_var_set(
+        self, addon_cls, tmp_path, monkeypatch
+    ):
+        monkeypatch.setenv("NETBIRD_DNS_DOMAIN", "netbird.selfhosted")
+        settings = {"env": {}}
+        p = tmp_path / "settings.json"
+        p.write_text(json.dumps(settings))
+        env_path = tmp_path / "sandcat.env"
+        addon = addon_cls()
+        with patch(f"{_COMMON}.SETTINGS_PATHS", [str(p)]), \
+             patch(f"{_COMMON}.SANDCAT_ENV_PATH", str(env_path)):
+            addon.load(MagicMock())
+        content = env_path.read_text()
+        assert "export SANDCAT_NETBIRD_DNS_DOMAIN=netbird.selfhosted" in content
+
+    def test_netbird_dns_domain_not_emitted_when_env_var_absent(
+        self, addon_cls, tmp_path, monkeypatch
+    ):
+        monkeypatch.delenv("NETBIRD_DNS_DOMAIN", raising=False)
+        settings = {"env": {}}
+        p = tmp_path / "settings.json"
+        p.write_text(json.dumps(settings))
+        env_path = tmp_path / "sandcat.env"
+        addon = addon_cls()
+        with patch(f"{_COMMON}.SETTINGS_PATHS", [str(p)]), \
+             patch(f"{_COMMON}.SANDCAT_ENV_PATH", str(env_path)):
+            addon.load(MagicMock())
+        content = env_path.read_text()
+        assert "SANDCAT_NETBIRD_DNS_DOMAIN" not in content
+
+    def test_netbird_dns_domain_custom_value(
+        self, addon_cls, tmp_path, monkeypatch
+    ):
+        monkeypatch.setenv("NETBIRD_DNS_DOMAIN", "nb.corp.example.com")
+        settings = {"env": {}}
+        p = tmp_path / "settings.json"
+        p.write_text(json.dumps(settings))
+        env_path = tmp_path / "sandcat.env"
+        addon = addon_cls()
+        with patch(f"{_COMMON}.SETTINGS_PATHS", [str(p)]), \
+             patch(f"{_COMMON}.SANDCAT_ENV_PATH", str(env_path)):
+            addon.load(MagicMock())
+        content = env_path.read_text()
+        assert "export SANDCAT_NETBIRD_DNS_DOMAIN=nb.corp.example.com" in content
+
 
 # ---------------------------------------------------------------------------
 # Env value quoting — applies regardless of variant.
@@ -1247,7 +1346,7 @@ class TestOpSecretResolution:
         assert value == "secret-value"
         mock_run.assert_called_once_with(
             ["pass-cli", "item", "view", "pass://vault/item/field"],
-            capture_output=True, text=True, timeout=30,
+            capture_output=True, text=True, timeout=60,
         )
 
     def test_pass_without_prefix_raises(self, addon_cls):
@@ -1263,7 +1362,8 @@ class TestOpSecretResolution:
 
     def test_pass_cli_failure_raises(self, addon_cls):
         entry = {"pass": "pass://vault/item/field", "hosts": []}
-        with patch(f"{_COMMON}.subprocess.run") as mock_run:
+        with patch(f"{_COMMON}.subprocess.run") as mock_run, \
+             patch(f"{_COMMON}.time.sleep"):
             mock_run.return_value = MagicMock(
                 returncode=1, stdout="", stderr="unauthorized"
             )

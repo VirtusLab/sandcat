@@ -20,6 +20,10 @@ DNSMASQ_CONF="/etc/dnsmasq-sandcat.conf"
 # inherit the resolv.conf this script writes for wg-client. We publish it here
 # for sibling app-init scripts to copy into their own /etc/resolv.conf.
 SHARED_RESOLV_CONF="/run/sandcat/resolv.conf"
+# NetBird peer DNS records published by mitmproxy-init.sh into the shared volume.
+# Format: dnsmasq-compatible address= and server= lines, one per line.
+NETBIRD_PEERS_CONF="/mitmproxy-config/netbird-peers.conf"
+DNSMASQ_PID_FILE="/run/sandcat/dnsmasq.pid"
 
 # Poll a command until it returns success or a timeout is hit.
 #
@@ -128,6 +132,161 @@ write_resolv_conf() {
         echo "nameserver 127.0.0.1"
         if [[ "$#" -gt 0 ]]; then echo "search $*"; fi
     } > "$resolv_conf"
+}
+
+# Merge NetBird peer DNS records published by mitmproxy-init.sh into the
+# dnsmasq config and restart dnsmasq so the running process picks them up.
+#
+# mitmproxy-init.sh writes dnsmasq-compatible local=, host-record=, address=,
+# and server= lines to $NETBIRD_PEERS_CONF in the shared mitmproxy-config
+# volume whenever peer state changes. This function replaces the marked
+# NetBird block (and any legacy unmarked records for the same names) so a
+# new mesh IP is not appended behind a stale one. SIGHUP is not enough:
+# dnsmasq often keeps serving stale data after address=/host-record= changes.
+#
+# Idempotent and safe to call repeatedly. Returns 0 if the source file does
+# not exist yet (NetBird disabled or mitmproxy still enrolling).
+#
+# Args:
+#   $1 - path to the dnsmasq config file to update
+restart_dnsmasq() {
+    local conf="$1"
+    local killed=false
+
+    if [[ -f "$DNSMASQ_PID_FILE" ]]; then
+        local dnsmasq_pid
+        dnsmasq_pid=$(tr -d '[:space:]' <"$DNSMASQ_PID_FILE" 2>/dev/null) || true
+        if [[ -n "$dnsmasq_pid" ]] && kill -0 "$dnsmasq_pid" 2>/dev/null; then
+            kill "$dnsmasq_pid" 2>/dev/null || true
+            killed=true
+            local attempt=0
+            while dnsmasq-ready && [[ "$attempt" -lt 25 ]]; do
+                sleep 0.2
+                attempt=$((attempt + 1))
+            done
+        fi
+        rm -f "$DNSMASQ_PID_FILE"
+    fi
+
+    if dnsmasq-ready 2>/dev/null; then
+        if [[ "$killed" == true ]]; then
+            echo "wg-client: previous dnsmasq still listening; not starting a second process" >&2
+            return 1
+        fi
+        return 0
+    fi
+
+    mkdir -p "$(dirname "$DNSMASQ_PID_FILE")"
+    dnsmasq --conf-file="$conf" --pid-file="$DNSMASQ_PID_FILE"
+    if ! wait_until 25 0.2 \
+        "dnsmasq did not start after NetBird DNS restart" \
+        dnsmasq-ready; then
+        return 1
+    fi
+    echo "wg-client: dnsmasq restarted for NetBird DNS records." >&2
+}
+
+# Prefix that identifies a dnsmasq record regardless of its rdata (IP).
+# Used to drop stale host-record=/address= lines when a peer's mesh IP changes.
+netbird_dnsmasq_record_prefix() {
+    local line=$1
+    case "$line" in
+        host-record=*,*)
+            printf '%s,' "${line%%,*}"
+            ;;
+        address=/*)
+            local rest="${line#address=/}"
+            printf 'address=/%s/' "${rest%%/*}"
+            ;;
+        local=/*)
+            local rest="${line#local=/}"
+            printf 'local=/%s/' "${rest%%/*}"
+            ;;
+        server=/*)
+            local rest="${line#server=/}"
+            printf 'server=/%s/' "${rest%%/*}"
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+patch_dnsmasq_from_netbird_volume() {
+    local conf="$1"
+    local peers_conf="$NETBIRD_PEERS_CONF"
+    local peers_stamp="${conf}.netbird-peers.stamp"
+
+    [[ -f "$peers_conf" ]] || return 0
+
+    local peers_mtime=0
+    peers_mtime=$(stat -c %Y "$peers_conf" 2>/dev/null || echo 0)
+    local recorded_mtime=0
+    [[ -f "$peers_stamp" ]] && recorded_mtime=$(tr -d '[:space:]' <"$peers_stamp" 2>/dev/null || echo 0)
+
+    # Unchanged source: skip the merge. The 5s supervisor would otherwise
+    # rewrite dnsmasq.conf on every tick.
+    if [[ -f "$peers_stamp" && "$peers_mtime" == "$recorded_mtime" ]]; then
+        return 0
+    fi
+
+    local begin="# BEGIN SANDCAT-NETBIRD-DNS"
+    local end="# END SANDCAT-NETBIRD-DNS"
+    local records tmp line prefix existing
+    records=$(mktemp)
+    tmp=$(mktemp)
+    {
+        echo "$begin"
+        while IFS= read -r line || [[ -n "$line" ]]; do
+            [[ -n "$line" ]] || continue
+            [[ "$line" =~ ^(local|host-record|address|server)= ]] || continue
+            printf '%s\n' "$line"
+        done < "$peers_conf"
+        echo "$end"
+    } > "$records"
+
+    existing=""
+    if grep -qF "$begin" "$conf" 2>/dev/null; then
+        existing=$(awk -v b="$begin" -v e="$end" '
+            $0==b {p=1}
+            p {print}
+            $0==e {p=0}
+        ' "$conf")
+    fi
+
+    local reload_needed=false
+    if [[ "$existing" != "$(cat "$records")" ]]; then
+        awk -v b="$begin" -v e="$end" '
+            $0==b {skip=1; next}
+            $0==e {skip=0; next}
+            !skip {print}
+        ' "$conf" > "$tmp"
+        mv "$tmp" "$conf"
+        tmp=$(mktemp)
+
+        while IFS= read -r line || [[ -n "$line" ]]; do
+            prefix=$(netbird_dnsmasq_record_prefix "$line") || continue
+            [[ -n "$prefix" ]] || continue
+            awk -v p="$prefix" 'index($0, p) != 1 {print}' "$conf" > "$tmp"
+            mv "$tmp" "$conf"
+            tmp=$(mktemp)
+        done < "$records"
+
+        cat "$records" >> "$conf"
+        reload_needed=true
+        echo "wg-client: updated dnsmasq records from NetBird volume." >&2
+    fi
+    rm -f "$records" "$tmp"
+
+    # Restart only if dnsmasq is already listening. Boot calls this *before*
+    # the first start so a persisted netbird-peers.conf would otherwise spawn
+    # dnsmasq here and then again in main() → EADDRINUSE on 127.0.0.1:53.
+    if [[ "$reload_needed" == true ]] || [[ "$peers_mtime" != "$recorded_mtime" ]]; then
+        if dnsmasq-ready 2>/dev/null; then
+            restart_dnsmasq "$conf"
+        fi
+        printf '%s\n' "$peers_mtime" > "$peers_stamp"
+    fi
 }
 
 main() {
@@ -260,7 +419,11 @@ main() {
     #   - 127.0.0.11 traffic uses the lo interface (ACCEPT-ed),
     #   - upstream queries go via wg0 (ACCEPT-ed).
     write_dnsmasq_conf "$DNS_CONF" "$DNSMASQ_CONF" "${search_domains[@]}"
-    dnsmasq --conf-file="$DNSMASQ_CONF"
+    # Merge any NetBird records already on the volume before the first dnsmasq
+    # start so boot-time resolution works even when mitmproxy enrolled first.
+    patch_dnsmasq_from_netbird_volume "$DNSMASQ_CONF" 2>/dev/null || true
+    mkdir -p "$(dirname "$DNSMASQ_PID_FILE")"
+    dnsmasq --conf-file="$DNSMASQ_CONF" --pid-file="$DNSMASQ_PID_FILE"
 
     # dnsmasq daemonizes after parsing its config; verify it actually bound
     # to 127.0.0.1:53 before we point /etc/resolv.conf at it. Without this
@@ -307,6 +470,10 @@ main() {
         } >> /etc/hosts
     fi
 
+    # Apply any NetBird peer DNS records already published by mitmproxy.
+    # Best-effort: file may not exist yet if mitmproxy is still enrolling.
+    patch_dnsmasq_from_netbird_volume "$DNSMASQ_CONF" 2>/dev/null || true
+
     # Signal readiness to containers waiting on the healthcheck.
     touch /tmp/wg-ready
 
@@ -319,14 +486,19 @@ main() {
 # leave the agent attached to a now-destroyed namespace. Supervising dnsmasq
 # locally — instead of letting the container exit and rely on Docker's
 # restart policy — keeps the namespace intact across dnsmasq crashes.
+#
+# Also picks up NetBird peer DNS records published by mitmproxy on each
+# iteration so that newly enrolled peers resolve without restarting wg-client.
 supervise_dnsmasq() {
     local conf="$1"
     while true; do
         sleep 5
         if ! dnsmasq-ready; then
             echo "[wg-client] dnsmasq not listening; restarting" >&2
-            dnsmasq --conf-file="$conf" || true
+            mkdir -p "$(dirname "$DNSMASQ_PID_FILE")"
+            dnsmasq --conf-file="$conf" --pid-file="$DNSMASQ_PID_FILE" || true
         fi
+        patch_dnsmasq_from_netbird_volume "$conf" 2>/dev/null || true
     done
 }
 

@@ -65,35 +65,19 @@ FAKE
 }
 
 @test "install.sh accepts curl-based fetch when curl available" {
-	# Prereq check should not complain about HTTP tool when curl exists.
-	# The install still fails later (task 3 not implemented), but the
-	# error should be from the install path, not the prereq step.
-	local fake_bin="$BATS_TEST_TMPDIR/nobin"
-	mkdir -p "$fake_bin"
-	ln -s "$(command -v curl)" "$fake_bin/curl"
-	ln -s "$(command -v tar)" "$fake_bin/tar"
-	ln -s "$(command -v bash)" "$fake_bin/bash"
-	ln -s "$(command -v sh)" "$fake_bin/sh"
-	ln -s "$(command -v mktemp)" "$fake_bin/mktemp"
-	ln -s "$(command -v cat)" "$fake_bin/cat"
-	ln -s "$(command -v rm)" "$fake_bin/rm"
-	ln -s "$(command -v grep)" "$fake_bin/grep"
-	ln -s "$(command -v uname)" "$fake_bin/uname"
-	cat > "$fake_bin/yq" <<'FAKE'
-#!/bin/bash
-if [[ "${1-}" == "--version" ]]; then
-	echo "yq (https://github.com/mikefarah/yq) version v4.44.3"
-	exit 0
-fi
-exit 0
-FAKE
-	chmod +x "$fake_bin/yq"
+	# Prereq check must accept curl + mikefarah yq and proceed into the
+	# install path (not fail on the yq/HTTP gate).
+	_stub_curl_with_fixture master
 
-	PATH="$fake_bin" run bash "$INSTALL_SH"
-	# Task 3 not implemented yet → fails with the stub error, NOT the yq one.
-	assert_failure
+	SANDCAT_HOME="$BATS_TEST_TMPDIR/home/.local/share/sandcat" \
+	SANDCAT_BIN_DIR="$BATS_TEST_TMPDIR/home/.local/bin" \
+	SANDCAT_REF=master \
+	SANDCAT_NON_INTERACTIVE=true \
+	PATH="$FAKE_BIN:$PATH" run bash "$INSTALL_SH"
+
+	assert_success
+	refute_output --partial "Neither curl nor wget"
 	refute_output --partial "mikefarah"
-	refute_output --partial "yq"
 }
 
 # Helper: builds a fake sandcat tarball (structure matches what
@@ -248,16 +232,13 @@ FAKEYQ
 @test "install.sh fetches + extracts tarball into TMP_DIR" {
 	_stub_curl_with_fixture master
 
-	# For this task we cover fetch + extract only; the install-files step
-	# is Task 4 and will still fail (the stub echo). Assert output shows
-	# the fetch + extraction succeeded before the stub error.
 	SANDCAT_HOME="$BATS_TEST_TMPDIR/home/.local/share/sandcat" \
 	SANDCAT_BIN_DIR="$BATS_TEST_TMPDIR/home/.local/bin" \
 	SANDCAT_REF=master \
-	PATH="$FAKE_BIN" run bash "$INSTALL_SH"
+	SANDCAT_NON_INTERACTIVE=true \
+	PATH="$FAKE_BIN:$PATH" run bash "$INSTALL_SH"
 
-	# fetch + extract stages should have logged their [INFO]s before we hit
-	# the "install-files not implemented" stub from Task 3 flow.
+	assert_success
 	assert_output --partial "Fetching"
 	assert_output --partial "Extracting"
 }

@@ -2,12 +2,7 @@ include:
   - path: sandcat/compose-proxy.yml
   # Constant (non-user-editable) parts of the agent service — image build,
   # security hardening (no-new-privileges), network wiring through
-  # wg-client, dependency ordering. The `services.agent` entries below are
-  # merged OVER that base by Docker Compose.
+  # wg-client, dependency ordering. User-facing agent volumes and
+  # environment are written into this included file by sandcat init
+  # (Compose include never merges a service redefined in compose-all.yml).
   - path: sandcat/compose-agent.yml
-
-services:
-  # User-customizable parts of the agent service (volumes, environment).
-  # sandcat init populates this section; edit or uncomment entries freely —
-  # the security-critical base stays in sandcat/compose-agent.yml.
-  agent: {}

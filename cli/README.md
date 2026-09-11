@@ -22,6 +22,17 @@ Options:
 - `--stacks` - Comma-separated development stacks to install: `node`, `python`, `java`, `rust`, `go`, `scala`, `ruby`, `dotnet`, `zig` (skips prompt)
 - `--proxy` - Proxy UI mode: `web` (default, mitmweb browser UI) or `tui` (mitmproxy console, use with `sandcat proxy` to attach)
 - `--secret-provider` / `--sp` - Secret backend: `none` (default), `1password`, `protonpass` (skips prompt when set)
+- `--netbird` - Enable dynamic WireGuard control via NetBird. The NetBird client
+  daemon runs inside the **mitmproxy** container and manages `wt0` — a second
+  WireGuard interface for the NetBird overlay mesh. Agent egress always flows
+  `wg0 (wg-client) → mitmproxy L7 inspect → internet or wt0 mesh`, so all
+  traffic — including mesh traffic — is subject to mitmproxy network rules and
+  secret substitution. Seeds `netbird_enrollment_key` and `netbird_api_token`
+  in `~/.config/sandcat/settings.json`.
+- `--netbird-management-url` - Existing NetBird management server URL (requires
+  `--netbird`). Omit to use NetBird Cloud (`https://api.netbird.io`). Sandcat
+  does not create or start a management server; see
+  [`docs/examples/netbird-server/`](../docs/examples/netbird-server/).
 - `--1password` - Deprecated alias for `--secret-provider 1password`
 - `--features` - Comma-separated optional non-provider features: `tui` (proxy console mode; prefer `--proxy tui`), `no-gitignore` (skip appending the `# Sandcat` block to the project's `.gitignore`; equivalent to `SANDCAT_GITIGNORE=false`), `no-rtk` (skip RTK installation; equivalent to `SANDCAT_RTK=false`), `strict-network` (project settings get network presets for the selected stacks instead of the allow-all-GET wildcard; equivalent to `SANDCAT_STRICT_NETWORK=true`)
 - `--name` - Project name for Docker Compose (default: derived from directory name)
@@ -43,6 +54,13 @@ sandcat init --agent claude --ide vscode --secret-provider 1password --name mypr
 
 # With Proton Pass integration
 sandcat init --agent claude --ide vscode --secret-provider protonpass --name myproject
+
+# With NetBird dynamic WireGuard
+sandcat init --agent claude --ide vscode --netbird --name myproject
+
+# Point at an existing self-hosted management server
+sandcat init --agent cursor --ide vscode --netbird \
+  --netbird-management-url https://netbird.example.com --name myproject
 ```
 
 #### Proton Pass setup (scoped Personal Access Token)
@@ -212,6 +230,116 @@ shell, `sandcat run npm install` runs npm inside the container.
 
 Options:
 - `--build` — Rebuild images before running (e.g. after editing `Dockerfile.app`)
+
+## Dynamic networking (NetBird)
+
+When initialized with `--netbird`, sandcat enrolls **mitmproxy** as a NetBird peer.
+The NetBird client daemon runs inside the mitmproxy container and manages `wt0` — a
+second WireGuard interface for the overlay mesh. Agent traffic always flows:
+
+```
+agent → wg0 (wg-client kill switch) → mitmproxy (L7 inspect + secrets) → internet
+                                                                        ↘ wt0 (NetBird mesh)
+```
+
+This design eliminates the routing collision that occurred when NetBird ran on `wg-client`
+alongside `wg0` (WireGuard-in-WireGuard). wg-client is now a pure tunnel shim with no
+NetBird involvement.
+
+The NetBird client binary is pinned by version and per-arch sha256 in
+[`templates/devcontainer/sandcat/netbird.env`](templates/devcontainer/sandcat/netbird.env).
+`sandcat init --netbird` injects these as compose build args for `Dockerfile.mitmproxy`
+automatically. NetBird is downloaded and checksum-verified in a throwaway builder stage,
+then copied into a final image built `FROM $BASE_IMAGE`.
+
+`BASE_IMAGE` defaults to `mitmproxy/mitmproxy:latest`. When a secret provider is also
+selected, `sandcat init` sets it to that provider's variant
+(`ghcr.io/virtuslab/sandcat-mitmproxy-pass` or `-op`), so the proxy ends up with **both**
+NetBird and the provider CLI. Combining `--netbird` with `--secret-provider` therefore
+keeps `pass://` and `op://` references resolvable.
+
+To build the image manually:
+
+```bash
+cd cli/templates/devcontainer/sandcat
+set -a; . netbird.env; set +a
+docker build -f Dockerfile.mitmproxy \
+  --build-arg NETBIRD_VERSION \
+  --build-arg NETBIRD_SHA256_AMD64 \
+  --build-arg NETBIRD_SHA256_ARM64 \
+  --build-arg BASE_IMAGE=ghcr.io/virtuslab/sandcat-mitmproxy-pass:latest \
+  -t mitmproxy-netbird-test .
+```
+
+### Setup
+
+NetBird uses **two separate credentials**. Both go in `~/.config/sandcat/settings.json`
+(created by `sandcat init`; edit with `sandcat edit user-settings`):
+
+| Setting key | Used for | Where to get it |
+|-------------|----------|-----------------|
+| `netbird_enrollment_key` | Enrolling mitmproxy as a mesh peer (`NB_SETUP_KEY`); may be a literal or `op://` / `pass://` (resolved in the container) | NetBird dashboard → **Setup Keys** |
+| `netbird_api_token` | Used by mitmproxy for same-name replace and dns_label; may be a literal or `op://` / `pass://` (resolved in the container) | NetBird dashboard → **API Keys** (Personal Access Token) |
+| `netbird_management_url` | Management API and dashboard | Empty = cloud; otherwise your server URL |
+| `netbird_enrollment_management_url` | mitmproxy enrollment URL (container cannot use `localhost`) | Docker host LAN IP for a local server; see [docs/examples/netbird-server](../docs/examples/netbird-server/) |
+
+Complete steps 1–4 below before enrollment. Container enrollment
+(`netbird_enrollment_key`) is separate from same-name replace and dns_label
+(`netbird_api_token`) — you need the API token even if the setup key is already
+in settings.
+
+1. Create a NetBird account at <https://app.netbird.io> or self-host the server.
+2. In the dashboard, create a **Setup Key** (for peer enrollment).
+3. In the dashboard, create an **API Key** / personal access token (for mitmproxy same-name replace and dns_label).
+4. Add both values to user settings:
+
+```json
+{
+  "netbird_enrollment_key": "your-setup-key-here",
+  "netbird_api_token": "your-api-token-here"
+}
+```
+
+Or edit interactively:
+
+```bash
+sandcat edit user-settings
+```
+
+`sandcat compose` and `sandcat run` read `netbird_enrollment_key` and
+`netbird_api_token` from **user** settings (`~/.config/sandcat/settings.json`)
+only — not from project `.sandcat/` files, which are bind-mounted into the
+agent. Environment variables `NB_SETUP_KEY` and `NB_API_TOKEN` override
+user settings when set. The agent mount is a filtered copy with those two
+keys stripped.
+
+### Management server
+
+Sandcat configures connection details; it does not create or lifecycle a
+NetBird management server.
+
+- **Cloud** — omit `--netbird-management-url` (defaults to `https://api.netbird.io`).
+- **Existing self-hosted** — pass `--netbird-management-url <http(s)://url>`.
+- **Run a local server yourself** — follow
+  [`docs/examples/netbird-server/`](../docs/examples/netbird-server/), then
+  point sandcat at it.
+
+```bash
+# Cloud
+sandcat init --agent claude --ide vscode --netbird --name myproject
+
+# Existing self-hosted management server
+sandcat init --agent claude --ide vscode --netbird \
+  --netbird-management-url https://netbird.example.com --name myproject
+```
+
+Interactive `sandcat init --netbird` (when other options are also prompted)
+offers cloud vs “I have a server running”.
+
+## Optional mesh gateway (proxy-peer)
+
+Sandcat does not create a proxy-peer container. See
+[`docs/examples/proxy-peer/`](../docs/examples/proxy-peer/).
 
 ## Directory Structure
 
