@@ -18,6 +18,8 @@ on:
 
 jobs:
   build:
+    # Scheduled canaries and GHCR publishes are upstream-only; forks skip this job.
+    if: ${{ github.repository == 'VirtusLab/sandcat' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
