@@ -469,8 +469,9 @@ add_idea_readonly_volume() {
 # Volumes carry dependency caches that persist across all sandcat sandboxes
 # on the host, so multiple projects don't re-download the same JARs. They
 # are declared `external: true` so `sandcat compose down -v` on one project
-# doesn't wipe caches other projects rely on. The `sandcat run` wrapper
-# creates them lazily (idempotent) so users don't have to pre-create them.
+# doesn't wipe caches other projects rely on. `sandcat run`, `sandcat compose`,
+# and Dev Containers initializeCommand create them lazily (idempotent) so
+# users don't have to pre-create them.
 #
 # When active=false, matching mount lines are added as comments (matches
 # the existing pattern for optional mounts) so the user can uncomment or

@@ -86,6 +86,37 @@ warn_stale_home_volume() {
 	echo "  sandcat compose down && docker volume rm $volume_name" | warning
 }
 
+# Prints host-scoped sandcat-cache-* names declared as top-level volume
+# keys in a compose file (one name per line). Grep, not yq: Cursor's
+# initializeCommand PATH often lacks Homebrew yq, and a silent no-op
+# leaves `docker compose up` failing with "external volume not found".
+#
+# Matches YAML keys (`  sandcat-cache-coursier:`) and not service mounts
+# (`- sandcat-cache-coursier:/home/vscode/.cache/coursier`).
+#
+# Args:
+#   $1 - Path to a compose YAML file
+_shared_cache_volume_names_from_file() {
+	local file=$1
+	[[ -f "$file" ]] || return 0
+	grep -E '^[[:space:]]+sandcat-cache-[A-Za-z0-9_-]+:[[:space:]]*$' "$file" \
+		| sed -E 's/^[[:space:]]+//; s/:[[:space:]]*$//' \
+		|| true
+}
+
+# Prints Compose include paths from a compose file (one relative path per
+# line). Avoids yq for the same PATH reason as volume-name scraping.
+#
+# Args:
+#   $1 - Path to a compose YAML file
+_compose_include_paths_from_file() {
+	local file=$1
+	[[ -f "$file" ]] || return 0
+	grep -E '^[[:space:]]*-[[:space:]]+path:[[:space:]]+' "$file" \
+		| sed -E 's/^[[:space:]]*-[[:space:]]+path:[[:space:]]+//; s/[[:space:]]*$//' \
+		|| true
+}
+
 # Ensures every external volume referenced by the compose file exists on
 # the host — otherwise `docker compose up` fails with "external volume
 # not found". Docker's `volume create` is idempotent, so we can call it
@@ -95,23 +126,43 @@ warn_stale_home_volume() {
 # declared by add_shared_cache_volumes). We deliberately don't touch
 # other external volumes users might add by hand.
 #
+# Follows Compose `include:` paths and always scans sandcat/compose-agent.yml
+# when present. After the agent-service split, cache volumes live there,
+# not in compose-all.yml — callers still pass compose-all.yml
+# (find_compose_file).
+#
 # Args:
 #   $1 - Path to the compose file
 ensure_shared_cache_volumes() {
 	local compose_file=$1
 
-	command -v yq &>/dev/null || return 0
 	command -v docker &>/dev/null || return 0
+	[[ -f "$compose_file" ]] || return 0
 
-	local names
-	names=$(yq -r '.volumes // {} | to_entries[] | select(.value.external == true) | .value.name // .key' \
-		"$compose_file" 2>/dev/null | grep '^sandcat-cache-' || true)
+	local compose_dir names include_path included
+	compose_dir=$(dirname "$compose_file")
+	names=$(_shared_cache_volume_names_from_file "$compose_file")
+	while IFS= read -r include_path; do
+		[[ -n "$include_path" ]] || continue
+		names+=$'\n'
+		names+=$(_shared_cache_volume_names_from_file "$compose_dir/$include_path")
+	done < <(_compose_include_paths_from_file "$compose_file")
+
+	included="$compose_dir/sandcat/compose-agent.yml"
+	if [[ -f "$included" ]]; then
+		names+=$'\n'
+		names+=$(_shared_cache_volume_names_from_file "$included")
+	fi
 
 	[[ -n "$names" ]] || return 0
 
-	local name
+	local name seen=$'\n'
 	while IFS= read -r name; do
 		[[ -n "$name" ]] || continue
+		case "$seen" in
+		*$'\n'"$name"$'\n'*) continue ;;
+		esac
+		seen+="$name"$'\n'
 		docker volume create --label sandcat-shared-cache=true "$name" >/dev/null 2>&1 || true
 	done <<< "$names"
 }

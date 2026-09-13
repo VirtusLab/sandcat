@@ -35,11 +35,6 @@ teardown() {
 	assert_success
 }
 
-@test "devcontainer.json template runs ensure-cache-volumes.sh on the host before compose" {
-	run grep '"initializeCommand": "bash ${localWorkspaceFolder}/.devcontainer/sandcat/scripts/ensure-cache-volumes.sh"' "$DEVCONTAINER_JSON"
-	assert_success
-}
-
 @test "customize_devcontainer_json leaves no __PROJECT_NAME__ placeholders" {
 	customize_devcontainer_json "$DEVCONTAINER_JSON" "my-project"
 
@@ -66,6 +61,12 @@ teardown() {
 	run grep -F 'prepare-agent-sandcat-mount.sh' "$DEVCONTAINER_JSON"
 	assert_success
 	[[ -f "$SCT_TEMPLATEDIR/devcontainer/sandcat/scripts/prepare-agent-sandcat-mount.sh" ]]
+}
+
+@test "initializeCommand creates shared-cache volumes before compose up" {
+	run grep -F 'docker volume create --label sandcat-shared-cache=true' \
+		"$SCT_TEMPLATEDIR/devcontainer/sandcat/scripts/prepare-agent-sandcat-mount.sh"
+	assert_success
 }
 
 @test "customize_devcontainer_json keeps customizations.vscode when ide is vscode" {
