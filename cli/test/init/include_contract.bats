@@ -124,3 +124,16 @@ assert_no_include_conflicts() {
 	yq -e '.services.mitmproxy.volumes[] | select(. == "../../.sandcat:/config/project:ro")' \
 		"$PROJECT_DIR/.devcontainer/sandcat/compose-proxy.yml"
 }
+
+@test "init --stacks scala declares cache volumes on compose-agent.yml" {
+	stub settings "$PROJECT_DIR/.sandcat/settings.json claude vscode : :"
+
+	run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" \
+		--stacks scala --proxy web --features "" --secret-provider none
+	assert_success
+
+	yq -e '.volumes["sandcat-cache-sbt-boot"].external == true' \
+		"$PROJECT_DIR/.devcontainer/sandcat/compose-agent.yml"
+	run yq -r '.volumes // {} | keys[]' "$PROJECT_DIR/.devcontainer/compose-all.yml"
+	refute_output --partial "sandcat-cache-"
+}

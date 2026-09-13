@@ -117,6 +117,7 @@ NETWORK_PRESETS: dict[str, list[str]] = {
     "scala": [
         "repo.scala-sbt.org",
         "repo.typesafe.com",
+        "scala.jfrog.io",
         "repo1.maven.org",
         "repo.maven.apache.org",
         "central.sonatype.com",
@@ -894,8 +895,14 @@ class SandcatAddon:
             if not fnmatch(host, rule["host"].lower()):
                 continue
             rule_method = rule.get("method")
-            if rule_method is not None and method is not None and rule_method.upper() != method.upper():
-                continue
+            if rule_method is not None and method is not None:
+                want = rule_method.upper()
+                got = method.upper()
+                # HEAD is a body-less GET. Coursier and Ivy probe Maven/sbt
+                # registries with HEAD; a GET-only allow must not 403 those
+                # or `sbt init` fails with "Retrieval of … failed".
+                if got != want and not (got == "HEAD" and want == "GET"):
+                    continue
             return rule
         return None
 

@@ -161,3 +161,80 @@ teardown() {
 	assert_success
 	assert_output "1718919000"
 }
+
+# --- ensure_shared_cache_volumes ---
+
+# Cache volumes are written into the included sandcat/compose-agent.yml.
+# Discovery must not need yq: Cursor initializeCommand often has a GUI PATH
+# without Homebrew yq, and a silent no-op leaves compose failing on whichever
+# sandcat-cache-* volume it checks first (order is not stable).
+
+@test "ensure_shared_cache_volumes creates caches declared in included compose-agent.yml" {
+	mkdir -p "$BATS_TEST_TMPDIR/.devcontainer/sandcat"
+	local all="$BATS_TEST_TMPDIR/.devcontainer/compose-all.yml"
+	cat >"$all" <<'YAML'
+include:
+  - path: sandcat/compose-proxy.yml
+  - path: sandcat/compose-agent.yml
+YAML
+	cat >"$BATS_TEST_TMPDIR/.devcontainer/sandcat/compose-agent.yml" <<'YAML'
+services:
+  agent:
+    volumes:
+      - sandcat-cache-coursier:/home/vscode/.cache/coursier
+      - sandcat-cache-sbt-boot:/home/vscode/.sbt/boot
+volumes:
+  agent-home:
+  sandcat-cache-coursier:
+    external: true
+    name: sandcat-cache-coursier
+  sandcat-cache-sbt-boot:
+    external: true
+    name: sandcat-cache-sbt-boot
+YAML
+
+	stub docker \
+		"volume create --label sandcat-shared-cache=true sandcat-cache-coursier : echo sandcat-cache-coursier" \
+		"volume create --label sandcat-shared-cache=true sandcat-cache-sbt-boot : echo sandcat-cache-sbt-boot"
+
+	run ensure_shared_cache_volumes "$all"
+	assert_success
+}
+
+@test "ensure_shared_cache_volumes still creates caches declared on compose-all.yml" {
+	local all="$BATS_TEST_TMPDIR/.devcontainer/compose-all.yml"
+	cat >"$all" <<'YAML'
+services:
+  agent:
+    volumes:
+      - sandcat-cache-maven:/home/vscode/.m2/repository
+volumes:
+  sandcat-cache-maven:
+    external: true
+    name: sandcat-cache-maven
+YAML
+
+	stub docker \
+		"volume create --label sandcat-shared-cache=true sandcat-cache-maven : echo sandcat-cache-maven"
+
+	run ensure_shared_cache_volumes "$all"
+	assert_success
+}
+
+@test "ensure_shared_cache_volumes finds compose-agent.yml even without include keys" {
+	mkdir -p "$BATS_TEST_TMPDIR/.devcontainer/sandcat"
+	local all="$BATS_TEST_TMPDIR/.devcontainer/compose-all.yml"
+	echo 'name: demo' >"$all"
+	cat >"$BATS_TEST_TMPDIR/.devcontainer/sandcat/compose-agent.yml" <<'YAML'
+volumes:
+  sandcat-cache-ivy:
+    external: true
+    name: sandcat-cache-ivy
+YAML
+
+	stub docker \
+		"volume create --label sandcat-shared-cache=true sandcat-cache-ivy : echo sandcat-cache-ivy"
+
+	run ensure_shared_cache_volumes "$all"
+	assert_success
+}

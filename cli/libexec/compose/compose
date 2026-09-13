@@ -5,6 +5,8 @@ set -euo pipefail
 source "$SCT_LIBDIR/require.bash"
 # shellcheck source=../../lib/path.bash
 source "$SCT_LIBDIR/path.bash"
+# shellcheck source=../../lib/volume.bash
+source "$SCT_LIBDIR/volume.bash"
 # shellcheck source=../../lib/netbird.bash
 source "$SCT_LIBDIR/netbird.bash"
 
@@ -16,6 +18,7 @@ compose() {
 	local compose_file
 	compose_file="$(find_compose_file)"
 
+	ensure_shared_cache_volumes "$compose_file"
 	export_netbird_compose_env
 	export_netbird_management_url
 	export_agent_sandcat_mount

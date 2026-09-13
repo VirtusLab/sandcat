@@ -38,7 +38,7 @@ sandcat):
 | `python` | pypi.org, files.pythonhosted.org, pypi.python.org, astral.sh (uv) |
 | `node` | registry.npmjs.org, registry.yarnpkg.com, nodejs.org |
 | `java` | Maven Central, Sonatype, Gradle plugin/services/downloads |
-| `scala` | sbt/Typesafe repos + Maven Central (self-contained) |
+| `scala` | sbt/Typesafe/JFrog repos + Maven Central (self-contained) |
 | `go` | proxy.golang.org, sum.golang.org, pkg.go.dev, golang.org, google.golang.org |
 | `rust` | crates.io (+index/static), static.rust-lang.org |
 | `ruby` | rubygems.org (+index/api) |
@@ -89,8 +89,10 @@ to that host would be blocked.
 
 Because DNS has no HTTP method, method-specific rules are matched on host only.
 A rule like `{"action": "allow", "host": "*", "method": "GET"}` will also allow
-DNS resolution for any host. Rule ordering matters: a method-specific deny rule
-will block DNS for that host even if a later rule would allow other methods.
+DNS resolution for any host. **HEAD is treated as GET** (package managers such
+as Coursier and Ivy probe registries with HEAD before downloading). Rule
+ordering matters: a method-specific deny rule will block DNS for that host even
+if a later rule would allow other methods.
 
 ## Examples
 

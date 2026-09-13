@@ -209,6 +209,26 @@ class TestNetworkRules:
         assert addon._is_request_allowed("GET", "example.com") is True
         assert addon._is_request_allowed("POST", "example.com") is False
 
+    def test_get_allow_also_allows_head(self, addon_cls):
+        # Coursier/Ivy probe Maven with HEAD before GET. Default project
+        # settings are GET-only; treating HEAD as a body-less GET unblocks
+        # `sbt init` without widening POST/PUT.
+        addon = addon_cls()
+        addon.network_rules = [
+            {"action": "allow", "host": "*", "method": "GET"},
+        ]
+        assert addon._is_request_allowed("HEAD", "repo1.maven.org") is True
+        assert addon._is_request_allowed("POST", "repo1.maven.org") is False
+
+    def test_get_deny_also_denies_head(self, addon_cls):
+        addon = addon_cls()
+        addon.network_rules = [
+            {"action": "deny", "host": "repo1.maven.org", "method": "GET"},
+            {"action": "allow", "host": "*"},
+        ]
+        assert addon._is_request_allowed("HEAD", "repo1.maven.org") is False
+        assert addon._is_request_allowed("GET", "example.com") is True
+
     def test_method_omitted_matches_any(self, addon_cls):
         addon = addon_cls()
         addon.network_rules = [
@@ -403,6 +423,10 @@ class TestNetworkPresets:
             assert stack in common.NETWORK_PRESETS, (
                 f"stack {stack!r} has no matching network preset"
             )
+
+    def test_scala_preset_includes_jfrog_redirect(self, addon_cls):
+        # sbt community repo (repo.scala-sbt.org) redirects to JFrog.
+        assert "scala.jfrog.io" in common.NETWORK_PRESETS["scala"]
 
 
 # ---------------------------------------------------------------------------
