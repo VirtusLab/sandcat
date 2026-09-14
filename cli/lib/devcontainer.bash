@@ -2,6 +2,8 @@
 
 # shellcheck source=constants.bash
 source "$SCT_LIBDIR/constants.bash"
+# shellcheck source=require.bash
+source "$SCT_LIBDIR/require.bash"
 # shellcheck source=stacks.bash
 source "$SCT_LIBDIR/stacks.bash"
 # shellcheck source=agents.bash
@@ -230,13 +232,17 @@ apply_inline_placeholders() {
 }
 
 # Adds stack-contributed environment variables (e.g. uv's TLS config for the
-# python stack) to services.agent.environment in compose-all.yml.
+# python stack) to services.agent.environment in sandcat/compose-agent.yml.
 # Args:
-#   $1 - Path to compose-all.yml
+#   $1 - Path to compose-all.yml (agent file is resolved beside it)
 #   $@ - Stack names (remaining args)
 customize_compose_stack_environment() {
 	local compose_file=$1
 	shift
+
+	local agent_compose
+	agent_compose="$(dirname "$compose_file")/sandcat/compose-agent.yml"
+	[[ -f "$agent_compose" ]] || agent_compose="$compose_file"
 
 	local entries="" stack env
 	for stack in "$@"; do
@@ -244,17 +250,17 @@ customize_compose_stack_environment() {
 		[[ -n "$env" ]] && entries="${entries}${env}"$'\n'
 	done
 
-	merge_compose_agent_environment "$compose_file" "$entries"
+	merge_compose_agent_environment "$agent_compose" "$entries"
 }
 
 # Merges KEY=value environment entries into services.agent.environment in
-# compose-all.yml. Appends to any entries already present (rather than
-# overwriting) so agent- and stack-contributed variables coexist regardless
-# of call order. Building the array structurally avoids fragile
-# line-counting in compose-all.yml. No-op when passed no entries — compose
+# the compose file that declares the agent service. Appends to any entries
+# already present (rather than overwriting) so agent- and stack-contributed
+# variables coexist regardless of call order. Building the array structurally
+# avoids fragile line-counting. No-op when passed no entries — compose
 # rejects `environment: {}`.
 # Args:
-#   $1 - Path to compose-all.yml
+#   $1 - Path to the compose file that declares services.agent
 #   $2 - Newline-separated "KEY=value" entries (empty lines ignored)
 merge_compose_agent_environment() {
 	local compose_file=$1
@@ -323,7 +329,9 @@ customize_agent_templates() {
 		"__AGENT_EXTENSION__" "$extension_replacement" \
 		"__AGENT_SETTINGS__"  "$settings_block"
 
-	merge_compose_agent_environment "$devcontainer_dir/compose-all.yml" "$environment_entries"
+	local agent_compose="$devcontainer_dir/sandcat/compose-agent.yml"
+	[[ -f "$agent_compose" ]] || agent_compose="$devcontainer_dir/compose-all.yml"
+	merge_compose_agent_environment "$agent_compose" "$environment_entries"
 
 	apply_template_placeholders \
 		"$devcontainer_dir/Dockerfile.app" \

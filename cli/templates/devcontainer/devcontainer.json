@@ -11,6 +11,10 @@
 	// sandcat's security boundary. Matches the Dev Containers spec
 	// default for dockerComposeFile scenarios.
 	"overrideCommand": false,
+	// Host-side: copy .sandcat, strip NetBird secrets, write
+	// .devcontainer/.env (SANDCAT_AGENT_SANDCAT). Compose interpolation
+	// has no fallback to the live project dir.
+	"initializeCommand": "bash .devcontainer/sandcat/scripts/prepare-agent-sandcat-mount.sh",
 	// Remove credential sockets that VS Code forwards into the container
 	// (SSH agent, git credential helper).  Clearing env vars alone only
 	// hides the paths — the socket files in /tmp can still be discovered

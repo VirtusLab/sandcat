@@ -1,0 +1,30 @@
+# Combined NetBird server — localhost defaults. Fill secrets via start.sh.
+#
+# Do NOT set server.stuns: that disables the embedded STUN listener (UDP 3478).
+# stunPorts keeps STUN in-process; advertised host comes from exposedAddress.
+# On Colima, extra_hosts maps host.docker.internal → 172.17.0.1 (docker0) so
+# UDP reaches the published port (host-gateway is 192.168.5.2 and hairpins).
+server:
+  listenAddress: ":80"
+  # customize and parametrize for local development
+  exposedAddress: "http://host.docker.internal:33073"
+  stunPorts:
+    - 3478
+  metricsPort: 9090
+  healthcheckAddress: ":9000"
+  logLevel: info
+  logFile: console
+  disableAnonymousMetrics: true
+  authSecret: ""
+  dataDir: /var/lib/netbird
+  auth:
+    issuer: http://localhost:33073/oauth2
+    signKeyRefreshEnabled: true
+    dashboardRedirectURIs:
+      - http://localhost:8080/nb-auth
+      - http://localhost:8080/nb-silent-auth
+    cliRedirectURIs:
+      - http://localhost:53000/
+  store:
+    engine: sqlite
+    encryptionKey: ""

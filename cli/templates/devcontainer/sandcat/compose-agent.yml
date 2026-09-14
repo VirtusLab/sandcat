@@ -1,8 +1,8 @@
 # Constant (non-user-editable) parts of the agent service. User-customizable
-# parts — volumes, environment — live in ../compose-all.yml and are merged
-# over this base by Docker Compose's include-override mechanism (the same
-# mechanism compose-all.yml already uses to add the project-settings mount
-# to the mitmproxy service defined in compose-proxy.yml).
+# parts — volumes, environment — are appended here by sandcat init (same
+# pattern as project-settings mounts written into compose-proxy.yml). Do not
+# also declare `services.agent` in ../compose-all.yml: Compose include copies
+# resources into the model and rejects a redefined service.
 services:
   agent:
     build:

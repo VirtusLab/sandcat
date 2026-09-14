@@ -15,6 +15,7 @@ source "$SCT_LIBDIR/devcontainer.bash"
 #   --project-path - Path to the project directory
 #   --agent - The agent name (e.g., "claude")
 #   --ide - The IDE name (e.g., "vscode", "jetbrains", "none") (optional)
+#   --netbird-management-url - NetBird management server URL for mitmproxy (optional)
 devcontainer() {
 	local settings_file=""
 	local project_path=""
@@ -24,11 +25,13 @@ devcontainer() {
 	local stacks=""
 	local proxy_mode="web"
 	local secret_provider="none"
+	local netbird="false"
+	local netbird_management_url=""
 
 	while [[ $# -gt 0 ]]
 	do
 		case $1 in
-		--settings-file|--project-path|--agent|--ide|--name|--stacks|--proxy|--secret-provider)
+		--settings-file|--project-path|--agent|--ide|--name|--stacks|--proxy|--secret-provider|--netbird-management-url)
 			if [[ $# -lt 2 ]]; then
 				echo "Option $1 requires a value" | error
 				return 1
@@ -71,6 +74,14 @@ devcontainer() {
 		--1password)
 			secret_provider="1password"
 			shift 1
+			;;
+		--netbird)
+			netbird="true"
+			shift 1
+			;;
+		--netbird-management-url)
+			netbird_management_url="$2"
+			shift 2
 			;;
 		*)
 			echo "Unknown option: $1" | error
@@ -119,6 +130,26 @@ devcontainer() {
 
 	apply_upstream_ca_bundles "$devcontainer_dir/sandcat/compose-proxy.yml" "$project_path"
 
+	local project_settings="$project_path/$SCT_PROJECT_DIR/settings.json"
+	local peer_name_proxy=""
+	if [[ "$netbird" == "true" ]]; then
+		# shellcheck source=../../lib/netbird.bash
+		source "$SCT_LIBDIR/netbird.bash"
+		mkdir -p "$project_path/$SCT_PROJECT_DIR"
+		export SANDCAT_PROJECT_ROOT="$project_path"
+		peer_name_proxy="${project_name}-proxy"
+		netbird_ensure_peer_name_settings "$project_settings" "$project_name"
+	fi
+
+	if [[ "$netbird" == "true" ]]; then
+		if ! declare -f enable_netbird &>/dev/null; then
+			# shellcheck source=../../lib/composefile.bash
+			source "$SCT_LIBDIR/composefile.bash"
+		fi
+		enable_netbird "$devcontainer_dir/sandcat/compose-proxy.yml" \
+			"$netbird_management_url" "$peer_name_proxy"
+	fi
+
 	customize_compose_file "$rel_settings_file" "$compose_file" "$agent" "$ide" "$project_name" "$stacks"
 	set_project_name "$compose_file" "$project_name"
 
@@ -131,6 +162,14 @@ devcontainer() {
 		read -ra stacks_arr_jb <<< "$stacks"
 		customize_devcontainer_plugins "$devcontainer_dir/devcontainer.json" "${stacks_arr_jb[@]}"
 	fi
+
+	# Compose interpolates ${SANDCAT_AGENT_SANDCAT:?} with no fallback to the
+	# live project .sandcat. Write .devcontainer/.env now so `docker compose
+	# config` and Dev Containers work before initializeCommand runs.
+	# shellcheck source=../../lib/netbird.bash
+	source "$SCT_LIBDIR/netbird.bash"
+	export SANDCAT_PROJECT_ROOT="$project_path"
+	export_agent_sandcat_mount
 
 	echo "Devcontainer dir created at ${devcontainer_dir#"$project_path"/}" | info
 }

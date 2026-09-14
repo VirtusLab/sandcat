@@ -24,11 +24,11 @@ Java/Scala cache mounts (all under `/home/vscode/` in the container):
 
 Each is a Docker named volume with a stable host-wide name
 (`sandcat-cache-maven`, `sandcat-cache-coursier`, …) declared as
-`external: true` in the generated `compose-all.yml`. Multiple sandcat compose
-projects reference the same physical volume, and `sandcat compose down -v` on
-one project will **not** wipe caches other projects rely on. The `sandcat run`
-wrapper creates them lazily via `docker volume create` (idempotent), so no
-manual setup is required.
+`external: true` in the included `sandcat/compose-agent.yml`. Multiple sandcat
+compose projects reference the same physical volume, and `sandcat compose down -v`
+on one project will **not** wipe caches other projects rely on. `sandcat run`,
+`sandcat compose`, and Dev Containers `initializeCommand` create them lazily via
+`docker volume create` (idempotent), so no manual setup is required.
 
 Only `/home/vscode/.m2/repository/` is shared, not the whole `.m2/` — user
 config like `settings.xml` stays per-project inside `agent-home`. Same pattern

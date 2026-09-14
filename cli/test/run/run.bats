@@ -122,6 +122,21 @@ teardown() {
 	refute_output --partial "rebuilt"
 }
 
+@test "warning when image is much newer than volume with a numeric offset" {
+	if ! date -d "2024-01-15T10:00:00-07:00" +%s &>/dev/null; then
+		skip "requires GNU date with numeric offsets"
+	fi
+
+	stub docker \
+		"volume inspect myproject-sandbox_agent-home : :" \
+		"volume inspect --format {{.CreatedAt}} myproject-sandbox_agent-home : echo '2024-01-15T10:00:00-07:00'" \
+		"image inspect --format {{.Created}} myproject-sandbox-agent : echo '2024-06-20T14:30:00.123456789-07:00'"
+
+	run --separate-stderr warn_stale_home_volume "$COMPOSE_FILE"
+	assert_success
+	assert_stderr --partial "agent image was rebuilt"
+}
+
 @test "no warning when compose file has no project name" {
 	cat > "$COMPOSE_FILE" <<-'EOF'
 		services:
@@ -133,4 +148,93 @@ teardown() {
 	run warn_stale_home_volume "$COMPOSE_FILE"
 	assert_success
 	refute_output --partial "volume"
+}
+
+@test "_volume_timestamp_epoch parses a trailing Z" {
+	run _volume_timestamp_epoch "2024-01-15T10:00:00Z"
+	assert_success
+	assert_output "1705312800"
+}
+
+@test "_volume_timestamp_epoch parses fractional seconds and a numeric offset" {
+	run _volume_timestamp_epoch "2024-06-20T14:30:00.123456789-07:00"
+	assert_success
+	assert_output "1718919000"
+}
+
+# --- ensure_shared_cache_volumes ---
+
+# Cache volumes are written into the included sandcat/compose-agent.yml.
+# Discovery must not need yq: Cursor initializeCommand often has a GUI PATH
+# without Homebrew yq, and a silent no-op leaves compose failing on whichever
+# sandcat-cache-* volume it checks first (order is not stable).
+
+@test "ensure_shared_cache_volumes creates caches declared in included compose-agent.yml" {
+	mkdir -p "$BATS_TEST_TMPDIR/.devcontainer/sandcat"
+	local all="$BATS_TEST_TMPDIR/.devcontainer/compose-all.yml"
+	cat >"$all" <<'YAML'
+include:
+  - path: sandcat/compose-proxy.yml
+  - path: sandcat/compose-agent.yml
+YAML
+	cat >"$BATS_TEST_TMPDIR/.devcontainer/sandcat/compose-agent.yml" <<'YAML'
+services:
+  agent:
+    volumes:
+      - sandcat-cache-coursier:/home/vscode/.cache/coursier
+      - sandcat-cache-sbt-boot:/home/vscode/.sbt/boot
+volumes:
+  agent-home:
+  sandcat-cache-coursier:
+    external: true
+    name: sandcat-cache-coursier
+  sandcat-cache-sbt-boot:
+    external: true
+    name: sandcat-cache-sbt-boot
+YAML
+
+	stub docker \
+		"volume create --label sandcat-shared-cache=true sandcat-cache-coursier : echo sandcat-cache-coursier" \
+		"volume create --label sandcat-shared-cache=true sandcat-cache-sbt-boot : echo sandcat-cache-sbt-boot"
+
+	run ensure_shared_cache_volumes "$all"
+	assert_success
+}
+
+@test "ensure_shared_cache_volumes still creates caches declared on compose-all.yml" {
+	local all="$BATS_TEST_TMPDIR/.devcontainer/compose-all.yml"
+	cat >"$all" <<'YAML'
+services:
+  agent:
+    volumes:
+      - sandcat-cache-maven:/home/vscode/.m2/repository
+volumes:
+  sandcat-cache-maven:
+    external: true
+    name: sandcat-cache-maven
+YAML
+
+	stub docker \
+		"volume create --label sandcat-shared-cache=true sandcat-cache-maven : echo sandcat-cache-maven"
+
+	run ensure_shared_cache_volumes "$all"
+	assert_success
+}
+
+@test "ensure_shared_cache_volumes finds compose-agent.yml even without include keys" {
+	mkdir -p "$BATS_TEST_TMPDIR/.devcontainer/sandcat"
+	local all="$BATS_TEST_TMPDIR/.devcontainer/compose-all.yml"
+	echo 'name: demo' >"$all"
+	cat >"$BATS_TEST_TMPDIR/.devcontainer/sandcat/compose-agent.yml" <<'YAML'
+volumes:
+  sandcat-cache-ivy:
+    external: true
+    name: sandcat-cache-ivy
+YAML
+
+	stub docker \
+		"volume create --label sandcat-shared-cache=true sandcat-cache-ivy : echo sandcat-cache-ivy"
+
+	run ensure_shared_cache_volumes "$all"
+	assert_success
 }
