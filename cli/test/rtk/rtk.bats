@@ -63,6 +63,9 @@ setup() {
 	assert_output --partial "rtk init -g"
 	assert_output --partial "--hook-only"
 	assert_output --partial "--auto-patch"
+	# stdin closed so rtk's first-run prompts (e.g. telemetry consent
+	# in 0.45) can't block container start when stdout is discarded.
+	assert_output --partial "--auto-patch </dev/null"
 	assert_output --partial "command -v rtk"
 	assert_output --partial "rtk hook"
 	assert_output --partial "settings.json"
@@ -76,7 +79,7 @@ setup() {
 	assert_output --partial "rtk init -g"
 	assert_output --partial "--hook-only"
 	assert_output --partial "--auto-patch"
-	assert_output --partial "--agent cursor"
+	assert_output --partial "--agent cursor </dev/null"
 	assert_output --partial "command -v rtk"
 	assert_output --partial "rtk hook cursor"
 	assert_output --partial "hooks.json"

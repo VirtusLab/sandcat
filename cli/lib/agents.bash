@@ -529,11 +529,12 @@ fi
 
 # Auto-init rtk for codex: writes ~/.codex/RTK.md and appends an
 # @RTK.md reference to ~/.codex/AGENTS.md. Idempotent — skipped once
-# the reference is already present.
+# the reference is already present. stdin is closed so rtk's first-run
+# prompts (telemetry consent) can't block container start.
 if command -v rtk >/dev/null 2>&1 \
    && [ "${SANDCAT_RTK:-true}" != "false" ] \
    && ! grep -q '@RTK.md\|RTK\.md' "$HOME/.codex/AGENTS.md" 2>/dev/null; then
-    rtk init -g --codex >/dev/null 2>&1 \
+    rtk init -g --codex </dev/null >/dev/null 2>&1 \
         || echo "sandcat: rtk init failed (non-fatal)" >&2
 fi
 EOF

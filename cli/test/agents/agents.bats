@@ -471,7 +471,7 @@ setup() {
 	unset SANDCAT_RTK
 	run sct_agent_user_init_block codex
 	assert_output --partial "codex --version"
-	assert_output --partial "rtk init -g --codex"
+	assert_output --partial "rtk init -g --codex </dev/null"
 	assert_output --partial ".codex-host/AGENTS.md"
 	assert_output --partial "@RTK.md"
 	assert_output --partial "non-fatal"
