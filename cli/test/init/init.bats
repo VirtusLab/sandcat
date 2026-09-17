@@ -262,7 +262,7 @@ EOF
 		"'Select IDE:' vscode jetbrains none : echo vscode" \
 		"'Select secret provider:' 1password none protonpass : echo 1password"
 	stub select_multiple \
-		"'Select optional features (comma-separated numbers, empty for none):' 'tui (mitmproxy console instead of web UI)' 'no-shared-cache (per-project dep cache instead of shared)' 'no-gitignore (do not append Sandcat block to .gitignore)' 'no-rtk (do not install rtk shell hook)' 'strict-network (stack presets instead of allow-all-GET wildcard)' : echo ''" \
+		"'Select optional features (comma-separated numbers, empty for none):' 'tui (mitmproxy console instead of web UI)' 'no-shared-cache (per-project dep cache instead of shared)' 'no-gitignore (do not append Sandcat block to .gitignore)' 'no-rtk (do not install rtk shell hook)' 'strict-network (stack presets instead of allow-all-GET wildcard)' 'docker (nested Docker daemon inside the sandbox)' : echo ''" \
 		"'Select development stacks (comma-separated numbers, empty for none):' node python java rust go scala ruby dotnet zig : echo ''"
 
 	local expected_name
@@ -343,7 +343,7 @@ EOF
 		"'Select IDE:' vscode jetbrains none : echo vscode" \
 		"'Select secret provider:' none 1password protonpass : echo none"
 	stub select_multiple \
-		"'Select optional features (comma-separated numbers, empty for none):' 'tui (mitmproxy console instead of web UI)' 'no-shared-cache (per-project dep cache instead of shared)' 'no-gitignore (do not append Sandcat block to .gitignore)' 'no-rtk (do not install rtk shell hook)' 'strict-network (stack presets instead of allow-all-GET wildcard)' : echo ''" \
+		"'Select optional features (comma-separated numbers, empty for none):' 'tui (mitmproxy console instead of web UI)' 'no-shared-cache (per-project dep cache instead of shared)' 'no-gitignore (do not append Sandcat block to .gitignore)' 'no-rtk (do not install rtk shell hook)' 'strict-network (stack presets instead of allow-all-GET wildcard)' 'docker (nested Docker daemon inside the sandbox)' : echo ''" \
 		"'Select development stacks (comma-separated numbers, empty for none):' node python java rust go scala ruby dotnet zig : echo ''"
 
 	local expected_name
@@ -422,7 +422,7 @@ EOF
 		"'Select IDE:' vscode jetbrains none : echo vscode" \
 		"'Select secret provider:' none 1password protonpass : echo none"
 	stub select_multiple \
-		"'Select optional features (comma-separated numbers, empty for none):' 'tui (mitmproxy console instead of web UI)' 'no-shared-cache (per-project dep cache instead of shared)' 'no-gitignore (do not append Sandcat block to .gitignore)' 'no-rtk (do not install rtk shell hook)' 'strict-network (stack presets instead of allow-all-GET wildcard)' : echo 'tui (mitmproxy console instead of web UI)'" \
+		"'Select optional features (comma-separated numbers, empty for none):' 'tui (mitmproxy console instead of web UI)' 'no-shared-cache (per-project dep cache instead of shared)' 'no-gitignore (do not append Sandcat block to .gitignore)' 'no-rtk (do not install rtk shell hook)' 'strict-network (stack presets instead of allow-all-GET wildcard)' 'docker (nested Docker daemon inside the sandbox)' : echo 'tui (mitmproxy console instead of web UI)'" \
 		"'Select development stacks (comma-separated numbers, empty for none):' node python java rust go scala ruby dotnet zig : echo ''"
 
 	local expected_name
@@ -673,6 +673,24 @@ EOF
 	run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" --stacks "python" --features "strict-network" --secret-provider none
 	assert_success
 	assert_output --partial "Network:          strict — stack presets: python"
+}
+
+@test "init --features docker seeds the docker-registry preset into project settings" {
+	# Real settings-file semantics needed: the stub reproduces what the
+	# settings command does (copy the template), so the seeding step that
+	# follows in init has a file to mutate.
+	stub settings \
+		"$PROJECT_DIR/.sandcat/settings.json claude vscode : mkdir -p $PROJECT_DIR/.sandcat && cp $SCT_TEMPLATEDIR/settings.json $PROJECT_DIR/.sandcat/settings.json"
+	stub devcontainer \
+		"--settings-file .sandcat/settings.json --project-path * --agent claude --ide vscode --name test --stacks * --proxy web --secret-provider none : :"
+
+	run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" --stacks "" --features "docker" --secret-provider none
+	assert_success
+	run yq -r '.network[0].preset' "$PROJECT_DIR/.sandcat/settings.json"
+	assert_output "docker-registry"
+	# wildcard z szablonu zostaje za presetem
+	run yq -r '.network[1].host' "$PROJECT_DIR/.sandcat/settings.json"
+	assert_output "*"
 }
 
 @test "init without strict-network reports the default network policy" {

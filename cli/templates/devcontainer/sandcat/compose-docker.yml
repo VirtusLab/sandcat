@@ -1,0 +1,54 @@
+# Docker-in-the-sandbox (issue #70). Included from compose-all.yml when the
+# project was initialized with `sandcat init --features docker`.
+#
+# A dedicated dind (Docker-in-Docker) service hosts a NESTED dockerd. The
+# agent talks to it over a unix socket on a shared volume — the host daemon
+# is never exposed. The dind service lives in its OWN network namespace and
+# routes its default via wg-client (see scripts/dind-init.sh), so egress
+# from agent-launched containers transits wg0 → mitmproxy: network policy,
+# CA bumping, and secret substitution all apply two levels deep.
+#
+# `privileged` is required for the nested daemon (cgroups, overlayfs,
+# iptables — all inside dind's own namespaces). The blast radius is bounded
+# by dind's separate netns: the agent reaches only the socket, and a
+# container that escaped dind still sits outside wg-client's namespace, so
+# it cannot touch the kill switch.
+services:
+  dind:
+    image: docker:27.5.1-dind
+    privileged: true
+    environment:
+      # Socket-only access on a shared volume — TLS adds nothing here and
+      # the cert bootstrap would complicate startup ordering.
+      - DOCKER_TLS_CERTDIR=
+    entrypoint: ["sh", "/opt/sandcat/dind-init.sh"]
+    volumes:
+      - ./scripts/dind-init.sh:/opt/sandcat/dind-init.sh:ro
+      - docker-sock:/docker-sock
+      - dind-storage:/var/lib/docker
+      - mitmproxy-public:/mitmproxy-config:ro
+    depends_on:
+      wg-client:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "test", "-S", "/docker-sock/docker.sock"]
+      interval: 2s
+      timeout: 2s
+      retries: 15
+      start_period: 60s
+    restart: unless-stopped
+
+  # The agent gets the socket (and the docker CLI dind publishes next to it).
+  agent:
+    volumes:
+      - docker-sock:/docker-sock
+
+  # Turns on the gateway rules in wg-client-init.sh: NAT from the compose
+  # network into wg0 for containers that route through wg-client.
+  wg-client:
+    environment:
+      - SANDCAT_DIND_GATEWAY=true
+
+volumes:
+  docker-sock:
+  dind-storage:
