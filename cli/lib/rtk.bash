@@ -40,11 +40,15 @@ EOF
 }
 
 # Emits the app-user-init.sh fragment that runs `rtk init` for the given
-# agent, guarded to a one-time execution. Currently wires `claude` and
-# `cursor`; unknown/future agents (including codex — rtk 0.44 does not
-# support `--agent codex`, and `--codex` cannot combine with `--hook-only`
-# or `--auto-patch`) get a safe no-op so the binary is still available on
-# PATH but rtk stays uninitialized until the case is added.
+# agent, guarded to a one-time execution. Every invocation gets stdin
+# from /dev/null: rtk init asks interactive questions on first run
+# (telemetry consent since 0.45) and would otherwise block forever on
+# the container's TTY while its output is discarded.
+# Currently wires `claude` and `cursor`; unknown/future agents
+# (including codex — rtk 0.44 does not support `--agent codex`, and
+# `--codex` cannot combine with `--hook-only` or `--auto-patch`) get a
+# safe no-op so the binary is still available on PATH but rtk stays
+# uninitialized until the case is added.
 #
 # Emits an empty output when the feature is disabled OR when the agent
 # has no rtk profile.
@@ -64,7 +68,7 @@ sct_rtk_user_init_block() {
 # CLAUDE.md injection would EROFS).
 # Idempotency: skipped once the hook string is already present.
 if command -v rtk >/dev/null 2>&1 && ! grep -q '"command": "rtk hook' "$HOME/.claude/settings.json" 2>/dev/null; then
-    rtk init -g --hook-only --auto-patch >/dev/null 2>&1 \
+    rtk init -g --hook-only --auto-patch </dev/null >/dev/null 2>&1 \
         || echo "sandcat: rtk init failed (non-fatal)" >&2
 fi
 EOF
@@ -80,7 +84,7 @@ EOF
 # still try inside the container so the warning nudges the user to
 # initialize rtk on the host.
 if command -v rtk >/dev/null 2>&1 && ! grep -q '"rtk hook cursor' "$HOME/.cursor/hooks.json" 2>/dev/null; then
-    rtk init -g --hook-only --auto-patch --agent cursor >/dev/null 2>&1 \
+    rtk init -g --hook-only --auto-patch --agent cursor </dev/null >/dev/null 2>&1 \
         || echo "sandcat: rtk hook not found for cursor. Install rtk on your host and run once: rtk init -g --hook-only --auto-patch --agent cursor  (see README RTK section)" >&2
 fi
 EOF
