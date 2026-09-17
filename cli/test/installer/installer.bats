@@ -464,3 +464,57 @@ FAKEID
 	# SANDCAT_HOME dir removed since it was empty after cli/ deletion
 	[ ! -d "$sandcat_home" ]
 }
+
+# Runs a shell command under a pseudo-terminal and types $1 on it.
+# Stdin is held open briefly because macOS `script` forwards EOF to the
+# terminal at once, and it could arrive before the typed answer.
+_run_with_tty() {
+	local answer=$1 cmd=$2
+	if [ "$(uname)" = "Darwin" ]; then
+		(printf '%s\n' "$answer"; sleep 2) | script -q /dev/null sh -c "$cmd"
+	else
+		(printf '%s\n' "$answer"; sleep 2) | script -q -e -c "$cmd" /dev/null
+	fi
+}
+
+_install_fixture() {
+	SANDCAT_HOME="$1" \
+	SANDCAT_BIN_DIR="$2" \
+	SANDCAT_NON_INTERACTIVE=true \
+	PATH="$FAKE_BIN:$PATH" bash "$INSTALL_SH"
+}
+
+@test "install.sh piped into a shell reads the overwrite answer from the terminal" {
+	_stub_curl_with_fixture master
+
+	local sandcat_home="$BATS_TEST_TMPDIR/home/.local/share/sandcat"
+	local sandcat_bin="$BATS_TEST_TMPDIR/home/.local/bin"
+	_install_fixture "$sandcat_home" "$sandcat_bin"
+	touch "$sandcat_home/cli/stale"
+
+	SANDCAT_HOME="$sandcat_home" \
+	SANDCAT_BIN_DIR="$sandcat_bin" \
+	PATH="$FAKE_BIN:$PATH" \
+	run _run_with_tty y "cat '$INSTALL_SH' | sh"
+	assert_success
+	assert_output --partial "Overwrite?"
+	assert_output --partial "Installed sandcat"
+	[ ! -e "$sandcat_home/cli/stale" ]
+}
+
+@test "install.sh piped into a shell keeps the existing install on an empty answer" {
+	_stub_curl_with_fixture master
+
+	local sandcat_home="$BATS_TEST_TMPDIR/home/.local/share/sandcat"
+	local sandcat_bin="$BATS_TEST_TMPDIR/home/.local/bin"
+	_install_fixture "$sandcat_home" "$sandcat_bin"
+	touch "$sandcat_home/cli/stale"
+
+	SANDCAT_HOME="$sandcat_home" \
+	SANDCAT_BIN_DIR="$sandcat_bin" \
+	PATH="$FAKE_BIN:$PATH" \
+	run _run_with_tty "" "cat '$INSTALL_SH' | sh"
+	assert_success
+	assert_output --partial "Aborted"
+	[ -e "$sandcat_home/cli/stale" ]
+}
