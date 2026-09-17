@@ -10,7 +10,9 @@
 #   SANDCAT_REF               branch/tag/commit to install (default: master)
 #   SANDCAT_NON_INTERACTIVE   skip prompts when set to "true" (default: false)
 
-set -euo pipefail
+# No pipefail: dash (sh on Debian/Ubuntu) lacks it, and no pipeline here
+# relies on it.
+set -eu
 
 # --- Logging helpers ---------------------------------------------------------
 
@@ -36,8 +38,9 @@ cleanup() {
 	fi
 }
 
+# With set -e, a failing command exits with its status, and the EXIT trap
+# then runs cleanup. (An ERR trap would not be portable to dash.)
 trap 'cleanup' EXIT
-trap 'cleanup; exit 1' ERR
 
 # --- Argument parsing --------------------------------------------------------
 

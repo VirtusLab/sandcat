@@ -495,7 +495,7 @@ _install_fixture() {
 	SANDCAT_HOME="$sandcat_home" \
 	SANDCAT_BIN_DIR="$sandcat_bin" \
 	PATH="$FAKE_BIN:$PATH" \
-	run _run_with_tty y "cat '$INSTALL_SH' | bash"
+	run _run_with_tty y "cat '$INSTALL_SH' | sh"
 	assert_success
 	assert_output --partial "Overwrite?"
 	assert_output --partial "Installed sandcat"
@@ -513,7 +513,7 @@ _install_fixture() {
 	SANDCAT_HOME="$sandcat_home" \
 	SANDCAT_BIN_DIR="$sandcat_bin" \
 	PATH="$FAKE_BIN:$PATH" \
-	run _run_with_tty "" "cat '$INSTALL_SH' | bash"
+	run _run_with_tty "" "cat '$INSTALL_SH' | sh"
 	assert_success
 	assert_output --partial "Aborted"
 	[ -e "$sandcat_home/cli/stale" ]
