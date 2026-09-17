@@ -214,7 +214,14 @@ prompt_yes_no() {
 	fi
 	printf '%s [y/N]: ' "$msg" >&2
 	local reply
-	IFS= read -r reply || reply=""
+	# When piped (curl ... | sh), stdin is the script itself, so ask the
+	# terminal directly. Without one (CI without SANDCAT_NON_INTERACTIVE),
+	# the answer stays empty and defaults to "no".
+	if [ -t 0 ]; then
+		IFS= read -r reply || reply=""
+	else
+		{ IFS= read -r reply < /dev/tty; } 2>/dev/null || reply=""
+	fi
 	case "$reply" in
 		y|Y|yes|YES) return 0 ;;
 		*)           return 1 ;;

@@ -24,9 +24,11 @@ curl -fsSL https://raw.githubusercontent.com/VirtusLab/sandcat/master/install.sh
 Ensure `~/.local/bin` is on your `PATH` (the installer prints a hint if it
 isn't), then jump to [Initialize the sandbox](getting-started/quickstart.md#2-initialize-the-sandbox-for-your-project).
 
-**Upgrade:** re-run the same command. The installer atomically swaps the
-existing install; `~/.config/sandcat/` (user settings) is never touched.
-Combine with `SANDCAT_REF` to jump to a different branch/tag/commit:
+**Upgrade:** re-run the same command and answer `y` when asked to overwrite
+the existing install (set `SANDCAT_NON_INTERACTIVE=true` to skip the
+question). The installer atomically swaps the existing install;
+`~/.config/sandcat/` (user settings) is never touched. Combine with
+`SANDCAT_REF` to jump to a different branch/tag/commit:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/VirtusLab/sandcat/master/install.sh | SANDCAT_REF=v1.0.0 sh
