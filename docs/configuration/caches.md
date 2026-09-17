@@ -28,7 +28,9 @@ Each is a Docker named volume with a stable host-wide name
 projects reference the same physical volume, and `sandcat compose down -v` on
 one project will **not** wipe caches other projects rely on. The `sandcat run`
 wrapper creates them lazily via `docker volume create` (idempotent), so no
-manual setup is required.
+manual setup is required. The generated `devcontainer.json` also creates them
+on the host via `initializeCommand` (`sandcat/scripts/ensure-cache-volumes.sh`),
+so an IDE's "Reopen in Container" works without running `sandcat` first.
 
 Only `/home/vscode/.m2/repository/` is shared, not the whole `.m2/` — user
 config like `settings.xml` stays per-project inside `agent-home`. Same pattern
