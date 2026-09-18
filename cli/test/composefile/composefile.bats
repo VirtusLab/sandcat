@@ -509,7 +509,7 @@ YAML
 	cat >"$proxy_compose" <<'YAML'
 services:
   mitmproxy:
-    command: mitmweb --mode wireguard --set http2=true --set stream_large_bodies=1m --set connection_strategy=lazy --set anticomp=true --set timeout_read=300 -s /scripts/mitmproxy_addon_cursor.py
+    command: mitmweb --mode wireguard --set connection_strategy=lazy --set rawtcp=false --set http2=true --set stream_large_bodies=1m --set anticomp=true --set timeout_read=300 -s /scripts/mitmproxy_addon_cursor.py
     ports:
       - "8081"
 YAML
@@ -517,7 +517,7 @@ YAML
 	set_proxy_tui_mode "$proxy_compose"
 
 	run yq -r '.services.mitmproxy.command' "$proxy_compose"
-	assert_output "mitmdump --mode wireguard --set http2=true --set stream_large_bodies=1m --set connection_strategy=lazy --set anticomp=true --set timeout_read=300 -s /scripts/mitmproxy_addon_cursor.py"
+	assert_output "mitmdump --mode wireguard --set connection_strategy=lazy --set rawtcp=false --set http2=true --set stream_large_bodies=1m --set anticomp=true --set timeout_read=300 -s /scripts/mitmproxy_addon_cursor.py"
 	yq -e '.services.mitmproxy.command | contains("/scripts/mitmproxy_addon_cursor.py")' "$proxy_compose"
 }
 

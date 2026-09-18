@@ -51,6 +51,11 @@ import sys
 from fnmatch import fnmatch
 
 from mitmproxy import ctx, dns, http
+from mitmproxy.addons.next_layer import NextLayer
+from mitmproxy.proxy import commands as proxy_commands
+from mitmproxy.proxy import events as proxy_events
+from mitmproxy.proxy import layer as proxy_layer
+from mitmproxy.proxy.layers import RawQuicLayer, TCPLayer, UDPLayer
 
 _VALID_ENV_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 # RFC-1123 label / RFC-2181 length. Trailing dot is stripped before validation
@@ -199,6 +204,22 @@ def _pass_cli_session_is_pat(stdout: str) -> bool:
     return bool(_PAT_SESSION_MARKER.search(stdout or ""))
 
 
+# The layers mitmproxy falls back to when it cannot parse a flow as HTTP or
+# DNS. They copy bytes between client and server verbatim and emit no
+# request/dns_request hook, so the allow/deny rules never see them.
+RAW_RELAY_LAYERS = (TCPLayer, UDPLayer, RawQuicLayer)
+
+
+class DenyLayer(proxy_layer.Layer):
+    """Hangs up on the client instead of relaying, without ever dialling the
+    server. Used in place of a raw relay layer — see ``SandcatAddon.next_layer``.
+    """
+
+    def _handle_event(self, event):
+        if isinstance(event, proxy_events.Start):
+            yield proxy_commands.CloseConnection(self.context.client)
+
+
 class SandcatAddon:
     """Base sandcat addon: network policy + secret substitution."""
 
@@ -209,6 +230,9 @@ class SandcatAddon:
         self.dns_servers: list[str] = []  # custom upstream DNS for wg-client
         self.debug_enabled = False  # subclasses may flip this in _on_settings_merged
         self._pass_cli_logged_in = False  # True only after a successful pass-cli login
+        # Our own copy of mitmproxy's layer chooser, so next_layer() below can
+        # see what mitmproxy would pick and veto it. See next_layer().
+        self._layer_chooser = NextLayer()
 
     # ------------------------------------------------------------------ load
 
@@ -1056,6 +1080,50 @@ class SandcatAddon:
             )
 
     # -------------------------------------------------------------- handlers
+
+    def configure(self, updated):
+        # Keeps _layer_chooser's compiled host patterns in sync with the
+        # options mitmproxy's own NextLayer instance reads.
+        self._layer_chooser.configure(updated)
+
+    def next_layer(self, nextlayer: proxy_layer.NextLayer):
+        """Deny anything that would be relayed as raw bytes.
+
+        The allow/deny rules key on a hostname, which only HTTP and DNS flows
+        carry; a raw TCP or UDP flow knows nothing but an address, so there is
+        nothing to match and no hook to match it in. Left alone, mitmproxy
+        would relay such a flow straight through and a process in the agent
+        container could reach any address and port it likes.
+
+        Script addons run before mitmproxy's own NextLayer (ScriptLoader sits
+        earlier in the default addon chain), and NextLayer skips a decision
+        another addon already made. So we ask our own chooser first and either
+        veto what it picked or let it stand — never hand the decision back,
+        which would let a second, unexamined choice run in its place.
+
+        mitmproxy swallows an addon hook's exception and carries on down the
+        chain, so anything raised here has to leave the flow denied rather
+        than half-decided: the chooser runs inside a try, and the assignment
+        happens before the log line.
+        """
+        try:
+            self._layer_chooser.next_layer(nextlayer)
+            # Left as None when the chooser wants more data; the decision is
+            # retried on the next chunk, so there is nothing to veto yet.
+            is_raw = isinstance(nextlayer.layer, RAW_RELAY_LAYERS)
+        except Exception:
+            logger.exception("Layer choice failed — denying the flow")
+            is_raw = True
+
+        if not is_raw:
+            return
+
+        nextlayer.layer = DenyLayer(nextlayer.context)
+        logger.warning(
+            "Network deny (not HTTP or DNS): "
+            f"{nextlayer.context.client.transport_protocol} "
+            f"{nextlayer.context.server.address}"
+        )
 
     def request(self, flow: http.HTTPFlow):
         method = flow.request.method

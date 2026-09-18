@@ -9,11 +9,12 @@ working in an IDE — both [VS Code](ide/vscode.md) and
 [JetBrains](ide/jetbrains.md) are supported.
 
 All container traffic is routed through a transparent
-[mitmproxy](https://mitmproxy.org/) via WireGuard, capturing HTTP/S, DNS, and
-all other TCP/UDP traffic without per-tool proxy configuration. A
-straightforward allow/deny-list engine controls which network requests go
-through, and a secret substitution system injects credentials at the proxy
-level so the container never sees real values.
+[mitmproxy](https://mitmproxy.org/) via WireGuard, without per-tool proxy
+configuration. A straightforward allow/deny-list engine controls which HTTP/S
+requests and DNS queries go through; everything else — raw TCP and UDP, which
+carries no hostname to match a rule against — is dropped. A secret
+substitution system injects credentials at the proxy level so the container
+never sees real values.
 
 Source code: [github.com/VirtusLab/sandcat](https://github.com/VirtusLab/sandcat).
 

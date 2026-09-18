@@ -130,8 +130,11 @@ teardown() {
 	run grep 'stream_large_bodies=1m' "$BATS_TEST_TMPDIR/sandcat/compose-proxy.yml"
 	assert_failure
 
+	# connection_strategy=lazy is not agent-specific — it is on the base
+	# command so a denied flow never reaches the destination (see
+	# compose-proxy.yml).
 	run grep 'connection_strategy=lazy' "$BATS_TEST_TMPDIR/sandcat/compose-proxy.yml"
-	assert_failure
+	assert_success
 
 	run grep 'anticomp=true' "$BATS_TEST_TMPDIR/sandcat/compose-proxy.yml"
 	assert_failure
@@ -219,8 +222,11 @@ teardown() {
 	run grep 'stream_large_bodies=1m' "$BATS_TEST_TMPDIR/sandcat/compose-proxy.yml"
 	assert_failure
 
+	# connection_strategy=lazy is not agent-specific — it is on the base
+	# command so a denied flow never reaches the destination (see
+	# compose-proxy.yml).
 	run grep 'connection_strategy=lazy' "$BATS_TEST_TMPDIR/sandcat/compose-proxy.yml"
-	assert_failure
+	assert_success
 
 	run grep 'anticomp=true' "$BATS_TEST_TMPDIR/sandcat/compose-proxy.yml"
 	assert_failure
@@ -255,8 +261,11 @@ teardown() {
 	run grep 'stream_large_bodies=1m' "$BATS_TEST_TMPDIR/sandcat/compose-proxy.yml"
 	assert_failure
 
+	# connection_strategy=lazy is not agent-specific — it is on the base
+	# command so a denied flow never reaches the destination (see
+	# compose-proxy.yml).
 	run grep 'connection_strategy=lazy' "$BATS_TEST_TMPDIR/sandcat/compose-proxy.yml"
-	assert_failure
+	assert_success
 
 	run grep 'anticomp=true' "$BATS_TEST_TMPDIR/sandcat/compose-proxy.yml"
 	assert_failure

@@ -421,8 +421,9 @@ EOF
 # Returns mitmproxy --set flags that affect streaming-body handling.
 #
 # Cursor's API uses Connect/HTTP-2 streaming for agent calls. Mitmproxy needs
-# stream_large_bodies (don't buffer >1MB), connection_strategy=lazy, anticomp,
-# and a long read timeout to keep those streams stable.
+# stream_large_bodies (don't buffer >1MB), anticomp, and a long read timeout to
+# keep those streams stable. connection_strategy=lazy, which these streams also
+# need, is on the base command for every agent (see compose-proxy.yml).
 #
 # Claude's traffic is plain JSON request/response, so leaving the body
 # buffered means _substitute_secrets in the addon can run a content-based
@@ -436,7 +437,7 @@ sct_agent_mitm_streaming_flags() {
 	local agent=$1
 	case "$agent" in
 		cursor)
-			echo "--set stream_large_bodies=1m --set connection_strategy=lazy --set anticomp=true --set timeout_read=300"
+			echo "--set stream_large_bodies=1m --set anticomp=true --set timeout_read=300"
 			;;
 		claude|codex|copilot|*)
 			echo ""

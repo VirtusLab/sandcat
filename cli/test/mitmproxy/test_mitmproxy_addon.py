@@ -91,13 +91,83 @@ class _Response:
 _http.HTTPFlow = type("HTTPFlow", (), {})
 _http.Response = _Response
 
+
+# --- proxy layer stubs, for the next_layer hook ----------------------------
+# Names only: the addon compares the layer mitmproxy picked against these
+# classes, so identity is all the tests need.
+#
+# These stubs cannot notice mitmproxy renaming, moving or adding a relay layer
+# — the version pin in cli/lib/constants.bash is what holds that end. A bump
+# needs mitmproxy's next_layer.py re-read against RAW_RELAY_LAYERS.
+
+
+class _Layer:
+    def __init__(self, context):
+        self.context = context
+
+
+class _Start:
+    pass
+
+
+class _CloseConnection:
+    def __init__(self, connection):
+        self.connection = connection
+
+
+class _MitmNextLayer:
+    """Stand-in for mitmproxy's layer chooser.
+
+    Tests set ``picks`` to the layer class mitmproxy would settle on, or to
+    None for "needs more data".
+    """
+
+    picks = None
+
+    def configure(self, updated):
+        self.configured = updated
+
+    def next_layer(self, nextlayer):
+        nextlayer.layer = self.picks(nextlayer.context) if self.picks else None
+
+
+_proxy = types.ModuleType("mitmproxy.proxy")
+_proxy_commands = types.ModuleType("mitmproxy.proxy.commands")
+_proxy_events = types.ModuleType("mitmproxy.proxy.events")
+_proxy_layer = types.ModuleType("mitmproxy.proxy.layer")
+_proxy_layers = types.ModuleType("mitmproxy.proxy.layers")
+_addons = types.ModuleType("mitmproxy.addons")
+_addons_next_layer = types.ModuleType("mitmproxy.addons.next_layer")
+
+_proxy_commands.CloseConnection = _CloseConnection
+_proxy_events.Start = _Start
+_proxy_layer.Layer = _Layer
+_proxy_layer.NextLayer = type("NextLayer", (), {})
+for _name in ("TCPLayer", "UDPLayer", "RawQuicLayer", "HttpLayer", "DNSLayer"):
+    setattr(_proxy_layers, _name, type(_name, (_Layer,), {}))
+_addons_next_layer.NextLayer = _MitmNextLayer
+
 sys.modules["mitmproxy"] = types.ModuleType("mitmproxy")
 sys.modules["mitmproxy.ctx"] = _ctx
 sys.modules["mitmproxy.http"] = _http
 sys.modules["mitmproxy.dns"] = _dns
+sys.modules["mitmproxy.proxy"] = _proxy
+sys.modules["mitmproxy.proxy.commands"] = _proxy_commands
+sys.modules["mitmproxy.proxy.events"] = _proxy_events
+sys.modules["mitmproxy.proxy.layer"] = _proxy_layer
+sys.modules["mitmproxy.proxy.layers"] = _proxy_layers
+sys.modules["mitmproxy.addons"] = _addons
+sys.modules["mitmproxy.addons.next_layer"] = _addons_next_layer
 sys.modules["mitmproxy"].ctx = _ctx
 sys.modules["mitmproxy"].http = _http
 sys.modules["mitmproxy"].dns = _dns
+sys.modules["mitmproxy"].proxy = _proxy
+sys.modules["mitmproxy"].addons = _addons
+_proxy.commands = _proxy_commands
+_proxy.events = _proxy_events
+_proxy.layer = _proxy_layer
+_proxy.layers = _proxy_layers
+_addons.next_layer = _addons_next_layer
 
 # Allow importing the addon modules from the templates directory.
 _SCRIPTS_DIR = str(
@@ -912,6 +982,77 @@ class TestDNSProxy:
         flow = _make_dns_flow("api.github.com.")
         addon.dns_request(flow)
         assert flow.response is None
+
+
+# ---------------------------------------------------------------------------
+# Raw TCP/UDP flows — denied before they reach the generic relay layers.
+# ---------------------------------------------------------------------------
+
+def _make_next_layer():
+    nextlayer = MagicMock()
+    nextlayer.layer = None
+    nextlayer.context.client.transport_protocol = "tcp"
+    nextlayer.context.server.address = ("203.0.113.5", 4444)
+    return nextlayer
+
+
+@pytest.mark.parametrize("addon_cls", ADDONS)
+class TestRawFlowDenial:
+    @pytest.mark.parametrize("raw_layer", ["TCPLayer", "UDPLayer", "RawQuicLayer"])
+    def test_raw_relay_layers_are_replaced(self, addon_cls, raw_layer):
+        addon = addon_cls()
+        addon._layer_chooser.picks = getattr(_proxy_layers, raw_layer)
+        nextlayer = _make_next_layer()
+
+        addon.next_layer(nextlayer)
+
+        assert isinstance(nextlayer.layer, common.DenyLayer)
+
+    @pytest.mark.parametrize("allowed_layer", ["HttpLayer", "DNSLayer"])
+    def test_http_and_dns_layers_are_left_alone(self, addon_cls, allowed_layer):
+        addon = addon_cls()
+        picked = getattr(_proxy_layers, allowed_layer)
+        addon._layer_chooser.picks = picked
+        nextlayer = _make_next_layer()
+
+        addon.next_layer(nextlayer)
+
+        assert isinstance(nextlayer.layer, picked)
+
+    def test_a_chooser_that_raises_denies_the_flow(self, addon_cls):
+        addon = addon_cls()
+        addon._layer_chooser.next_layer = MagicMock(side_effect=RuntimeError("boom"))
+        nextlayer = _make_next_layer()
+
+        addon.next_layer(nextlayer)
+
+        assert isinstance(nextlayer.layer, common.DenyLayer)
+
+    def test_undecided_layer_stays_undecided(self, addon_cls):
+        addon = addon_cls()
+        addon._layer_chooser.picks = None
+        nextlayer = _make_next_layer()
+
+        addon.next_layer(nextlayer)
+
+        assert nextlayer.layer is None
+
+    def test_configure_reaches_the_layer_chooser(self, addon_cls):
+        addon = addon_cls()
+
+        addon.configure({"tcp_hosts"})
+
+        assert addon._layer_chooser.configured == {"tcp_hosts"}
+
+
+def test_deny_layer_closes_the_client_without_dialling_the_server():
+    context = MagicMock()
+
+    issued = list(common.DenyLayer(context)._handle_event(_Start()))
+
+    assert len(issued) == 1
+    assert isinstance(issued[0], _CloseConnection)
+    assert issued[0].connection is context.client
 
 
 # ---------------------------------------------------------------------------
