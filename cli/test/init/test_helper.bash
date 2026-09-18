@@ -19,6 +19,15 @@ bats_load_library bats-support
 bats_load_library bats-assert
 bats_load_library bats-mock-ext
 
+# Octal permission bits of a file. GNU and BSD stat disagree on the flag, so
+# pick once by probing stat itself rather than per call — a per-call fallback
+# would hide a missing file behind the other flavour's error.
+if stat -c '%a' . >/dev/null 2>&1; then
+	file_mode() { stat -c '%a' "$1"; }
+else
+	file_mode() { stat -f '%Lp' "$1"; }
+fi
+
 export SCT_ROOT
 export SCT_LIBDIR="$SCT_ROOT/lib"
 export SCT_TEMPLATEDIR="$SCT_ROOT/templates"

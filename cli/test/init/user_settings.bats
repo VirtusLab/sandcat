@@ -128,6 +128,42 @@ teardown() {
 	yq -e '.cursor.cli.version == 1' "$settings"
 }
 
+@test "create_user_settings creates files readable only by their owner" {
+	stub git \
+		"config --global user.name : echo ''" \
+		"config --global user.email : echo ''"
+
+	create_user_settings
+
+	run file_mode "$HOME/.config/sandcat/settings.json"
+	assert_output "600"
+
+	run file_mode "$HOME/.config/sandcat"
+	assert_output "700"
+}
+
+@test "create_user_settings warns instead of failing when the mode cannot be changed" {
+	mkdir -p "$HOME/.config/sandcat"
+	echo '{}' > "$HOME/.config/sandcat/settings.json"
+	stub chmod "600 $HOME/.config/sandcat/settings.json : exit 1"
+
+	run create_user_settings
+
+	assert_success
+	assert_output --partial "Could not restrict"
+}
+
+@test "create_user_settings tightens an existing world-readable settings file" {
+	mkdir -p "$HOME/.config/sandcat"
+	echo '{"secrets":{"ANTHROPIC_API_KEY":{"value":"real"}}}' > "$HOME/.config/sandcat/settings.json"
+	chmod 644 "$HOME/.config/sandcat/settings.json"
+
+	create_user_settings
+
+	run file_mode "$HOME/.config/sandcat/settings.json"
+	assert_output "600"
+}
+
 @test "create_user_settings skips when file already exists" {
 	mkdir -p "$HOME/.config/sandcat"
 	echo '{"existing": true}' > "$HOME/.config/sandcat/settings.json"

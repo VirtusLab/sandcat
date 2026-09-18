@@ -96,6 +96,28 @@ teardown() {
 	assert_output --partial '"real"'
 }
 
+@test "settings creates settings.local.json readable only by its owner" {
+	local settings_file="$BATS_TEST_TMPDIR/settings.json"
+
+	settings "$settings_file" "github"
+
+	run file_mode "$BATS_TEST_TMPDIR/settings.local.json"
+	assert_output "600"
+}
+
+@test "settings tightens an existing world-readable settings.local.json" {
+	local settings_file="$BATS_TEST_TMPDIR/settings.json"
+	local local_settings="$BATS_TEST_TMPDIR/settings.local.json"
+
+	printf '{"secrets":{"MY_TOKEN":{"value":"real"}}}' > "$local_settings"
+	chmod 644 "$local_settings"
+
+	settings "$settings_file" "github"
+
+	run file_mode "$local_settings"
+	assert_output "600"
+}
+
 @test "read_upstream_ca_bundles returns empty when no settings configured" {
 	# shellcheck source=../../lib/composefile.bash
 	source "$SCT_LIBDIR/composefile.bash"
