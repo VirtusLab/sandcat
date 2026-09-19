@@ -16,6 +16,7 @@ on:
 
 jobs:
   build:
+    if: ${{ github.repository == 'VirtusLab/sandcat' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
