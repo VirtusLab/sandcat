@@ -28,9 +28,11 @@ what a lower layer set. Run `sandcat restart` after editing.
 ## Container-to-container DNS
 
 The agent can resolve sibling containers on the same Docker compose network by
-name (e.g. a `db:` service in `compose.yml` is reachable as `db`). Queries
-under the compose project's network (the `search` domain Docker assigns to
-the container) go to Docker's embedded resolver at `127.0.0.11`. No
+name (e.g. a `db:` service in `compose.yml` is reachable as `db`).
+Unqualified single-label queries go to Docker's embedded resolver at
+`127.0.0.11` (dnsmasq's empty-domain rule); every dotted name — including
+hosts under the container's search domains, which in corporate setups are
+intranet zones — goes to the configured upstream through the tunnel. No
 configuration is required.
 
 The agent shares wg-client's network namespace via `network_mode` but Docker
@@ -40,12 +42,12 @@ volume mounted read-only at `/run/sandcat` in the agent, and `app-init.sh`
 copies it into `/etc/resolv.conf` on startup so the agent's lookups also go
 through the local dnsmasq.
 
-To prevent the search-domain carve-out from becoming a DNS exfiltration
-channel — where an attacker-crafted name like `<payload>.<project>_default`
-would otherwise be forwarded by Docker's embedded resolver to the host's
-upstream DNS, bypassing mitmproxy — wg-client is launched with a `dns:` sink
-(RFC 5737 `192.0.2.1`). Sibling names still resolve locally; anything else
-under the search domain fails fast without leaving the host.
+To prevent the unqualified-name carve-out from becoming a DNS exfiltration
+channel, wg-client is launched with a `dns:` sink (RFC 5737 `192.0.2.1`):
+Docker's embedded resolver answers sibling-container names locally and
+forwards anything it does not know to the sink, which is unroutable — so
+unknown single-label lookups fail fast without ever leaving the host, and
+every dotted name is subject to mitmproxy's DNS policy on its way upstream.
 
 ## Resolving internal hostnames — `extra_hosts`
 
