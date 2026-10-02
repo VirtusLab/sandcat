@@ -13,6 +13,7 @@ straightforward allow/deny list-based engine controls which network requests go
 through, and a secret substitution system injects credentials at the proxy level
 so the container never sees real values.
 
+> [!NOTE]
 > Sandcat is part of [Visdom](https://virtuslab.com/services/visdom),
 > VirtusLab's AI-native SDLC platform.
 
