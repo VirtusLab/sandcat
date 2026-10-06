@@ -17,6 +17,8 @@ source "$SCT_LIBDIR/stacks.bash"
 source "$SCT_LIBDIR/agents.bash"
 # shellcheck source=../../lib/gitignore.bash
 source "$SCT_LIBDIR/gitignore.bash"
+# shellcheck source=../../lib/fileperms.bash
+source "$SCT_LIBDIR/fileperms.bash"
 
 # Returns the user settings template path for a selected agent.
 # Args:
@@ -31,7 +33,9 @@ user_settings_template_path() {
 	echo "$template"
 }
 
-# Creates ~/.config/sandcat/settings.json if it doesn't already exist.
+# Creates ~/.config/sandcat/settings.json if it doesn't already exist, and
+# restricts it to the owner either way — users paste API keys into it, and
+# under the default umask it would otherwise be world-readable.
 # Derives git identity from the host's git config.
 # Args:
 #   $1 - Agent name (optional, defaults to claude)
@@ -42,11 +46,14 @@ create_user_settings() {
 	local user_settings="$user_settings_dir/settings.json"
 
 	if [[ -f "$user_settings" ]]; then
+		restrict_to_owner "$user_settings"
 		return
 	fi
 
-	mkdir -p "$user_settings_dir"
-	cp "$(user_settings_template_path "$agent")" "$user_settings"
+	# -m applies to the last component only, and only when mkdir creates it,
+	# so an existing ~/.config/sandcat keeps the mode the user chose for it.
+	mkdir -p -m 700 "$user_settings_dir"
+	install -m 600 "$(user_settings_template_path "$agent")" "$user_settings"
 
 	# Derive git identity from host config
 	local git_name git_email

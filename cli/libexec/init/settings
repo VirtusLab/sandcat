@@ -7,6 +7,8 @@ source "$SCT_LIBDIR/logging.bash"
 source "$SCT_LIBDIR/require.bash"
 # shellcheck source=../../lib/constants.bash
 source "$SCT_LIBDIR/constants.bash"
+# shellcheck source=../../lib/fileperms.bash
+source "$SCT_LIBDIR/fileperms.bash"
 
 # Creates a network settings file for the proxy.
 # Args:
@@ -69,10 +71,14 @@ settings() {
 	# local to the machine. Existence check preserves real credentials the
 	# user may have added; unlike the template settings.json above, this one
 	# is never overwritten on re-init.
+	# Owner-only from the start: this is where per-machine credentials go, and
+	# the default umask would leave it readable by every user on the host.
 	local local_settings="${settings_file%.json}.local.json"
 	if [[ ! -f "$local_settings" ]]; then
-		echo '{}' > "$local_settings"
+		(umask 077 && echo '{}' >"$local_settings")
 		echo "Local settings scaffold created at $local_settings" | info
+	else
+		restrict_to_owner "$local_settings"
 	fi
 }
 
