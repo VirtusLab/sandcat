@@ -47,6 +47,7 @@ sandcat):
 | `nix` | cache/channels/releases.nixos.org, search.devbox.sh (runtime devbox installs) |
 | `vscode` | update/marketplace.visualstudio.com, *.vsassets.io, main.vscode-cdn.net |
 | `jetbrains` | plugins.jetbrains.com, downloads.marketplace.jetbrains.com |
+| `docker-registry` | registry-1.docker.io, auth/index.docker.io, production.cloudflare.docker.com, ghcr.io |
 | `github` | github.com, *.github.com, *.githubusercontent.com |
 | `anthropic` | *.anthropic.com, *.claude.ai, *.claude.com |
 | `openai` | api.openai.com, *.openai.com |

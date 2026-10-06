@@ -164,6 +164,16 @@ NETWORK_PRESETS: dict[str, list[str]] = {
         "plugins.jetbrains.com",
         "downloads.marketplace.jetbrains.com",
     ],
+    # OCI registries — used by the docker feature (#70): BuildKit resolves
+    # manifests with HEAD requests, which the default allow-*-GET wildcard
+    # does not cover; a host-only preset allows all methods on these hosts.
+    "docker-registry": [
+        "registry-1.docker.io",
+        "auth.docker.io",
+        "index.docker.io",
+        "production.cloudflare.docker.com",
+        "ghcr.io",
+    ],
     "github": [
         "github.com",
         "*.github.com",

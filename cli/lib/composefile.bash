@@ -590,3 +590,19 @@ apply_upstream_ca_bundles() {
 		'.services.mitmproxy.entrypoint = ["/bin/sh", "-c", strenv(new_entrypoint), "sh"]' \
 		"$compose_file"
 }
+
+# Enables Docker-in-the-sandbox (#70): adds sandcat/compose-docker.yml to the
+# compose include list. That single include wires everything — the dind
+# service, the agent's socket-volume mount, and the wg-client gateway flag.
+# Idempotent: re-running init keeps a single entry.
+# Args:
+#   $1 - Path to compose-all.yml
+enable_docker() {
+	require yq
+	local compose_file=$1
+	local present
+	present=$(yq '[.include[] | select(.path == "sandcat/compose-docker.yml" or . == "sandcat/compose-docker.yml")] | length' "$compose_file")
+	if [[ "$present" -eq 0 ]]; then
+		yq -i '.include += [{"path": "sandcat/compose-docker.yml"}]' "$compose_file"
+	fi
+}

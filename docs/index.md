@@ -66,6 +66,7 @@ VirtusLab's AI-native SDLC platform.
    configuration/volume-mounts
    configuration/caches
    configuration/gitignore
+   configuration/docker
 
 .. toctree::
    :maxdepth: 2

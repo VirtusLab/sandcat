@@ -457,3 +457,35 @@ EOF
 	after=$(cat "$BATS_TEST_TMPDIR/sandcat/compose-proxy.yml")
 	[ "$before" = "$after" ]
 }
+
+# --------------------------------------------------- compose-docker template
+
+@test "compose-docker.yml wires dind, agent socket, and the gateway flag" {
+	local t="$SCT_TEMPLATEDIR/devcontainer/sandcat/compose-docker.yml"
+	yq -e '.services.dind.privileged == true' "$t"
+	yq -e '.services.dind.depends_on["wg-client"].condition == "service_healthy"' "$t"
+	yq -e '.services.dind.volumes[] | select(. == "docker-sock:/docker-sock")' "$t"
+	yq -e '.services.dind.volumes[] | select(. == "mitmproxy-public:/mitmproxy-config:ro")' "$t"
+	yq -e '.services.agent.volumes[] | select(. == "docker-sock:/docker-sock")' "$t"
+	yq -e '.services["wg-client"].environment[] | select(. == "SANDCAT_DIND_GATEWAY=true")' "$t"
+	# The host daemon socket must never appear anywhere in the template.
+	run grep -F "/var/run/docker.sock:" "$t"
+	[ "$status" -ne 0 ]
+}
+
+@test "dind-init publishes the docker CLI and its plugins for the agent" {
+	local s="$SCT_TEMPLATEDIR/devcontainer/sandcat/scripts/dind-init.sh"
+	run grep -F "cp /usr/local/bin/docker /docker-sock/bin/docker" "$s"
+	assert_success
+	run grep -F "cp /usr/local/libexec/docker/cli-plugins/* /docker-sock/cli-plugins/" "$s"
+	assert_success
+	run grep -F "TESTCONTAINERS_HOST_OVERRIDE" \
+		"$SCT_TEMPLATEDIR/devcontainer/sandcat/scripts/docker-env.sh"
+	assert_success
+}
+
+@test "Dockerfile.app installs the guarded docker-env profile script" {
+	run grep -F "COPY --chmod=644 sandcat/scripts/docker-env.sh /etc/profile.d/sandcat-docker.sh" \
+		"$SCT_TEMPLATEDIR/devcontainer/Dockerfile.app"
+	assert_success
+}

@@ -130,6 +130,23 @@ write_resolv_conf() {
     } > "$resolv_conf"
 }
 
+# Gateway mode for the dind service (sandcat init --features docker, #70).
+# Containers that set their default route to this container get NATed into
+# wg0 — i.e. INTO the mitmproxy policy path, never around it. Forwarding to
+# any other interface is dropped, so the gateway cannot be used to reach
+# the docker network or the host directly. ip_forward needs no sysctl:
+# Docker enables it in bridge-network namespaces.
+#
+# Args:
+#   $1 - compose network CIDR allowed to route through us
+setup_dind_gateway() {
+    local src_network="$1"
+    iptables -t nat -A POSTROUTING -s "$src_network" -o wg0 -j MASQUERADE
+    iptables -A FORWARD -s "$src_network" -o wg0 -j ACCEPT
+    iptables -A FORWARD -i wg0 -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+    iptables -A FORWARD -j DROP
+}
+
 main() {
     # Production behavior is errexit; kept inside main() so sourcing the file
     # (e.g. from bats tests) doesn't enable errexit in the caller's shell.
@@ -247,6 +264,10 @@ main() {
         ip6tables -A OUTPUT -o eth0 -d "$docker_network_v6" -j ACCEPT
     fi
     ip6tables -A OUTPUT -o eth0 -j DROP
+
+    if [[ "${SANDCAT_DIND_GATEWAY:-false}" == "true" ]]; then
+        setup_dind_gateway "$docker_network"
+    fi
 
     # ── Local DNS forwarder ────────────────────────────────────────────────────
     # Run dnsmasq on 127.0.0.1 so:

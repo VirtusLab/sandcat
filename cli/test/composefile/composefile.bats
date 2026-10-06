@@ -611,3 +611,26 @@ YAML
 
 	yq -e '.services.mitmproxy.image == "mitmproxy/mitmproxy:latest"' "$proxy_compose"
 }
+
+# --------------------------------------------------- docker in the sandbox
+
+@test "enable_docker adds the compose-docker include" {
+	local f="$BATS_TEST_TMPDIR/compose-all.yml"
+	printf 'include:\n  - path: sandcat/compose-proxy.yml\n  - path: sandcat/compose-agent.yml\nservices:\n  agent: {}\n' > "$f"
+
+	enable_docker "$f"
+
+	run yq '[.include[] | select(.path == "sandcat/compose-docker.yml")] | length' "$f"
+	assert_output "1"
+}
+
+@test "enable_docker is idempotent" {
+	local f="$BATS_TEST_TMPDIR/compose-all.yml"
+	printf 'include:\n  - path: sandcat/compose-proxy.yml\nservices:\n  agent: {}\n' > "$f"
+
+	enable_docker "$f"
+	enable_docker "$f"
+
+	run yq '[.include[] | select(.path == "sandcat/compose-docker.yml")] | length' "$f"
+	assert_output "1"
+}
