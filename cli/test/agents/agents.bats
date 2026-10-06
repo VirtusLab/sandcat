@@ -338,7 +338,6 @@ setup() {
 }
 
 @test "sct_agent_docker_install_block: codex installs codex to /usr/local/bin" {
-	unset SANDCAT_RTK
 	run sct_agent_docker_install_block codex
 	assert_output --partial "chatgpt.com/codex/install.sh"
 	assert_output --partial "CODEX_INSTALL_DIR=/usr/local/bin"
@@ -351,45 +350,7 @@ setup() {
 	refute_output --partial "ENV CODEX_INSTALL_DIR"
 }
 
-@test "sct_agent_docker_install_block: codex append rtk install when enabled" {
-	source "$SCT_LIBDIR/rtk.bash"
-	unset SANDCAT_RTK
-	run sct_agent_docker_install_block codex
-	assert_output --partial "chatgpt.com/codex/install.sh"
-	assert_output --partial "raw.githubusercontent.com/rtk-ai/rtk"
-}
-
-@test "sct_agent_docker_install_block: codex skips rtk when SANDCAT_RTK=false" {
-	source "$SCT_LIBDIR/rtk.bash"
-	SANDCAT_RTK=false run sct_agent_docker_install_block codex
-	assert_output --partial "chatgpt.com/codex/install.sh"
-	refute_output --partial "raw.githubusercontent.com/rtk-ai/rtk"
-}
-
 @test "sct_agent_docker_install_block: unknown returns empty" {
-	run sct_agent_docker_install_block unknown
-	assert_output ""
-}
-
-@test "sct_agent_docker_install_block: claude append rtk install when enabled" {
-	# shellcheck source=../../lib/rtk.bash
-	source "$SCT_LIBDIR/rtk.bash"
-	unset SANDCAT_RTK
-	run sct_agent_docker_install_block claude
-	assert_output --partial "claude.ai/install.sh"
-	assert_output --partial "raw.githubusercontent.com/rtk-ai/rtk"
-}
-
-@test "sct_agent_docker_install_block: claude skips rtk when SANDCAT_RTK=false" {
-	source "$SCT_LIBDIR/rtk.bash"
-	SANDCAT_RTK=false run sct_agent_docker_install_block claude
-	assert_output --partial "claude.ai/install.sh"
-	refute_output --partial "raw.githubusercontent.com/rtk-ai/rtk"
-}
-
-@test "sct_agent_docker_install_block: unknown returns empty even with rtk enabled" {
-	source "$SCT_LIBDIR/rtk.bash"
-	unset SANDCAT_RTK
 	run sct_agent_docker_install_block unknown
 	assert_output ""
 }
@@ -406,10 +367,9 @@ setup() {
 	assert_output --partial "/home/vscode/.cursor"
 }
 
-@test "sct_agent_docker_home_prep_block: codex pre-creates ~/.codex, ~/.codex-host and codex-yolo alias" {
+@test "sct_agent_docker_home_prep_block: codex pre-creates ~/.codex and codex-yolo alias" {
 	run sct_agent_docker_home_prep_block codex
 	assert_output --partial "/home/vscode/.codex"
-	assert_output --partial "/home/vscode/.codex-host"
 	assert_output --partial 'alias codex-yolo="codex --yolo"'
 }
 
@@ -431,58 +391,14 @@ setup() {
 	assert_output --partial "Sandcat cursor.cli"
 }
 
+@test "sct_agent_user_init_block: codex runs health check" {
+	run sct_agent_user_init_block codex
+	assert_output --partial "codex --version"
+}
+
 @test "sct_agent_user_init_block: unknown returns empty" {
 	run sct_agent_user_init_block unknown
 	assert_output ""
-}
-
-@test "sct_agent_user_init_block: claude appends rtk init when enabled" {
-	source "$SCT_LIBDIR/rtk.bash"
-	unset SANDCAT_RTK
-	run sct_agent_user_init_block claude
-	assert_output --partial "hasCompletedOnboarding"
-	assert_output --partial "rtk init -g"
-}
-
-@test "sct_agent_user_init_block: claude skips rtk when SANDCAT_RTK=false" {
-	source "$SCT_LIBDIR/rtk.bash"
-	SANDCAT_RTK=false run sct_agent_user_init_block claude
-	assert_output --partial "hasCompletedOnboarding"
-	refute_output --partial "rtk init"
-}
-
-@test "sct_agent_user_init_block: cursor appends rtk init when enabled" {
-	source "$SCT_LIBDIR/rtk.bash"
-	unset SANDCAT_RTK
-	run sct_agent_user_init_block cursor
-	assert_output --partial "cursor-cli-config.json"
-	assert_output --partial "rtk init -g --hook-only --auto-patch --agent cursor"
-}
-
-@test "sct_agent_user_init_block: cursor skips rtk when SANDCAT_RTK=false" {
-	source "$SCT_LIBDIR/rtk.bash"
-	SANDCAT_RTK=false run sct_agent_user_init_block cursor
-	assert_output --partial "cursor-cli-config.json"
-	refute_output --partial "rtk init"
-}
-
-@test "sct_agent_user_init_block: codex emits rtk init --codex + host AGENTS.md seed" {
-	source "$SCT_LIBDIR/rtk.bash"
-	unset SANDCAT_RTK
-	run sct_agent_user_init_block codex
-	assert_output --partial "codex --version"
-	assert_output --partial "rtk init -g --codex </dev/null"
-	assert_output --partial ".codex-host/AGENTS.md"
-	assert_output --partial "@RTK.md"
-	assert_output --partial "non-fatal"
-}
-
-@test "sct_agent_user_init_block: codex has SANDCAT_RTK runtime guard" {
-	source "$SCT_LIBDIR/rtk.bash"
-	unset SANDCAT_RTK
-	run sct_agent_user_init_block codex
-	assert_output --partial 'SANDCAT_RTK:-true'
-	assert_output --partial '!= "false"'
 }
 
 # --------------------------------------------------- mitm streaming flags

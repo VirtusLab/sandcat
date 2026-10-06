@@ -17,7 +17,6 @@ flags today.
 | JetBrains | `SANDCAT_MOUNT_IDEA_READONLY` | `false` (active when `--ide jetbrains`) |
 | Any       | `SANDCAT_MOUNT_SHARED_CACHE`  | `true` — see [Shared dependency caches](caches.md) |
 | Any       | `SANDCAT_GITIGNORE`           | `true` (see [Gitignore defaults](gitignore.md)) |
-| Any       | `SANDCAT_RTK`                 | `true` (see [RTK — LLM token compression](../agents/rtk.md)) |
 
 When an agent mount flag is `false`, Sandcat lists every path as a foot comment
 on the first volume entry — copy the lines you want into the active `volumes:`

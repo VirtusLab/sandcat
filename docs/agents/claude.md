@@ -1,9 +1,9 @@
 # Claude Code
 
 Claude Code is sandcat's default agent (`--agent claude`, or simply omit the
-flag). The sections below cover authentication, the host paths sandcat mounts
-for it, and its RTK hook; everything generic — network policy, secret
-mechanics, stacks — works the same for every agent.
+flag). The sections below cover authentication and the host paths sandcat
+mounts for it; everything generic — network policy, secret mechanics,
+stacks — works the same for every agent.
 
 ## Authentication
 
@@ -78,17 +78,6 @@ Use one of these instead:
 Project-local configuration (`.claude/` in the repo) and the isolation
 semantics of these mounts are described in
 [Customizing optional volume mounts](../configuration/volume-mounts.md).
-
-## RTK hook
-
-Works out of the box, zero configuration. `sandcat init` generates an
-`app-user-init.sh` block that runs `rtk init -g --hook-only --auto-patch`
-on the first container start; the hook lands in the sandbox's
-`~/.claude/settings.json` (inside the `agent-home` volume, not
-bind-mounted). Subsequent starts are idempotent no-ops.
-
-See [RTK — LLM token compression](rtk.md) for what RTK does and how to opt
-out.
 
 ## Convenience alias
 
