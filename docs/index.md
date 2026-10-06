@@ -38,7 +38,6 @@ VirtusLab's AI-native SDLC platform.
    agents/cursor
    agents/codex
    agents/copilot
-   agents/rtk
 
 .. toctree::
    :maxdepth: 2

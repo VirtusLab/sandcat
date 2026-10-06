@@ -274,7 +274,7 @@ add_codex_config_volumes() {
 	local active=${2:-true}
 
 	# shellcheck disable=SC2016
-	add_volume_entry "$compose_file" '${HOME}/.codex/AGENTS.md:/home/vscode/.codex-host/AGENTS.md:ro' "$active" 'Host Codex config (optional) — copied into writable ~/.codex/AGENTS.md by app-user-init.sh so rtk can patch it'
+	add_volume_entry "$compose_file" '${HOME}/.codex/AGENTS.md:/home/vscode/.codex/AGENTS.md:ro' "$active" 'Host Codex config (optional)'
 	# shellcheck disable=SC2016
 	add_volume_entry "$compose_file" '${HOME}/.codex/skills:/home/vscode/.codex/skills:ro' "$active"
 	# shellcheck disable=SC2016

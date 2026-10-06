@@ -143,7 +143,7 @@ EOF
 
 	HOME="$BATS_TEST_TMPDIR/home" run "$SCT_ROOT/bin/sandcat" init \
 		--agent claude --ide none --name testproj --path "$proj" \
-		--stacks "" --secret-provider none --features "no-rtk,no-gitignore" --proxy web
+		--stacks "" --secret-provider none --features "no-gitignore" --proxy web
 	assert_success
 
 	yq -e ".services.mitmproxy.volumes[] | select(. == \"${ca}:/upstream-ca/000-company.crt:ro\")" \
@@ -161,7 +161,7 @@ EOF
 
 	HOME="$BATS_TEST_TMPDIR/home" run "$SCT_ROOT/bin/sandcat" init \
 		--agent claude --ide none --name testproj --path "$proj" \
-		--stacks "" --secret-provider none --features "no-rtk,no-gitignore" --proxy web
+		--stacks "" --secret-provider none --features "no-gitignore" --proxy web
 	assert_failure
 	assert_output --partial "file not found"
 }
