@@ -230,9 +230,9 @@ apply_inline_placeholders() {
 }
 
 # Adds stack-contributed environment variables (e.g. uv's TLS config for the
-# python stack) to services.agent.environment in compose-all.yml.
+# python stack) to services.agent.environment in compose-agent.override.yml.
 # Args:
-#   $1 - Path to compose-all.yml
+#   $1 - Path to compose-agent.override.yml
 #   $@ - Stack names (remaining args)
 customize_compose_stack_environment() {
 	local compose_file=$1
@@ -248,13 +248,13 @@ customize_compose_stack_environment() {
 }
 
 # Merges KEY=value environment entries into services.agent.environment in
-# compose-all.yml. Appends to any entries already present (rather than
-# overwriting) so agent- and stack-contributed variables coexist regardless
-# of call order. Building the array structurally avoids fragile
-# line-counting in compose-all.yml. No-op when passed no entries — compose
+# compose-agent.override.yml. Appends to any entries already present (rather
+# than overwriting) so agent- and stack-contributed variables coexist
+# regardless of call order. Building the array structurally avoids fragile
+# line-counting in the compose file. No-op when passed no entries — compose
 # rejects `environment: {}`.
 # Args:
-#   $1 - Path to compose-all.yml
+#   $1 - Path to compose-agent.override.yml
 #   $2 - Newline-separated "KEY=value" entries (empty lines ignored)
 merge_compose_agent_environment() {
 	local compose_file=$1
@@ -323,7 +323,7 @@ customize_agent_templates() {
 		"__AGENT_EXTENSION__" "$extension_replacement" \
 		"__AGENT_SETTINGS__"  "$settings_block"
 
-	merge_compose_agent_environment "$devcontainer_dir/compose-all.yml" "$environment_entries"
+	merge_compose_agent_environment "$devcontainer_dir/compose-agent.override.yml" "$environment_entries"
 
 	apply_template_placeholders \
 		"$devcontainer_dir/Dockerfile.app" \

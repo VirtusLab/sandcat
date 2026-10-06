@@ -8,7 +8,8 @@ source "$SCT_LIBDIR/select.bash"
 # shellcheck source=../../lib/logging.bash
 source "$SCT_LIBDIR/logging.bash"
 
-# Opens the compose file in an editor. Warns if containers need restarting.
+# Opens the user-editable compose file in an editor. Warns if containers need
+# restarting.
 edit() {
 	local no_restart="${SANDCAT_NO_RESTART:-false}"
 
@@ -28,6 +29,11 @@ edit() {
 
 	local compose_file
 	compose_file="$(find_compose_file)"
+	# Projects generated before the override file existed keep their
+	# customizations in compose-all.yml.
+	local override_file
+	override_file="$(dirname "$compose_file")/compose-agent.override.yml"
+	[[ -f "$override_file" ]] && compose_file=$override_file
 
 	local mtime_before
 	mtime_before=$(get_file_mtime "$compose_file")

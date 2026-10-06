@@ -29,7 +29,7 @@ interactive approval. See [Secure & Dangerous Claude Code + VS Code
 Setup](https://warski.org/blog/secure-dangerous-claude-code-vs-code-setup/) for
 background on this approach.
 
-**Host customizations.** The example `compose-all.yml` bind-mounts
+**Host customizations.** The generated `compose-agent.override.yml` bind-mounts
 `~/.claude/CLAUDE.md`, `~/.claude/agents`, and `~/.claude/commands` from the
 host (read-only) so your personal instructions, custom agents, and slash
 commands are available inside the container. Remove any mount whose source does

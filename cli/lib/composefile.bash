@@ -27,28 +27,21 @@ source "$SCT_LIBDIR/agents.bash"
 #     dependency-cache volumes (Maven, Coursier, Gradle, Ivy, sbt).
 #     Set to "false" to keep caches per-project inside agent-home.
 # Args:
-#   $1 - Path to the settings file to mount, relative to the Docker Compose file directory
-#   $2 - Path to the Docker Compose file to modify
-#   $3 - The agent name (e.g., "claude")
-#   $4 - The IDE name (e.g., "vscode", "jetbrains", "none") (optional)
-#   $5 - The project name (used to construct workspace paths) (required)
-#   $6 - Space-separated resolved stack names (used to pick shared caches;
+#   $1 - Path to the agent override compose file (compose-agent.override.yml)
+#   $2 - The agent name (e.g., "claude")
+#   $3 - The IDE name (e.g., "vscode", "jetbrains", "none") (optional)
+#   $4 - The project name (used to construct workspace paths) (required)
+#   $5 - Space-separated resolved stack names (used to pick shared caches;
 #        empty is fine — no caches added)
 #
 customize_compose_file() {
-	local settings_file=$1
-	local compose_file=$2
-	local agent=$3
-	local ide=${4:-none}
-	local project_name=$5
-	local stacks=${6:-}
+	local compose_file=$1
+	local agent=$2
+	local ide=${3:-none}
+	local project_name=$4
+	local stacks=${5:-}
 
 	require yq
-
-	local compose_dir
-	compose_dir=$(dirname "$compose_file")
-
-	verify_relative_path "$compose_dir" "$settings_file"
 
 	if [[ $ide == "jetbrains" ]]
 	then
@@ -56,8 +49,6 @@ customize_compose_file() {
 	fi
 
 	set_workspace "$compose_file" "$project_name"
-
-	add_settings_volume "$compose_file" "$settings_file"
 
 	case "$agent" in
 		claude)
@@ -161,12 +152,14 @@ set_project_name() {
 
 # Adds settings volume mount to the proxy service.
 # Args:
-#   $1 - Path to the Docker Compose file
+#   $1 - Path to the Docker Compose file (compose-proxy.yml)
 #   $2 - Path to the settings file (relative to compose file)
 add_settings_volume() {
 	require yq
 	local compose_file=$1
 	local settings_file=$2
+
+	verify_relative_path "$(dirname "$compose_file")" "$settings_file"
 
 	local settings_dir
 	settings_dir=$(dirname "$settings_file")

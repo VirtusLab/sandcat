@@ -116,7 +116,7 @@ Generated projects reference the pinned version from the CLI-side constant, so p
 #### `sandcat init devcontainer`
 
 Sets up a devcontainer configuration for an agent. Copies devcontainer template files and customizes the
-compose-all.yml.
+compose files.
 
 Options:
 - `--settings-file` - Path to the settings file (relative to project directory)
@@ -249,7 +249,7 @@ These override defaults during compose file generation. Optional volumes default
 except provider config mounts, which default to `true` for the selected agent.
 
 Per-folder mounts are **not** separate init flags — tune individual paths by
-editing `.devcontainer/compose-all.yml` after init. See the main
+editing `.devcontainer/compose-agent.override.yml` after init. See the main
 [Customizing optional volume mounts](../configuration/volume-mounts.md).
 
 - `SANDCAT_MOUNT_CLAUDE_CONFIG` - `true` to mount host `~/.claude` config (Claude agent only)

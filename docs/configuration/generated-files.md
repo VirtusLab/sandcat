@@ -7,10 +7,14 @@ the WireGuard tunnel. The `mitmproxy-public` volume, mounted read-only at
 placeholders — the private `mitmproxy-config` volume, which also holds the CA
 private key and the WireGuard keys, is never mounted into the agent.
 
-**`compose-all.yml`** — holds the user-customizable entries merged over that
-constant base. The agent-specific config bind-mounts (for example
-`~/.claude/*` or `~/.cursor/*`) forward host customizations — remove any
-mount whose source does not exist on your host.
+**`compose-agent.override.yml`** — holds the user-customizable entries merged
+over that constant base. Relative paths resolve from `.devcontainer/`. The
+agent-specific config bind-mounts (for example `~/.claude/*` or
+`~/.cursor/*`) forward host customizations — remove any mount whose source
+does not exist on your host.
+
+**`compose-all.yml`** — the entry point passed to Docker Compose. It only
+includes the files above and `sandcat/compose-proxy.yml`.
 
 **`Dockerfile.app`** — installs everything the sandbox needs via
 [devbox](https://www.jetify.com/devbox), a wrapper over Nix. Stack

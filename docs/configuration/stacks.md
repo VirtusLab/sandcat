@@ -59,6 +59,6 @@ To pin the exact package versions across environments, commit
 automatically.
 
 Optional volume mounts (agent config, `.git`, `.idea`) are written into the
-generated `.devcontainer/compose-all.yml`. See [Customizing optional volume
+generated `.devcontainer/compose-agent.override.yml`. See [Customizing optional volume
 mounts](volume-mounts.md) below. For scripted `sandcat init`,
 set `SANDCAT_*` environment variables (see the [CLI reference](../reference/cli.md)).

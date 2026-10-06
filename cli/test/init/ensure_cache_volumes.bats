@@ -3,7 +3,7 @@
 setup() {
 	load test_helper
 	SCRIPT="$SCT_TEMPLATEDIR/devcontainer/sandcat/scripts/ensure-cache-volumes.sh"
-	COMPOSE_FILE="$BATS_TEST_TMPDIR/compose-all.yml"
+	COMPOSE_FILE="$BATS_TEST_TMPDIR/compose-agent.override.yml"
 	cat > "$COMPOSE_FILE" <<'YAML'
 services:
   agent:
@@ -50,10 +50,10 @@ teardown() {
 	assert_success
 }
 
-@test "defaults to compose-all.yml two levels above the script" {
+@test "defaults to compose-agent.override.yml two levels above the script" {
 	mkdir -p "$BATS_TEST_TMPDIR/.devcontainer/sandcat/scripts"
 	cp "$SCRIPT" "$BATS_TEST_TMPDIR/.devcontainer/sandcat/scripts/"
-	cp "$COMPOSE_FILE" "$BATS_TEST_TMPDIR/.devcontainer/compose-all.yml"
+	cp "$COMPOSE_FILE" "$BATS_TEST_TMPDIR/.devcontainer/compose-agent.override.yml"
 	stub docker \
 		"volume create --label sandcat-shared-cache=true sandcat-cache-maven : :" \
 		"volume create --label sandcat-shared-cache=true sandcat-cache-gradle : :"

@@ -10,7 +10,7 @@ You can use the CLI helper commands:
 sandcat edit project-settings   # project network rules (.sandcat/settings.json)
 sandcat edit user-settings      # API keys, git identity (~/.config/sandcat/settings.json)
 sandcat edit dockerfile         # container Dockerfile (.devcontainer/Dockerfile.app)
-sandcat edit compose            # Docker Compose file (.devcontainer/compose-all.yml)
+sandcat edit compose            # agent compose overrides (.devcontainer/compose-agent.override.yml)
 ```
 
 After editing a settings file, restart the proxy to apply changes:

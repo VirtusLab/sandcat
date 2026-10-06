@@ -12,7 +12,7 @@ setup() {
 	cp "$SCT_TEMPLATEDIR/devcontainer/devcontainer.json" "$DEVCONTAINER_JSON"
 	mkdir -p "$BATS_TEST_TMPDIR/sandcat/scripts"
 	cp "$SCT_TEMPLATEDIR/devcontainer/sandcat/compose-proxy.yml" "$BATS_TEST_TMPDIR/sandcat/compose-proxy.yml"
-	touch "$BATS_TEST_TMPDIR/compose-all.yml"
+	touch "$BATS_TEST_TMPDIR/compose-agent.override.yml"
 	touch "$BATS_TEST_TMPDIR/Dockerfile.app"
 	touch "$BATS_TEST_TMPDIR/sandcat/scripts/app-user-init.sh"
 }
@@ -43,9 +43,8 @@ teardown() {
 
 @test "customize_devcontainer_extensions preserves existing extensions" {
 	{
-		echo 'include: []'
 		echo 'services: {agent: {environment: []}}'
-	} > "$BATS_TEST_TMPDIR/compose-all.yml"
+	} > "$BATS_TEST_TMPDIR/compose-agent.override.yml"
 	echo "__AGENT_DOCKER_INSTALL__" > "$BATS_TEST_TMPDIR/Dockerfile.app"
 	echo "__AGENT_USER_INIT__" > "$BATS_TEST_TMPDIR/sandcat/scripts/app-user-init.sh"
 	customize_agent_templates "$BATS_TEST_TMPDIR" "claude"
@@ -78,9 +77,8 @@ teardown() {
 
 @test "customize_devcontainer_extensions is a no-op for empty stacks" {
 	{
-		echo 'include: []'
 		echo 'services: {agent: {environment: []}}'
-	} > "$BATS_TEST_TMPDIR/compose-all.yml"
+	} > "$BATS_TEST_TMPDIR/compose-agent.override.yml"
 	echo "__AGENT_DOCKER_INSTALL__" > "$BATS_TEST_TMPDIR/Dockerfile.app"
 	echo "__AGENT_USER_INIT__" > "$BATS_TEST_TMPDIR/sandcat/scripts/app-user-init.sh"
 	customize_agent_templates "$BATS_TEST_TMPDIR" "claude"
@@ -96,9 +94,8 @@ teardown() {
 
 @test "customize_agent_templates sets cursor extension baseline" {
 	{
-		echo 'include: []'
 		echo 'services: {agent: {environment: []}}'
-	} > "$BATS_TEST_TMPDIR/compose-all.yml"
+	} > "$BATS_TEST_TMPDIR/compose-agent.override.yml"
 	echo "__AGENT_DOCKER_INSTALL__" > "$BATS_TEST_TMPDIR/Dockerfile.app"
 	echo "__AGENT_USER_INIT__" > "$BATS_TEST_TMPDIR/sandcat/scripts/app-user-init.sh"
 
@@ -110,9 +107,8 @@ teardown() {
 
 @test "customize_agent_templates sets claude mitmproxy defaults" {
 	{
-		echo 'include: []'
 		echo 'services: {agent: {environment: []}}'
-	} > "$BATS_TEST_TMPDIR/compose-all.yml"
+	} > "$BATS_TEST_TMPDIR/compose-agent.override.yml"
 	echo "__AGENT_DOCKER_INSTALL__" > "$BATS_TEST_TMPDIR/Dockerfile.app"
 	echo "__AGENT_USER_INIT__" > "$BATS_TEST_TMPDIR/sandcat/scripts/app-user-init.sh"
 
@@ -149,9 +145,8 @@ teardown() {
 
 @test "customize_agent_templates pins mitmproxy image version" {
 	{
-		echo 'include: []'
 		echo 'services: {agent: {environment: []}}'
-	} > "$BATS_TEST_TMPDIR/compose-all.yml"
+	} > "$BATS_TEST_TMPDIR/compose-agent.override.yml"
 	echo "__AGENT_DOCKER_INSTALL__" > "$BATS_TEST_TMPDIR/Dockerfile.app"
 	echo "__AGENT_USER_INIT__" > "$BATS_TEST_TMPDIR/sandcat/scripts/app-user-init.sh"
 
@@ -167,9 +162,8 @@ teardown() {
 
 @test "customize_agent_templates adds cursor bootstrap settings" {
 	{
-		echo 'include: []'
 		echo 'services: {agent: {environment: []}}'
-	} > "$BATS_TEST_TMPDIR/compose-all.yml"
+	} > "$BATS_TEST_TMPDIR/compose-agent.override.yml"
 	echo "__AGENT_DOCKER_INSTALL__" > "$BATS_TEST_TMPDIR/Dockerfile.app"
 	echo "__AGENT_USER_INIT__" > "$BATS_TEST_TMPDIR/sandcat/scripts/app-user-init.sh"
 
@@ -202,9 +196,8 @@ teardown() {
 
 @test "customize_agent_templates sets codex mitmproxy defaults" {
 	{
-		echo 'include: []'
 		echo 'services: {agent: {environment: []}}'
-	} > "$BATS_TEST_TMPDIR/compose-all.yml"
+	} > "$BATS_TEST_TMPDIR/compose-agent.override.yml"
 	echo "__AGENT_DOCKER_INSTALL__" > "$BATS_TEST_TMPDIR/Dockerfile.app"
 	echo "__AGENT_USER_INIT__" > "$BATS_TEST_TMPDIR/sandcat/scripts/app-user-init.sh"
 
@@ -241,9 +234,8 @@ teardown() {
 
 @test "customize_agent_templates sets copilot mitmproxy defaults" {
 	{
-		echo 'include: []'
 		echo 'services: {agent: {environment: []}}'
-	} > "$BATS_TEST_TMPDIR/compose-all.yml"
+	} > "$BATS_TEST_TMPDIR/compose-agent.override.yml"
 	echo "__AGENT_DOCKER_INSTALL__" > "$BATS_TEST_TMPDIR/Dockerfile.app"
 	echo "__AGENT_USER_INIT__" > "$BATS_TEST_TMPDIR/sandcat/scripts/app-user-init.sh"
 
@@ -281,22 +273,22 @@ teardown() {
 # --------------------------------------------------- stack environment
 
 @test "customize_compose_stack_environment adds python's uv TLS env vars" {
-	echo 'services: {agent: {}}' > "$BATS_TEST_TMPDIR/compose-all.yml"
+	echo 'services: {agent: {}}' > "$BATS_TEST_TMPDIR/compose-agent.override.yml"
 
-	customize_compose_stack_environment "$BATS_TEST_TMPDIR/compose-all.yml" python
+	customize_compose_stack_environment "$BATS_TEST_TMPDIR/compose-agent.override.yml" python
 
 	yq -e '.services.agent.environment[] | select(. == "UV_SYSTEM_CERTS=1")' \
-		"$BATS_TEST_TMPDIR/compose-all.yml"
+		"$BATS_TEST_TMPDIR/compose-agent.override.yml"
 }
 
 @test "customize_compose_stack_environment is a no-op for stacks without env contributions" {
-	echo 'services: {agent: {}}' > "$BATS_TEST_TMPDIR/compose-all.yml"
+	echo 'services: {agent: {}}' > "$BATS_TEST_TMPDIR/compose-agent.override.yml"
 
-	customize_compose_stack_environment "$BATS_TEST_TMPDIR/compose-all.yml" node java
+	customize_compose_stack_environment "$BATS_TEST_TMPDIR/compose-agent.override.yml" node java
 
 	# compose rejects `environment: {}` — the key must be entirely absent,
 	# not present-but-empty.
-	run yq -e '.services.agent | has("environment")' "$BATS_TEST_TMPDIR/compose-all.yml"
+	run yq -e '.services.agent | has("environment")' "$BATS_TEST_TMPDIR/compose-agent.override.yml"
 	assert_failure
 }
 
@@ -305,31 +297,31 @@ teardown() {
 	# guards against a regression where either merge overwrites the other's
 	# entries instead of appending (the bug the append-based
 	# merge_compose_agent_environment helper exists to prevent).
-	echo 'services: {agent: {}}' > "$BATS_TEST_TMPDIR/compose-all.yml"
+	echo 'services: {agent: {}}' > "$BATS_TEST_TMPDIR/compose-agent.override.yml"
 	echo "__AGENT_DOCKER_INSTALL__" > "$BATS_TEST_TMPDIR/Dockerfile.app"
 	echo "__AGENT_USER_INIT__" > "$BATS_TEST_TMPDIR/sandcat/scripts/app-user-init.sh"
 
-	customize_compose_stack_environment "$BATS_TEST_TMPDIR/compose-all.yml" python
+	customize_compose_stack_environment "$BATS_TEST_TMPDIR/compose-agent.override.yml" python
 	customize_agent_templates "$BATS_TEST_TMPDIR" "claude"
 
 	yq -e '.services.agent.environment[] | select(. == "UV_SYSTEM_CERTS=1")' \
-		"$BATS_TEST_TMPDIR/compose-all.yml"
+		"$BATS_TEST_TMPDIR/compose-agent.override.yml"
 	yq -e '.services.agent.environment[] | select(. == "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1")' \
-		"$BATS_TEST_TMPDIR/compose-all.yml"
+		"$BATS_TEST_TMPDIR/compose-agent.override.yml"
 }
 
 @test "customize_agent_templates and customize_compose_stack_environment environment entries coexist in reverse call order" {
-	echo 'services: {agent: {}}' > "$BATS_TEST_TMPDIR/compose-all.yml"
+	echo 'services: {agent: {}}' > "$BATS_TEST_TMPDIR/compose-agent.override.yml"
 	echo "__AGENT_DOCKER_INSTALL__" > "$BATS_TEST_TMPDIR/Dockerfile.app"
 	echo "__AGENT_USER_INIT__" > "$BATS_TEST_TMPDIR/sandcat/scripts/app-user-init.sh"
 
 	customize_agent_templates "$BATS_TEST_TMPDIR" "claude"
-	customize_compose_stack_environment "$BATS_TEST_TMPDIR/compose-all.yml" python
+	customize_compose_stack_environment "$BATS_TEST_TMPDIR/compose-agent.override.yml" python
 
 	yq -e '.services.agent.environment[] | select(. == "UV_SYSTEM_CERTS=1")' \
-		"$BATS_TEST_TMPDIR/compose-all.yml"
+		"$BATS_TEST_TMPDIR/compose-agent.override.yml"
 	yq -e '.services.agent.environment[] | select(. == "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1")' \
-		"$BATS_TEST_TMPDIR/compose-all.yml"
+		"$BATS_TEST_TMPDIR/compose-agent.override.yml"
 }
 
 @test "compose-proxy.yml declares mitmproxy-public volume" {
@@ -351,7 +343,7 @@ teardown() {
 
 @test "compose-agent.yml mounts agent from mitmproxy-public (not mitmproxy-config)" {
 	# The agent's constant volumes live in sandcat/compose-agent.yml since the
-	# #22 split; compose-all.yml only carries user-editable overrides.
+	# #22 split; compose-agent.override.yml only carries user-editable overrides.
 	yq -e '.services.agent.volumes[] | select(. == "mitmproxy-public:/mitmproxy-config:ro")' \
 		"$SCT_TEMPLATEDIR/devcontainer/sandcat/compose-agent.yml"
 
