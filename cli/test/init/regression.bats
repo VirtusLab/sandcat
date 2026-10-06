@@ -11,6 +11,9 @@ setup() {
 	PROJECT_DIR="$BATS_TEST_TMPDIR/project"
 	mkdir -p "$PROJECT_DIR/$SCT_PROJECT_DIR"
 
+	export HOME="$BATS_TEST_TMPDIR/home"
+	mkdir -p "$HOME"
+
 	SETTINGS_FILE="$SCT_PROJECT_DIR/settings.json"
 	touch "$PROJECT_DIR/$SETTINGS_FILE"
 }
@@ -23,6 +26,19 @@ assert_proxy_service() {
 	local compose_file=$1
 
 	yq -e '.services.mitmproxy.image == "mitmproxy/mitmproxy:'"$SCT_MITMPROXY_VERSION"'"' "$compose_file"
+
+	# Project settings are mounted from the included sandcat/compose-proxy.yml,
+	# where the relative path resolves against that file's own directory. This
+	# asserts on the effective config so an off-by-one ".." shows up here.
+	PROJECT_DIR="$PROJECT_DIR" yq -e '
+		.services.mitmproxy.volumes[] |
+		select(
+			.type == "bind" and
+			.source == (env(PROJECT_DIR) + "/.sandcat") and
+			.target == "/config/project" and
+			.read_only == true
+		)
+	' "$compose_file"
 
 	# FIXME vscode startup fails with capabilities dropped
 	# yq -e '.services.mitmproxy.cap_drop[] | select(. == "ALL")' "$compose_file"
@@ -61,6 +77,7 @@ assert_cursor_environment_vars() {
 
 assert_common_volumes() {
 	local compose_file=$1
+	local filtered
 
 	# Bind: Project root
 	PROJECT_DIR="$PROJECT_DIR" yq -e '
@@ -68,16 +85,20 @@ assert_common_volumes() {
 		select(.type == "bind" and .source == env(PROJECT_DIR) and .target == "/workspaces/project-sandbox")
 	' "$compose_file"
 
-	# Bind: .sandcat (read-only)
-	PROJECT_DIR="$PROJECT_DIR" yq -e "
+	# Agent .sandcat is the filtered copy, never the live project dir.
+	filtered=$(grep '^SANDCAT_AGENT_SANDCAT=' "$PROJECT_DIR/.devcontainer/.env")
+	filtered="${filtered#SANDCAT_AGENT_SANDCAT=}"
+	[[ -n "$filtered" ]]
+	[[ "$filtered" != "$PROJECT_DIR/.sandcat" ]]
+	FILTERED="$filtered" yq -e '
 		.services.agent.volumes[] |
 		select(
-			.type == \"bind\" and
-			.source == (env(PROJECT_DIR) + \"/.sandcat\") and
-			.target == \"/workspaces/project-sandbox/.sandcat\" and
+			.type == "bind" and
+			.source == env(FILTERED) and
+			.target == "/workspaces/project-sandbox/.sandcat" and
 			.read_only == true
 		)
-	" "$compose_file"
+	' "$compose_file"
 
 	# Volume: agent-home
 	yq -e '
@@ -339,6 +360,23 @@ cursor_agent_compose_file_has_expected_content() {
 	assert_customization_volumes_core "$compose_file"
 }
 
+# `run devcontainer` drops exported vars. Compose interpolates from the
+# process environment and `.env` in --project-directory, not from a
+# sibling of -f. Load the file init wrote, then render the merged model.
+render_effective_compose() {
+	local out=$1
+
+	[[ -f "$PROJECT_DIR/.devcontainer/.env" ]]
+	set -a
+	# shellcheck disable=SC1091
+	source "$PROJECT_DIR/.devcontainer/.env"
+	set +a
+	[[ -n "${SANDCAT_AGENT_SANDCAT:-}" ]]
+
+	docker compose --project-directory "$PROJECT_DIR/.devcontainer" \
+		-f "$PROJECT_DIR/.devcontainer/compose-all.yml" config > "$out"
+}
+
 @test "devcontainer end-to-end: creates devcontainer config for claude agent" {
 	export SANDCAT_MOUNT_CLAUDE_CONFIG="true"
 	export SANDCAT_ENABLE_DOTFILES="true"
@@ -353,9 +391,8 @@ cursor_agent_compose_file_has_expected_content() {
 	assert_success
 	assert_output --partial "Devcontainer dir created at .devcontainer"
 
-	# Use docker compose config to get the effective merged configuration
 	local effective_file="$BATS_TEST_TMPDIR/effective-compose.yml"
-	docker compose -f "$PROJECT_DIR/.devcontainer/compose-all.yml" config > "$effective_file"
+	render_effective_compose "$effective_file"
 
 	yq -e '.name == "project-sandbox"' "$effective_file"
 
@@ -386,7 +423,7 @@ cursor_agent_compose_file_has_expected_content() {
 	assert_output --partial "Devcontainer dir created at .devcontainer"
 
 	local effective_file="$BATS_TEST_TMPDIR/effective-compose-cursor.yml"
-	docker compose -f "$PROJECT_DIR/.devcontainer/compose-all.yml" config > "$effective_file"
+	render_effective_compose "$effective_file"
 
 	yq -e '.name == "project-sandbox"' "$effective_file"
 

@@ -332,6 +332,138 @@ EOF
 	[[ ! -e "$HOME/.cursor/mcp.json" ]]
 }
 
+@test "init --netbird passes netbird flag to devcontainer" {
+	stub settings "$PROJECT_DIR/.sandcat/settings.json claude vscode : :"
+	stub devcontainer \
+		"--settings-file .sandcat/settings.json --project-path * --agent claude --ide vscode --name test --stacks * --proxy web --secret-provider none --netbird : :"
+
+	run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" --stacks "" --proxy web --features "" --secret-provider none --netbird
+	assert_success
+}
+
+@test "init --netbird seeds netbird_enrollment_key in user settings" {
+	stub settings "$PROJECT_DIR/.sandcat/settings.json claude vscode : :"
+	stub devcontainer ":"
+
+	run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" --stacks "" --proxy web --features "" --secret-provider none --netbird
+	assert_success
+	run yq '.netbird_enrollment_key' "$SCT_HOME_DIR/settings.json"
+	assert_output '""'
+	run yq '.netbird_api_token' "$SCT_HOME_DIR/settings.json"
+	assert_output '""'
+	run yq '.netbird_management_url' "$SCT_HOME_DIR/settings.json"
+	assert_output '""'
+}
+
+@test "init rejects --netbird-management-url without --netbird" {
+	run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" --stacks "" --proxy web --features "" --secret-provider none --netbird-management-url https://netbird.example.com
+	assert_failure
+	assert_output --partial "--netbird-management-url requires --netbird"
+}
+
+@test "init treats --netbird-server as an unknown option" {
+	run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" --stacks "" --proxy web --features "" --secret-provider none --netbird --netbird-server cloud
+	assert_failure
+	assert_output --partial "Unknown option: --netbird-server"
+}
+
+@test "init --netbird-management-url persists management server immediately" {
+	stub settings "$PROJECT_DIR/.sandcat/settings.json claude vscode : :"
+	stub devcontainer \
+		"--settings-file .sandcat/settings.json --project-path * --agent claude --ide vscode --name test --stacks * --proxy web --secret-provider none --netbird-management-url https://management.example.com --netbird : :"
+
+	run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" --stacks "" --proxy web --features "" --secret-provider none --netbird --netbird-management-url https://management.example.com
+	assert_success
+	run yq -r '.netbird_management_url' "$SCT_HOME_DIR/settings.json"
+	assert_output "https://management.example.com"
+}
+
+@test "init forwards --netbird-management-url to devcontainer args" {
+	stub settings "$PROJECT_DIR/.sandcat/settings.json claude vscode : :"
+	stub devcontainer \
+		"--settings-file .sandcat/settings.json --project-path * --agent claude --ide vscode --name test --stacks * --proxy web --secret-provider none --netbird-management-url https://selected.example.com --netbird : :"
+
+	run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" --stacks "" --proxy web --features "" --secret-provider none --netbird --netbird-management-url https://selected.example.com
+	assert_success
+}
+
+@test "init --netbird without management URL uses cloud summary" {
+	stub settings "$PROJECT_DIR/.sandcat/settings.json claude vscode : :"
+	stub devcontainer \
+		"--settings-file .sandcat/settings.json --project-path * --agent claude --ide vscode --name test --stacks * --proxy web --secret-provider none --netbird : :"
+
+	run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" --stacks "" --proxy web --features "" --secret-provider none --netbird
+	assert_success
+	assert_output --partial "Management server: cloud (https://api.netbird.io)"
+	assert_output --partial "docs/examples/netbird-server/"
+	run yq -r '.netbird_management_url' "$SCT_HOME_DIR/settings.json"
+	assert_output ""
+}
+
+@test "init interactive netbird existing re-prompts for non-empty URL" {
+	unset -f read_line
+	unset -f select_option
+
+	stub settings "$PROJECT_DIR/.sandcat/settings.json claude vscode : :"
+	stub devcontainer \
+		"--settings-file .sandcat/settings.json --project-path * --agent claude --ide vscode --name test --stacks * --proxy web --secret-provider none --netbird-management-url https://management.example.com --netbird : :"
+	stub select_option \
+		"'Select secret provider:' none 1password protonpass : echo none"
+	stub read_line \
+		"'>' : echo '2'" \
+		"'Management URL:' : echo ''" \
+		"'Management URL:' : echo 'https://management.example.com'"
+
+	run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" --stacks "" --proxy web --features "" --netbird
+	assert_success
+	assert_output --partial "URL is required"
+	run yq -r '.netbird_management_url' "$SCT_HOME_DIR/settings.json"
+	assert_output "https://management.example.com"
+}
+
+@test "init interactive netbird existing accepts non-empty URL without format restriction" {
+	unset -f read_line
+	unset -f select_option
+
+	stub settings "$PROJECT_DIR/.sandcat/settings.json claude vscode : :"
+	stub devcontainer \
+		"--settings-file .sandcat/settings.json --project-path * --agent claude --ide vscode --name test --stacks * --proxy web --secret-provider none --netbird-management-url management.example.com --netbird : :"
+	stub select_option \
+		"'Select secret provider:' none 1password protonpass : echo none"
+	stub read_line \
+		"'>' : echo existing" \
+		"'Management URL:' : echo 'management.example.com'"
+
+	run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" --stacks "" --proxy web --features "" --netbird
+	assert_success
+	run yq -r '.netbird_management_url' "$SCT_HOME_DIR/settings.json"
+	assert_output "management.example.com"
+}
+
+@test "init interactive netbird existing localhost persists enrollment URL" {
+	unset -f read_line
+	unset -f select_option
+	unset -f netbird_detect_docker_host_ip
+
+	stub settings "$PROJECT_DIR/.sandcat/settings.json claude vscode : :"
+	stub devcontainer \
+		"--settings-file .sandcat/settings.json --project-path * --agent claude --ide vscode --name test --stacks * --proxy web --secret-provider none --netbird-management-url http://localhost:33073 --netbird : :"
+	stub select_option \
+		"'Select secret provider:' none 1password protonpass : echo none"
+	stub netbird_detect_docker_host_ip "echo 192.168.1.50"
+	stub read_line \
+		"'>' : echo 2" \
+		"'Management URL:' : echo 'http://localhost:33073'" \
+		"'Enrollment URL [http://192.168.1.50:33073]:' : echo ''"
+
+	run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" --stacks "" --proxy web --features "" --netbird
+	assert_success
+	run yq -r '.netbird_management_url' "$SCT_HOME_DIR/settings.json"
+	assert_output "http://localhost:33073"
+	run yq -r '.netbird_enrollment_management_url' "$SCT_HOME_DIR/settings.json"
+	assert_output "http://192.168.1.50:33073"
+}
+
 @test "init interactive flow (devcontainer mode)" {
 	unset -f read_line
 	unset -f select_option
@@ -409,6 +541,21 @@ EOF
 	assert_output --partial "no-shared-cache"
 	assert_output --partial "no-gitignore"
 	assert_output --partial "no-rtk"
+}
+
+@test "init rejects --capability as unknown" {
+	run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" \
+		--stacks "" --proxy web --features "" --secret-provider none --capability
+	assert_failure
+	assert_output --partial "Unknown option: --capability"
+}
+
+@test "init rejects --capability even with --netbird" {
+	run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" \
+		--stacks "" --proxy web --features "" --secret-provider none \
+		--netbird --capability
+	assert_failure
+	assert_output --partial "Unknown option: --capability"
 }
 
 @test "init interactive feature selection applies tui from full labels" {

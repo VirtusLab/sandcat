@@ -17,6 +17,8 @@ source "$SCT_LIBDIR/stacks.bash"
 source "$SCT_LIBDIR/agents.bash"
 # shellcheck source=../../lib/gitignore.bash
 source "$SCT_LIBDIR/gitignore.bash"
+# shellcheck source=../../lib/netbird.bash
+source "$SCT_LIBDIR/netbird.bash"
 
 # Returns the user settings template path for a selected agent.
 # Args:
@@ -91,6 +93,65 @@ ensure_cursor_user_settings_defaults() {
 	fi
 }
 
+persist_netbird_management_url() {
+	local user_settings=$1
+	local selected_management_url=${2:-}
+	if [[ -f "$user_settings" ]]; then
+		netbird_management_url="$selected_management_url" yq -i -o json '
+			.netbird_management_url = strenv(netbird_management_url)
+		' "$user_settings"
+	fi
+}
+
+# Asks for an address the mitmproxy container can dial when the chosen
+# management URL is localhost-only. Without this the compose file gets no
+# NB_MANAGEMENT_URL and netbird silently enrolls against the cloud
+# default, which rejects a self-hosted setup key.
+prompt_netbird_enrollment_url() {
+	local user_settings=$1
+	local netbird_management_url=$2
+	local host_ip mgmt_port default_url entered_url
+	host_ip=$(netbird_detect_docker_host_ip)
+	mgmt_port="${netbird_management_url##*:}"
+	mgmt_port="${mgmt_port%%/*}"
+	if [[ ! "$mgmt_port" =~ ^[0-9]+$ ]]; then
+		mgmt_port="33073"
+	fi
+	default_url=""
+	if [[ -n "$host_ip" ]]; then
+		default_url="http://${host_ip}:${mgmt_port}"
+	fi
+
+	echo "    $netbird_management_url is not reachable from inside the container." | info
+	echo "    Enter an address the container can dial (your Docker host's LAN IP)." | info
+	while true; do
+		if [[ -n "$default_url" ]]; then
+			entered_url=$(read_line "Enrollment URL [$default_url]:")
+			entered_url="${entered_url:-$default_url}"
+		else
+			entered_url=$(read_line "Enrollment URL (e.g. http://192.168.1.10:${mgmt_port}):")
+		fi
+		if [[ -n "$entered_url" ]]; then
+			break
+		fi
+		echo "Enrollment URL is required for a localhost management server" | error
+	done
+
+	if [[ -f "$user_settings" ]]; then
+		enrollment_url="$entered_url" yq -i -o json '
+			.netbird_enrollment_management_url = strenv(enrollment_url)
+		' "$user_settings"
+	fi
+}
+
+maybe_prompt_enrollment_url() {
+	local user_settings=$1
+	local netbird_management_url=$2
+	if [[ -z "$(netbird_enrollment_management_url_from "$netbird_management_url")" ]]; then
+		prompt_netbird_enrollment_url "$user_settings" "$netbird_management_url"
+	fi
+}
+
 # Ensures codex-specific defaults exist in an already-created user settings file
 # without overriding user-provided values.
 ensure_codex_user_settings_defaults() {
@@ -145,6 +206,7 @@ add_secret_provider_tokens_to_user_settings() {
 #   --secret-provider / --sp - Secret backend: none, 1password, protonpass
 #   --1password - Deprecated; same as --secret-provider 1password
 #   --features - Comma-separated optional non-provider features (tui)
+#   --netbird-management-url - Existing NetBird management server URL (omit = cloud)
 init() {
 	require yq
 
@@ -160,11 +222,15 @@ init() {
 	local onepassword_alias=false
 	local features_csv=""
 	local features_provided=false
+	local netbird="false"
+	local netbird_management_url=""
+	local netbird_management_url_provided=false
+	local init_prompted=false
 
 	while [[ $# -gt 0 ]]
 	do
 		case $1 in
-		--name|--path|--agent|--ide|--stacks|--proxy|--features|--secret-provider|--sp)
+		--name|--path|--agent|--ide|--stacks|--proxy|--features|--secret-provider|--sp|--netbird-management-url)
 			if [[ $# -lt 2 ]]; then
 				echo "Option $1 requires a value" | error
 				return 1
@@ -211,6 +277,15 @@ init() {
 			features_provided=true
 			shift 2
 			;;
+		--netbird)
+			netbird="true"
+			shift 1
+			;;
+		--netbird-management-url)
+			netbird_management_url="$2"
+			netbird_management_url_provided=true
+			shift 2
+			;;
 		*)
 			echo "Unknown option: $1" | error
 			return 1
@@ -225,6 +300,14 @@ init() {
 	if [[ "$onepassword_alias" == "true" ]]; then
 		secret_provider="1password"
 		secret_provider_provided=true
+	fi
+	if [[ "$netbird_management_url_provided" == "true" && "$netbird" != "true" ]]; then
+		echo "--netbird-management-url requires --netbird" | error
+		return 1
+	fi
+	if [[ "$netbird_management_url_provided" == "true" && -z "$netbird_management_url" ]]; then
+		echo "--netbird-management-url requires a value" | error
+		return 1
 	fi
 
 	if [[ -z "$project_path" ]]
@@ -245,6 +328,7 @@ init() {
 	default_name="$(derive_project_name "$project_path")"
 	if [[ -z "$name" ]]
 	then
+		init_prompted=true
 		name=$(read_line "Project name [$default_name]:")
 	fi
 
@@ -252,6 +336,7 @@ init() {
 	read -ra available_agents <<< "$(sct_available_agents)"
 	if [[ -z "$agent" ]]
 	then
+		init_prompted=true
 		agent=$(select_option "Select agent:" "${available_agents[@]}")
 	elif ! sct_is_valid_agent "$agent"
 	then
@@ -269,6 +354,7 @@ init() {
 	local available_ides=(vscode jetbrains none)
 	if [[ -z "$ide" ]]
 	then
+		init_prompted=true
 		ide=$(select_option "Select IDE:" "${available_ides[@]}")
 	elif [[ ! " ${available_ides[*]} " =~ [[:space:]]${ide}[[:space:]] ]]
 	then
@@ -278,6 +364,7 @@ init() {
 
 	# Secret provider (none | 1password | protonpass)
 	if [[ "$secret_provider_provided" != "true" ]]; then
+		init_prompted=true
 		local existing_settings
 		existing_settings="$(sct_home)/settings.json"
 		if [[ -f "$existing_settings" ]] && \
@@ -308,6 +395,7 @@ init() {
 	local rtk_enabled=${SANDCAT_RTK:-true}
 	local strict_network=${SANDCAT_STRICT_NETWORK:-false}
 	if [[ "$features_provided" != "true" ]]; then
+		init_prompted=true
 		local available_features=(
 			"tui (mitmproxy console instead of web UI)"
 			"no-shared-cache (per-project dep cache instead of shared)"
@@ -369,6 +457,7 @@ init() {
 		fi
 		stacks_resolved=$(resolve_stacks "${stacks_arr[@]}")
 	elif [[ "$stacks_provided" != "true" ]]; then
+		init_prompted=true
 		local selected
 		selected=$(select_multiple "Select development stacks (comma-separated numbers, empty for none):" "${STACK_NAMES[@]}")
 		if [[ -n "$selected" ]]; then
@@ -394,6 +483,69 @@ init() {
 
 	add_secret_provider_tokens_to_user_settings "$secret_provider"
 
+	if [[ "$netbird" == "true" ]]; then
+		local user_settings
+		user_settings="$(sct_home)/settings.json"
+		if [[ -f "$user_settings" ]]; then
+			yq -i -o json '
+				.netbird_enrollment_key = (.netbird_enrollment_key // "") |
+				.netbird_api_token = (.netbird_api_token // "") |
+				.netbird_management_url = (.netbird_management_url // "")
+			' "$user_settings"
+		fi
+
+		if [[ "$netbird_management_url_provided" == "true" ]]; then
+			persist_netbird_management_url "$user_settings" "$netbird_management_url"
+			if [[ "$init_prompted" == "true" ]]; then
+				maybe_prompt_enrollment_url "$user_settings" "$netbird_management_url"
+			fi
+		elif [[ "$init_prompted" == "true" ]]; then
+			local netbird_server_selection=""
+			while true; do
+				echo "NetBird management server [cloud]:" | info
+				echo "  1) cloud (api.netbird.io)" | info
+				echo "  2) self-hosted — I have a server running" | info
+				echo "  To create a server, see docs/examples/netbird-server/" | info
+				netbird_server_selection=$(read_line ">")
+				case "$netbird_server_selection" in
+				""|1|cloud)
+					netbird_server_selection="cloud"
+					break
+					;;
+				2|existing|self-hosted-existing|self-hosted\ existing\ URL|self-hosted\ —\ I\ have\ a\ server\ running)
+					netbird_server_selection="existing"
+					break
+					;;
+				*)
+					echo "Invalid NetBird management server selection: $netbird_server_selection (expected: cloud or existing)" | error
+					;;
+				esac
+			done
+			case "$netbird_server_selection" in
+			cloud)
+				netbird_management_url=""
+				;;
+			existing)
+				while true; do
+					netbird_management_url=$(read_line "Management URL:")
+					if [[ -z "$netbird_management_url" ]]; then
+						echo "URL is required" | error
+						continue
+					fi
+					persist_netbird_management_url "$user_settings" "$netbird_management_url"
+					maybe_prompt_enrollment_url "$user_settings" "$netbird_management_url"
+					break
+				done
+				;;
+			esac
+		else
+			# Fully flagged `--netbird` without `--netbird-management-url` is cloud.
+			netbird_management_url=""
+		fi
+
+		persist_netbird_management_url "$user_settings" "$netbird_management_url"
+	fi
+
 	local settings_args=()
 	if [[ "$strict_network" == "true" ]]; then
 		settings_args+=(--strict-network --stacks "$stacks_resolved")
@@ -410,6 +562,12 @@ init() {
 		--secret-provider "$secret_provider"
 	)
 	export SANDCAT_RTK="$rtk_enabled"
+	if [[ -n "$netbird_management_url" ]]; then
+		devcontainer_args+=(--netbird-management-url "$netbird_management_url")
+	fi
+	if [[ "$netbird" == "true" ]]; then
+		devcontainer_args+=(--netbird)
+	fi
 	devcontainer "${devcontainer_args[@]}"
 
 	local gitignore_status="skipped"
@@ -511,6 +669,19 @@ init() {
 		echo "    GITHUB_TOKEN       a GitHub personal access token (for git push, gh cli)" | info
 		;;
 	esac
+	if [[ "$netbird" == "true" ]]; then
+		echo "" >&2
+		echo "  NetBird setup:" | info
+		if [[ -n "$netbird_management_url" ]]; then
+			echo "    Management server: $netbird_management_url" | info
+		else
+			echo "    Management server: cloud (https://api.netbird.io)" | info
+		fi
+		echo "    Add keys to ~/.config/sandcat/settings.json:" | info
+		echo "      \"netbird_enrollment_key\": \"<setup-key>\"  (mitmproxy enrollment)" | info
+		echo "      \"netbird_api_token\": \"<api-token-or-op-or-pass-ref>\"  (mitmproxy peer replace)" | info
+		echo "    To run a self-hosted management server, see docs/examples/netbird-server/" | info
+	fi
 	echo "  Then run: sandcat run, or reopen the project using the dev container" | info
 }
 
