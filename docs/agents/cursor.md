@@ -16,8 +16,9 @@ Cursor CLI support is available via `sandcat init --agent cursor`.
   - **Proxy command defaults tuned for Cursor.** The generated proxy config uses
     the Cursor addon and keeps mitmproxy HTTP/2 enabled (`http2=true`) (plus
     streaming-safe mitmproxy
-    flags such as `stream_large_bodies=1m`, `connection_strategy=lazy`,
-    `anticomp=true`, and `timeout_read=300`).
+    flags such as `stream_large_bodies=1m`, `anticomp=true`, and
+    `timeout_read=300`). `connection_strategy=lazy`, which these streams also
+    need, is on the base proxy command for every agent.
 
     Those streaming-safe flags are **Cursor-only** — they are intentionally
     omitted on the Claude path (`sct_agent_mitm_streaming_flags`). With

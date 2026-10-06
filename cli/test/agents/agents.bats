@@ -490,9 +490,10 @@ setup() {
 @test "sct_agent_mitm_streaming_flags: cursor returns streaming flags" {
 	run sct_agent_mitm_streaming_flags cursor
 	assert_output --partial "stream_large_bodies=1m"
-	assert_output --partial "connection_strategy=lazy"
 	assert_output --partial "anticomp=true"
 	assert_output --partial "timeout_read=300"
+	# Lives on the base command for every agent instead.
+	refute_output --partial "connection_strategy"
 }
 
 @test "sct_agent_mitm_streaming_flags: claude returns empty" {

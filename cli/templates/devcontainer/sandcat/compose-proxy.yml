@@ -60,7 +60,17 @@ services:
     # the command) so docker-entrypoint.sh still sees `mitmweb` as $1 and drops
     # privileges to the mitmproxy user.
     entrypoint: ["/bin/sh", "-c", "chown -R mitmproxy:mitmproxy /mitmproxy-public && rm -f /home/mitmproxy/.mitmproxy/dns.conf /mitmproxy-public/mitmproxy-ca-cert.pem && (while [ ! -f /home/mitmproxy/.mitmproxy/mitmproxy-ca-cert.pem ]; do sleep 1; done; cp /home/mitmproxy/.mitmproxy/mitmproxy-ca-cert.pem /mitmproxy-public/mitmproxy-ca-cert.pem.tmp && mv /mitmproxy-public/mitmproxy-ca-cert.pem.tmp /mitmproxy-public/mitmproxy-ca-cert.pem) & exec docker-entrypoint.sh \"$@\"", "sh"]
-    command: mitmweb --mode wireguard --web-host 0.0.0.0 --set web_password=mitmproxy --set http2=__MITM_HTTP2__ __AGENT_MITM_STREAMING_FLAGS__ -s /scripts/__AGENT_MITM_ADDON__
+    # connection_strategy=lazy defers the upstream connection until a layer asks
+    # for it. Without it mitmproxy dials the destination before next_layer runs,
+    # so a flow the addon is about to deny has already sent a SYN — a signalling
+    # channel out of the sandbox even though no payload is relayed.
+    #
+    # rawtcp=false closes the one raw relay the addon's next_layer hook cannot
+    # reach: on an HTTP `101 Switching Protocols` with a non-WebSocket upgrade,
+    # mitmproxy builds a TCPLayer child directly and emits no next_layer hook,
+    # so a request to an allowed host turns into an unfiltered byte pipe. With
+    # rawtcp off mitmproxy closes the connection instead.
+    command: mitmweb --mode wireguard --web-host 0.0.0.0 --set web_password=mitmproxy --set connection_strategy=lazy --set rawtcp=false --set http2=__MITM_HTTP2__ __AGENT_MITM_STREAMING_FLAGS__ -s /scripts/__AGENT_MITM_ADDON__
     ports:
       - "8081" # mitmweb UI; host port assigned dynamically to avoid conflicts
     volumes:

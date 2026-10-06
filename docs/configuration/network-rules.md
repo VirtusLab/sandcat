@@ -92,6 +92,25 @@ A rule like `{"action": "allow", "host": "*", "method": "GET"}` will also allow
 DNS resolution for any host. Rule ordering matters: a method-specific deny rule
 will block DNS for that host even if a later rule would allow other methods.
 
+## Non-HTTP traffic
+
+Rules match on a hostname, and only HTTP/S requests and DNS queries carry one.
+Anything else leaving the container — a plain TCP socket, a UDP datagram, a
+non-HTTP protocol wrapped in TLS or QUIC, an HTTP request upgraded to a
+non-WebSocket protocol — has nothing to match a rule against, so the proxy
+closes the connection instead of relaying it.
+
+What you see in the proxy log depends on which of them it was. UDP and QUIC
+give `Network deny (not HTTP or DNS)`; a non-WebSocket upgrade gives `no
+protocol is enabled to upgrade to`. A plain TCP connection carrying something
+other than HTTP gives nothing at all — the proxy answers it as a malformed HTTP
+request and closes. None of the three appear in the mitmweb flow list.
+
+That includes SSH, which sandcat does not support anyway: `sandcat init`
+rewrites GitHub SSH remotes to HTTPS, and no SSH keys reach the container.
+Traffic between containers in the same compose project does not go through the
+proxy and is unaffected, so a database or other sidecar still works.
+
 ## Examples
 
 With the liberal template rules:

@@ -7,11 +7,12 @@ substitution. All of this is done while retaining the convenience of working in
 an IDE like VS Code.
 
 All container traffic is routed through a transparent
-[mitmproxy](https://mitmproxy.org/) via WireGuard, capturing HTTP/S, DNS, and
-all other TCP/UDP traffic without per-tool proxy configuration. A
-straightforward allow/deny list-based engine controls which network requests go
-through, and a secret substitution system injects credentials at the proxy level
-so the container never sees real values.
+[mitmproxy](https://mitmproxy.org/) via WireGuard, without per-tool proxy
+configuration. A straightforward allow/deny list-based engine controls which
+HTTP/S requests and DNS queries go through; everything else — raw TCP and UDP,
+which carries no hostname to match a rule against — is dropped. A secret
+substitution system injects credentials at the proxy level so the container
+never sees real values.
 
 > [!NOTE]
 > Sandcat is part of [Visdom](https://virtuslab.com/services/visdom),
