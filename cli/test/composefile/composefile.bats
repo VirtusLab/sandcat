@@ -28,6 +28,9 @@ teardown() {
 }
 
 @test "add_settings_volume adds settings mount to proxy service" {
+	mkdir -p "$BATS_TEST_TMPDIR/.sandcat"
+	touch "$BATS_TEST_TMPDIR/.sandcat/settings.json"
+
 	add_settings_volume "$COMPOSE_FILE" ".sandcat/settings.json"
 
 	yq -e '.services.mitmproxy.volumes[] | select(. == ".sandcat:/config/project:ro")' "$COMPOSE_FILE"
@@ -248,12 +251,8 @@ teardown() {
 	# stack that normally gets shared caches, disabling the flag must
 	# keep the compose file free of shared-cache mounts + external
 	# volume declarations.
-	SETTINGS_FILE=".sandcat/settings.json"
-	mkdir -p "$BATS_TEST_TMPDIR/.sandcat"
-	touch "$BATS_TEST_TMPDIR/$SETTINGS_FILE"
-
 	SANDCAT_MOUNT_SHARED_CACHE=false \
-		customize_compose_file "$SETTINGS_FILE" "$COMPOSE_FILE" "claude" "vscode" "test-project" "java"
+		customize_compose_file "$COMPOSE_FILE" "claude" "vscode" "test-project" "java"
 
 	run yq -r '.volumes // {} | keys[]' "$COMPOSE_FILE"
 	refute_output --partial "sandcat-cache-"
@@ -272,9 +271,6 @@ assert_jetbrains_capabilities() {
 
 assert_customize_compose_file_common() {
 	local compose_file=$1
-
-	# Verify settings volume on proxy
-	yq -e '.services.mitmproxy.volumes[] | select(. == ".sandcat:/config/project:ro")' "$compose_file"
 
 	# shellcheck disable=SC2016
 	yq -e '.services.agent.volumes[] | select(. == "${HOME}/.claude/CLAUDE.md:/home/vscode/.claude/CLAUDE.md:ro")' "$compose_file"
@@ -365,11 +361,7 @@ EOF
 
 # shellcheck disable=SC2016
 @test "customize_compose_file defaults Claude config volumes to active entries" {
-	SETTINGS_FILE=".sandcat/settings.json"
-	mkdir -p "$BATS_TEST_TMPDIR/.sandcat"
-	touch "$BATS_TEST_TMPDIR/$SETTINGS_FILE"
-
-	customize_compose_file "$SETTINGS_FILE" "$COMPOSE_FILE" "claude" "jetbrains" "test-project"
+	customize_compose_file "$COMPOSE_FILE" "claude" "jetbrains" "test-project"
 
 	# Verify Claude config volumes are active
 	yq -e '.services.agent.volumes[] | select(. == "${HOME}/.claude/CLAUDE.md:/home/vscode/.claude/CLAUDE.md:ro")' "$COMPOSE_FILE"
@@ -385,14 +377,7 @@ EOF
 
 # shellcheck disable=SC2016
 @test "customize_compose_file defaults non-Claude optional volumes to commented-out entries" {
-	SETTINGS_FILE=".sandcat/settings.json"
-	mkdir -p "$BATS_TEST_TMPDIR/.sandcat"
-	touch "$BATS_TEST_TMPDIR/$SETTINGS_FILE"
-
-	customize_compose_file "$SETTINGS_FILE" "$COMPOSE_FILE" "claude" "jetbrains" "test-project"
-
-	# Verify settings volume on proxy
-	yq -e '.services.mitmproxy.volumes[] | select(. == ".sandcat:/config/project:ro")' "$COMPOSE_FILE"
+	customize_compose_file "$COMPOSE_FILE" "claude" "jetbrains" "test-project"
 
 	# Verify .idea volume is active
 	yq -e '.services.agent.volumes[] | select(. == "../.idea:/workspace/.idea:ro")' "$COMPOSE_FILE"
@@ -408,15 +393,11 @@ EOF
 }
 
 @test "customize_compose_file handles full workflow with all options enabled and jetbrains ide" {
-	SETTINGS_FILE=".sandcat/settings.json"
-	mkdir -p "$BATS_TEST_TMPDIR/.sandcat"
-	touch "$BATS_TEST_TMPDIR/$SETTINGS_FILE"
-
 	export SANDCAT_MOUNT_CLAUDE_CONFIG="true"
 	export SANDCAT_MOUNT_GIT_READONLY="true"
 	export SANDCAT_MOUNT_IDEA_READONLY="true"
 
-	customize_compose_file "$SETTINGS_FILE" "$COMPOSE_FILE" "claude" "jetbrains" "test-project"
+	customize_compose_file "$COMPOSE_FILE" "claude" "jetbrains" "test-project"
 
 	assert_customize_compose_file_common "$COMPOSE_FILE"
 	yq -e '.services.agent.volumes[] | select(. == "../.idea:/workspace/.idea:ro")' "$COMPOSE_FILE"
@@ -424,14 +405,10 @@ EOF
 }
 
 @test "customize_compose_file handles full workflow with all options enabled and vscode ide" {
-	SETTINGS_FILE=".sandcat/settings.json"
-	mkdir -p "$BATS_TEST_TMPDIR/.sandcat"
-	touch "$BATS_TEST_TMPDIR/$SETTINGS_FILE"
-
 	export SANDCAT_MOUNT_CLAUDE_CONFIG="true"
 	export SANDCAT_MOUNT_GIT_READONLY="true"
 
-	customize_compose_file "$SETTINGS_FILE" "$COMPOSE_FILE" "claude" "vscode" "test-project"
+	customize_compose_file "$COMPOSE_FILE" "claude" "vscode" "test-project"
 
 	assert_customize_compose_file_common "$COMPOSE_FILE"
 }
@@ -440,11 +417,7 @@ EOF
 @test "customize_compose_file dispatches to add_cursor_config_volumes for cursor agent" {
 	# Dispatch smoke: representative cursor mounts; full list is covered by
 	# `add_cursor_config_volumes adds customization and state mounts`.
-	SETTINGS_FILE=".sandcat/settings.json"
-	mkdir -p "$BATS_TEST_TMPDIR/.sandcat"
-	touch "$BATS_TEST_TMPDIR/$SETTINGS_FILE"
-
-	customize_compose_file "$SETTINGS_FILE" "$COMPOSE_FILE" "cursor" "vscode" "test-project"
+	customize_compose_file "$COMPOSE_FILE" "cursor" "vscode" "test-project"
 
 	# shellcheck disable=SC2016
 	yq -e '.services.agent.volumes[] | select(. == "${HOME}/.cursor/AGENTS.md:/home/vscode/.cursor/AGENTS.md:ro")' "$COMPOSE_FILE"
@@ -464,11 +437,7 @@ EOF
 # shellcheck disable=SC2016
 @test "customize_compose_file dispatches to add_codex_config_volumes for codex agent" {
 	# Dispatch smoke: all three codex mounts must appear; no claude/cursor volumes leak.
-	SETTINGS_FILE=".sandcat/settings.json"
-	mkdir -p "$BATS_TEST_TMPDIR/.sandcat"
-	touch "$BATS_TEST_TMPDIR/$SETTINGS_FILE"
-
-	customize_compose_file "$SETTINGS_FILE" "$COMPOSE_FILE" "codex" "vscode" "test-project"
+	customize_compose_file "$COMPOSE_FILE" "codex" "vscode" "test-project"
 
 	# shellcheck disable=SC2016
 	yq -e '.services.agent.volumes[] | select(. == "${HOME}/.codex/AGENTS.md:/home/vscode/.codex/AGENTS.md:ro")' "$COMPOSE_FILE"
@@ -588,12 +557,8 @@ YAML
 }
 
 @test "customize_compose_file wires copilot config volumes for copilot agent" {
-	SETTINGS_FILE=".sandcat/settings.json"
-	mkdir -p "$BATS_TEST_TMPDIR/.sandcat"
-	touch "$BATS_TEST_TMPDIR/$SETTINGS_FILE"
-
 	SANDCAT_MOUNT_COPILOT_CONFIG=true \
-		customize_compose_file "$SETTINGS_FILE" "$COMPOSE_FILE" copilot none "test-project" ""
+		customize_compose_file "$COMPOSE_FILE" copilot none "test-project" ""
 
 	# shellcheck disable=SC2016
 	yq -e '.services.agent.volumes[] | select(. == "${HOME}/.copilot/mcp-config.json:/home/vscode/.copilot/mcp-config.json:ro")' "$COMPOSE_FILE"

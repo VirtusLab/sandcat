@@ -24,7 +24,7 @@ Java/Scala cache mounts (all under `/home/vscode/` in the container):
 
 Each is a Docker named volume with a stable host-wide name
 (`sandcat-cache-maven`, `sandcat-cache-coursier`, …) declared as
-`external: true` in the generated `compose-all.yml`. Multiple sandcat compose
+`external: true` in the generated `compose-agent.override.yml`. Multiple sandcat compose
 projects reference the same physical volume, and `sandcat compose down -v` on
 one project will **not** wipe caches other projects rely on. The `sandcat run`
 wrapper creates them lazily via `docker volume create` (idempotent), so no
@@ -51,7 +51,7 @@ Or set the env var before init (equivalent to the feature flag):
 SANDCAT_MOUNT_SHARED_CACHE=false sandcat init ...
 ```
 
-With shared cache disabled, the mount lines stay in `compose-all.yml` as
+With shared cache disabled, the mount lines stay in `compose-agent.override.yml` as
 comments — you can flip individual ones back on by uncommenting.
 
 **Trade-offs to be aware of:**

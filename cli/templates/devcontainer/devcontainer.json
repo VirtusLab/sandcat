@@ -12,8 +12,8 @@
 	// default for dockerComposeFile scenarios.
 	"overrideCommand": false,
 	// Shared cache volumes (sandcat-cache-*) are declared external in
-	// compose-all.yml. `sandcat run` creates them, but an IDE's "Reopen
-	// in Container" calls compose directly, so create them here first.
+	// compose-agent.override.yml. `sandcat run` creates them, but an IDE's
+	// "Reopen in Container" calls compose directly, so create them here first.
 	"initializeCommand": "bash ${localWorkspaceFolder}/.devcontainer/sandcat/scripts/ensure-cache-volumes.sh",
 	// Remove credential sockets that VS Code forwards into the container
 	// (SSH agent, git credential helper).  Clearing env vars alone only

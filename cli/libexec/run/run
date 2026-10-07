@@ -36,7 +36,9 @@ run() {
 	done
 
 	warn_stale_home_volume "$compose_file"
-	ensure_shared_cache_volumes "$compose_file"
+	# compose-all.yml holds the declarations in projects generated before
+	# compose-agent.override.yml existed.
+	ensure_shared_cache_volumes "$compose_file" "$(dirname "$compose_file")/compose-agent.override.yml"
 
 	local rc=0
 	docker compose -f "$compose_file" run --rm "${run_opts[@]+"${run_opts[@]}"}" agent "${1-bash}" "${@:2}" || rc=$?

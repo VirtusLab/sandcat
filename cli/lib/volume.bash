@@ -50,7 +50,7 @@ warn_stale_home_volume() {
 	echo "  sandcat compose down && docker volume rm $volume_name" | warning
 }
 
-# Ensures every external volume referenced by the compose file exists on
+# Ensures every external volume referenced by the compose files exists on
 # the host — otherwise `docker compose up` fails with "external volume
 # not found". Docker's `volume create` is idempotent, so we can call it
 # unconditionally on every sandcat run.
@@ -60,16 +60,18 @@ warn_stale_home_volume() {
 # other external volumes users might add by hand.
 #
 # Args:
-#   $1 - Path to the compose file
+#   $@ - Paths to the compose files declaring the volumes; missing files
+#        are skipped
 ensure_shared_cache_volumes() {
-	local compose_file=$1
-
 	command -v yq &>/dev/null || return 0
 	command -v docker &>/dev/null || return 0
 
-	local names
-	names=$(yq -r '.volumes // {} | to_entries[] | select(.value.external == true) | .value.name // .key' \
-		"$compose_file" 2>/dev/null | grep '^sandcat-cache-' || true)
+	local names="" compose_file
+	for compose_file in "$@"; do
+		[[ -f "$compose_file" ]] || continue
+		names+=$(yq -r '.volumes // {} | to_entries[] | select(.value.external == true) | .value.name // .key' \
+			"$compose_file" 2>/dev/null | grep '^sandcat-cache-' || true)$'\n'
+	done
 
 	[[ -n "$names" ]] || return 0
 

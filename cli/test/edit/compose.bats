@@ -25,6 +25,18 @@ teardown() {
 	assert_success
 }
 
+@test "edit opens the agent override file when present" {
+	local override_file="$BATS_TEST_TMPDIR/.devcontainer/compose-agent.override.yml"
+	touch "$override_file"
+	unset -f open_editor
+	stub open_editor \
+		"$override_file : :"
+
+	cd "$BATS_TEST_TMPDIR"
+	run edit
+	assert_success
+}
+
 @test "edit restarts containers when file modified and containers running (default)" {
 	unset -f open_editor
 	stub open_editor \

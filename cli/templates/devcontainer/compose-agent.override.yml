@@ -1,0 +1,6 @@
+# User-customizable parts of the agent service (volumes, environment).
+# sandcat init populates this file; edit or uncomment entries freely — the
+# security-critical base stays in sandcat/compose-agent.yml. Relative paths
+# resolve from this directory (.devcontainer/).
+services:
+  agent: {}

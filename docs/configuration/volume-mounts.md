@@ -1,7 +1,7 @@
 # Customizing optional volume mounts
 
 `sandcat init` adds optional bind-mounts to `services.agent.volumes` in
-`.devcontainer/compose-all.yml`. Each mount is an independent line — you can
+`.devcontainer/compose-agent.override.yml`. Each mount is an independent line — you can
 enable or disable **individual paths** by editing that file after init. This
 works the same way for Claude and Cursor; there are no per-folder `sandcat init`
 flags today.
@@ -22,8 +22,9 @@ When an agent mount flag is `false`, Sandcat lists every path as a foot comment
 on the first volume entry — copy the lines you want into the active `volumes:`
 list.
 
-**Per-path tuning (recommended):** edit `.devcontainer/compose-all.yml`, remove
-or comment out mounts you do not want, then rebuild/reopen the devcontainer:
+**Per-path tuning (recommended):** edit
+`.devcontainer/compose-agent.override.yml`, remove or comment out mounts you
+do not want, then rebuild/reopen the devcontainer:
 
 ```yaml
 # Mount a different workspace's Cursor transcripts (not recommended):
@@ -32,7 +33,7 @@ or comment out mounts you do not want, then rebuild/reopen the devcontainer:
 
 **Do not re-run `sandcat init`** unless you intend to reset generated files —
 it recopies the template and overwrites manual compose edits. Commit your
-customized `compose-all.yml` to keep changes across the team.
+customized `compose-agent.override.yml` to keep changes across the team.
 
 **Project-local config** (per repository, via the workspace code mount — not
 controlled by `SANDCAT_MOUNT_*_CONFIG`):

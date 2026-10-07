@@ -1,13 +1,15 @@
+# Docker Compose 2.x rejects redeclaring a service that comes from an
+# `include`, so customizations are merged through include override files
+# instead of being declared here.
 include:
   - path: sandcat/compose-proxy.yml
-  # Constant (non-user-editable) parts of the agent service — image build,
-  # security hardening (no-new-privileges), network wiring through
-  # wg-client, dependency ordering. The `services.agent` entries below are
-  # merged OVER that base by Docker Compose.
-  - path: sandcat/compose-agent.yml
-
-services:
-  # User-customizable parts of the agent service (volumes, environment).
-  # sandcat init populates this section; edit or uncomment entries freely —
-  # the security-critical base stays in sandcat/compose-agent.yml.
-  agent: {}
+  - path:
+      # Constant (non-user-editable) parts of the agent service — image build,
+      # security hardening (no-new-privileges), network wiring through
+      # wg-client, dependency ordering.
+      - sandcat/compose-agent.yml
+      # User-customizable parts of the agent service (volumes, environment),
+      # merged over the base above.
+      - compose-agent.override.yml
+    # Resolve relative paths in both files from this directory.
+    project_directory: .

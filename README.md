@@ -50,7 +50,8 @@ reference.
   `Dockerfile.wg-client`, `compose-proxy.yml`, `compose-agent.yml`, and the
   `scripts/` that perform network filtering & secret substitution
 * `cli/templates/devcontainer/` — template application and dev container
-  configuration (`Dockerfile.app`, `compose-all.yml`, `devcontainer.json`),
+  configuration (`Dockerfile.app`, `compose-all.yml`,
+  `compose-agent.override.yml`, `devcontainer.json`),
   fine-tuned per project and development stack
 * `images/` — sources of the published mitmproxy images (1Password and
   Proton Pass variants)

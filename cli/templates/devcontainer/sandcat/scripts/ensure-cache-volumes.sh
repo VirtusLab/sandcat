@@ -1,19 +1,19 @@
 #!/bin/bash
 #
 # Creates the host-wide shared cache volumes (sandcat-cache-*) that
-# compose-all.yml declares as `external: true`. Runs on the HOST as the
-# devcontainer initializeCommand, so "Reopen in Container" from an IDE
-# works on a machine where `sandcat run` has never created them.
+# compose-agent.override.yml declares as `external: true`. Runs on the HOST
+# as the devcontainer initializeCommand, so "Reopen in Container" from an
+# IDE works on a machine where `sandcat run` has never created them.
 #
 # Idempotent: `docker volume create` on an existing name is a no-op.
 # Silently does nothing when docker is missing so the IDE flow still
 # gets compose's own, clearer error.
 #
 # Usage: ensure-cache-volumes.sh [compose-file]
-# Default compose file: ../../compose-all.yml relative to this script.
+# Default compose file: ../../compose-agent.override.yml relative to this script.
 set -euo pipefail
 
-compose_file=${1:-"$(dirname "$0")/../../compose-all.yml"}
+compose_file=${1:-"$(dirname "$0")/../../compose-agent.override.yml"}
 
 [ -f "$compose_file" ] || exit 0
 command -v docker >/dev/null 2>&1 || exit 0

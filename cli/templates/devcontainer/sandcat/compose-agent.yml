@@ -1,15 +1,12 @@
 # Constant (non-user-editable) parts of the agent service. User-customizable
-# parts — volumes, environment — live in ../compose-all.yml and are merged
-# over this base by Docker Compose's include-override mechanism (the same
-# mechanism compose-all.yml already uses to add the project-settings mount
-# to the mitmproxy service defined in compose-proxy.yml).
+# parts — volumes, environment — live in ../compose-agent.override.yml and are
+# merged over this base (see the include in ../compose-all.yml).
 services:
   agent:
     build:
-      # Paths in an included compose file resolve relative to THIS file's
-      # directory (sandcat/), so the context points one level up at
-      # .devcontainer/, where Dockerfile.app lives.
-      context: ..
+      # compose-all.yml includes this file with `project_directory: .`, so
+      # relative paths resolve from .devcontainer/, where Dockerfile.app lives.
+      context: .
       dockerfile: Dockerfile.app
     # We set `no-new-privileges` to true to "disable container processes from
     # gaining new privileges."
