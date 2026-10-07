@@ -173,7 +173,7 @@ Subcommands:
 
 ### `sandcat edit compose`
 
-Opens the Docker Compose file in your editor. If you save changes and containers are running, it will restart containers by default to apply the changes.
+Opens the user-editable compose file, `.devcontainer/compose-agent.override.yml`, in your editor (`compose-all.yml` in projects generated before it existed). If you save changes and containers are running, it will restart containers by default to apply the changes.
 
 Options:
 - `--no-restart` — Do not automatically restart containers after changes. When set (or when `SANDCAT_NO_RESTART=true`), a warning is shown instead with instructions to run `sandcat compose up -d` manually.
