@@ -31,9 +31,11 @@ enough for most tools — but some runtimes bring their own CA handling:
   picks them up immediately. At container startup, `app-user-init.sh` imports
   the mitmproxy CA into the `cacerts` copy at `~/.local/share/sandcat/cacerts`
   and updates the symlink target if the Java version changed. **GraalVM native
-  binaries** (e.g. `scala-cli`) ignore `JAVA_TOOL_OPTIONS` and `JAVA_HOME` for
-  trust store resolution. `app-user-init.sh` pre-creates the `scala-cli` config
-  file with the trust store path so it works even before scala-cli is installed.
+  binaries** (e.g. `scala-cli`, `cellar`) ignore `JAVA_TOOL_OPTIONS` and
+  `JAVA_HOME` for trust store resolution. `app-user-init.sh` pre-creates the
+  `scala-cli` config file and appends `java.properties` to
+  `~/.cellar/cellar.conf`, both pointing at the trust store, so they work even
+  before the tools are installed.
   Other native tools may need similar tool-specific configuration.
 - **Python** uses the system CA store — works out of the box. The exception is
   **uv**, which is itself a Rust binary and (like other `rustls`-based tools)

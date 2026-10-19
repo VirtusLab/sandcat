@@ -113,6 +113,17 @@ if [ -n "$DEVBOX_JAVA_HOME" ] && [ -f "$CA_CERT" ]; then
 }
 EOFJSON
 
+        # cellar is a GraalVM native binary too; unlike scala-cli's secrets
+        # file, cellar.conf also holds the user's own settings, so append.
+        # `+=` keeps any java.properties the user set; a plain `=` would
+        # replace their list. The exact-entry grep survives `cellar telemetry`
+        # re-rendering the file, which drops comments.
+        CELLAR_CONF="$HOME/.cellar/cellar.conf"
+        mkdir -p "$(dirname "$CELLAR_CONF")"
+        if ! grep -qsF "javax.net.ssl.trustStore=$SANDCAT_CACERTS" "$CELLAR_CONF"; then
+            printf '\njava.properties += "javax.net.ssl.trustStore=%s"\njava.properties += "javax.net.ssl.trustStorePassword=changeit"\n' \
+                "$SANDCAT_CACERTS" >> "$CELLAR_CONF"
+        fi
     fi
 fi
 
