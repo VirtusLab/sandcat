@@ -27,18 +27,19 @@ RUN apt-get update \
 # whose runtime layer is `security_opt: no-new-privileges` (issue #12, #90).
 RUN rm -f /etc/sudoers.d/vscode
 
+ENV LANG="en_US.UTF-8"
+
+# Devbox goes first: its layers are multi-GB, and anything above it that
+# differs per agent or sandcat release would force a rebuild and re-export.
+
+# __DEVBOX_INSTALL__
+
+# __AGENT_DOCKER_INSTALL__
+
 COPY --chmod=755 sandcat/scripts/app-init.sh /usr/local/bin/app-init.sh
 COPY --chmod=755 sandcat/scripts/app-user-init.sh /usr/local/bin/app-user-init.sh
 COPY --chmod=644 sandcat/scripts/java-env.sh /etc/profile.d/sandcat-java.sh
 COPY --chown=vscode:vscode sandcat/tmux.conf /home/vscode/.tmux.conf
-
-USER vscode
-
-ENV LANG="en_US.UTF-8"
-
-# __AGENT_DOCKER_INSTALL__
-
-# __DEVBOX_INSTALL__
 
 # __AGENT_DOCKER_HOME_PREP__
 
