@@ -11,3 +11,8 @@ export SCT_PROJECT_DIR='.sandcat'
 # Keep in sync with the build-side counterpart in images/mitmproxy.env —
 # a contract test asserts the two stay equal.
 export SCT_MITMPROXY_VERSION="12.2.3"
+
+# Tag of the pre-built agent base image used by generated Dockerfile.app.
+# Keep in sync with images/agent-base/agent-base.env — a contract test
+# asserts the two stay equal.
+export SCT_AGENT_BASE_VERSION="1"

@@ -1,0 +1,127 @@
+name: Build agent base image
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'images/agent-base/**'
+      - 'cli/lib/devbox.bash'
+      - '.github/workflows/build-agent-base-image.yml'
+  pull_request:
+    paths:
+      - 'images/agent-base/**'
+      - 'cli/lib/devbox.bash'
+      - '.github/workflows/build-agent-base-image.yml'
+  schedule:
+    - cron: '0 6 * * 1' # Weekly Monday 6am — refresh @latest packages and the devcontainers base
+  workflow_dispatch:
+
+env:
+  IMAGE: ghcr.io/virtuslab/sandcat-agent-base
+  # Only master pushes, the weekly schedule and master dispatches publish.
+  PUBLISH: ${{ github.event_name == 'push' || github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master') }}
+
+jobs:
+  build:
+    if: ${{ github.repository == 'VirtusLab/sandcat' }}
+    # Native runner per architecture: Nix under QEMU emulation is very slow.
+    strategy:
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-latest
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Generate baseline devbox.json
+        run: bash -c 'source cli/lib/devbox.bash && write_devbox_stack_json images/agent-base/devbox.json'
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        if: env.PUBLISH == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # No layer cache and always pull: every build resolves @latest packages
+      # and the devcontainers base afresh.
+      - name: Build (and push by digest)
+        id: build
+        uses: docker/build-push-action@v5
+        with:
+          context: images/agent-base
+          platforms: ${{ matrix.platform }}
+          pull: true
+          no-cache: true
+          outputs: ${{ env.PUBLISH == 'true' && format('type=image,name={0},push-by-digest=true,name-canonical=true,push=true', env.IMAGE) || 'type=cacheonly' }}
+
+      - name: Export digest
+        if: env.PUBLISH == 'true'
+        run: |
+          mkdir -p /tmp/digests
+          digest="${{ steps.build.outputs.digest }}"
+          touch "/tmp/digests/${digest#sha256:}"
+
+      - name: Upload digest
+        if: env.PUBLISH == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: digests-${{ strategy.job-index }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  merge:
+    needs: build
+    if: ${{ github.repository == 'VirtusLab/sandcat' && needs.build.result == 'success' && (github.event_name == 'push' || github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master')) }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Load base image version
+        run: grep -m1 '^AGENT_BASE_VERSION=' images/agent-base/agent-base.env >> "$GITHUB_ENV"
+
+      - name: Download digests
+        uses: actions/download-artifact@v4
+        with:
+          path: /tmp/digests
+          pattern: digests-*
+          merge-multiple: true
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create manifest list
+        working-directory: /tmp/digests
+        run: |
+          docker buildx imagetools create \
+            -t "$IMAGE:$AGENT_BASE_VERSION" \
+            -t "$IMAGE:sha-${GITHUB_SHA::7}" \
+            $(printf "$IMAGE@sha256:%s " *)
+
+      - name: Inspect
+        run: docker buildx imagetools inspect "$IMAGE:$AGENT_BASE_VERSION"

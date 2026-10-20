@@ -26,11 +26,18 @@ teardown() {
 	assert_success
 }
 
+@test "customize_devbox builds from the pinned agent base image" {
+	customize_devbox "$DEVCONTAINER_DIR"
+
+	run grep -xF "FROM ghcr.io/virtuslab/sandcat-agent-base:$SCT_AGENT_BASE_VERSION" "$DEVCONTAINER_DIR/Dockerfile.app"
+	assert_success
+	run grep -c '__AGENT_BASE_IMAGE__' "$DEVCONTAINER_DIR/Dockerfile.app"
+	assert_output "0"
+}
+
 @test "customize_devbox expands the install block" {
 	customize_devbox "$DEVCONTAINER_DIR"
 
-	run grep 'get.jetify.com/devbox' "$DEVCONTAINER_DIR/Dockerfile.app"
-	assert_success
 	run grep 'devbox global install' "$DEVCONTAINER_DIR/Dockerfile.app"
 	assert_success
 	run grep '/etc/profile.d/sandcat-devbox.sh' "$DEVCONTAINER_DIR/Dockerfile.app"
@@ -64,12 +71,12 @@ teardown() {
 	assert_output "0"
 }
 
-@test "Dockerfile.app template installs rsync (needed by home snapshot sync)" {
+@test "agent base image installs rsync (needed by home snapshot sync)" {
 	# app-init.sh uses rsync to refresh the image-side /home/vscode
 	# snapshot into the agent-home volume; without it the sync silently
 	# fails and users need `down -v` after every rebuild.
 	run grep -E 'apt-get install .* rsync' \
-		"$DEVCONTAINER_DIR/Dockerfile.app"
+		"$SCT_ROOT/../images/agent-base/Dockerfile"
 	assert_success
 }
 
