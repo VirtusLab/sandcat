@@ -1,22 +1,6 @@
-FROM mcr.microsoft.com/devcontainers/base:debian
-
-# ca-certificates, curl, git are already in the devcontainers base image.
-# The three tools below all run before devbox is usable, so they have to
-# come from apt — devbox packages live under /home/vscode (masked by the
-# agent-home volume) and require the vscode-user shellenv to be on PATH.
-#
-# gosu:  drops privileges in the entrypoint. Invoked by root before any
-#        user profile is set up, so it can't come from devbox.
-# jq:    merges devbox.stack.json + devbox.tools.json at build time
-#        (see cli/lib/devbox.bash). Bootstrap: we need jq to install
-#        devbox's config, so it can't itself come from devbox.
-# rsync: refreshes the image-side /home/vscode snapshot into the
-#        agent-home volume in app-init.sh. Root-invoked and it's the
-#        very tool syncing devbox into the volume — can't live in
-#        the volume it syncs.
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends gosu jq rsync \
-    && rm -rf /var/lib/apt/lists/*
+# Pre-built by sandcat (images/agent-base): devcontainers base, apt tools,
+# Nix, devbox and the baseline shell tools.
+FROM __AGENT_BASE_IMAGE__
 
 # The devcontainers base image grants vscode passwordless sudo
 # (/etc/sudoers.d/vscode: `vscode ALL=(root) NOPASSWD:ALL`). Sandcat's
@@ -25,9 +9,8 @@ RUN apt-get update \
 # Remove the grant so the image is hardened even when run outside sandcat's
 # compose; inside compose this is the image-level layer of the same defense
 # whose runtime layer is `security_opt: no-new-privileges` (issue #12, #90).
+USER root
 RUN rm -f /etc/sudoers.d/vscode
-
-ENV LANG="en_US.UTF-8"
 
 # Devbox goes first: its layers are multi-GB, and anything above it that
 # differs per agent or sandcat release would force a rebuild and re-export.

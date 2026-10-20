@@ -21,7 +21,10 @@ includes the files above and `sandcat/compose-proxy.yml`.
 toolchains and user tools are merged from `devbox.stack.json` +
 `devbox.tools.json` into a single devbox global profile at build time —
 see [Stack and tool packages via devbox](stacks.md)
-for the two-file model. Some runtimes need extra configuration to trust
+for the two-file model. It builds `FROM` a pre-built base image
+(`ghcr.io/virtuslab/sandcat-agent-base`, see `images/agent-base/`) that
+already has Nix, devbox and the baseline shell tools, so only stack
+packages are installed locally. Some runtimes need extra configuration to trust
 the mitmproxy CA — see [TLS and CA certificates](../reference/notes.md#tls-and-ca-certificates).
 
 **`devcontainer.json`** — includes VS Code hardening settings (credential socket

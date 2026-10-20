@@ -107,9 +107,9 @@ _devbox_merge_jq() {
 	printf '%s' 'def pkgname: split("@")[0]; (.[1].packages // []) as $tools | ($tools | map(pkgname)) as $tnames | {packages: (((.[0].packages // []) | map(select(pkgname as $n | $tnames | index($n) | not))) + $tools | unique)}'
 }
 
-# Prints the Dockerfile block that installs devbox, merges the two devbox
-# configs into the global profile, installs all resolved packages into image
-# layers, and hooks them into every shell via /etc/profile.d.
+# Prints the Dockerfile block that merges the two devbox configs into the
+# global profile, installs all resolved packages into image layers, and
+# hooks them into every shell via /etc/profile.d.
 devbox_dockerfile_block() {
 	local merge_jq
 	merge_jq=$(_devbox_merge_jq)
@@ -118,38 +118,15 @@ devbox_dockerfile_block() {
 	# arguments; jq's own quoting stays intact because Docker's shell parser
 	# passes it through unchanged.
 	cat <<EOF
-USER root
-# Prep /nix owned by vscode. Single-user Nix (which we need — see below)
-# requires a user-writable /nix.
-RUN mkdir -m 0755 /nix && chown vscode /nix
-# Install devbox launcher. The installer writes /usr/local/bin/devbox as
-# mode 711 (root:root, no read bit for others). It's a bash launcher, not
-# a native binary, so bash can't read the shebang as non-root and exec
-# fails with EACCES. Force 0755 so vscode can execute it.
-RUN curl -fsSL https://get.jetify.com/devbox | bash -s -- -f \\
-    && chmod 0755 /usr/local/bin/devbox
-
 USER vscode
-# Preinstall Nix in single-user mode BEFORE devbox gets a chance.
-# \`devbox global install\` on a fresh system triggers Determinate's
-# \`nix-installer\`, which defaults to multi-user (systemd-managed daemon)
-# whenever sudo is available. Containers based on debian have sudo but
-# no systemd, so the daemon never starts, and later \`nix\` commands fail
-# with "cannot connect to socket at /nix/var/nix/daemon-socket/socket"
-# and "opening lock file /nix/var/nix/db/big-lock: Permission denied".
-# The classic nixos.org installer with --no-daemon reliably yields a
-# single-user install that works under vscode's UID.
-RUN curl -fsSL -L https://nixos.org/nix/install \\
-    | sh -s -- --no-daemon --no-modify-profile --yes
-ENV PATH="/home/vscode/.nix-profile/bin:\${PATH}"
 
 # Split into two layers so the common case (user drops a tool into
 # devbox.tools.json) doesn't invalidate the expensive stack install.
 #
 # Layer A — stack packages only. Cached whenever devbox.stack.json is
-# unchanged. This is the ~11-minute step on a cold build; keeping it
-# out of the same COPY as devbox.tools.json lets a tools-only edit
-# skip it entirely.
+# unchanged. Baseline entries resolve through the base image's
+# devbox.lock, so only stack packages are downloaded. Keeping it out of
+# the same COPY as devbox.tools.json lets a tools-only edit skip it.
 COPY --chown=vscode:vscode devbox.stack.json /home/vscode/.local/share/devbox/global/default/devbox.json
 RUN --mount=type=cache,target=/home/vscode/.cache/nix,uid=1000,gid=1000 \\
     . /home/vscode/.nix-profile/etc/profile.d/nix.sh \\
@@ -216,7 +193,7 @@ EOF
 # Applies devbox to a generated devcontainer directory:
 #   * regenerates devbox.stack.json from resolved stacks + baseline;
 #   * writes devbox.tools.json only if missing (guarded across init);
-#   * expands __DEVBOX_INSTALL__ in Dockerfile.app.
+#   * expands __AGENT_BASE_IMAGE__ and __DEVBOX_INSTALL__ in Dockerfile.app.
 #
 # Args:
 #   $1     - Path to devcontainer directory
@@ -227,6 +204,9 @@ customize_devbox() {
 
 	write_devbox_stack_json "$devcontainer_dir/devbox.stack.json" "$@"
 	write_devbox_tools_json "$devcontainer_dir/devbox.tools.json"
+
+	apply_inline_placeholders "$devcontainer_dir/Dockerfile.app" \
+		"__AGENT_BASE_IMAGE__" "ghcr.io/virtuslab/sandcat-agent-base:$SCT_AGENT_BASE_VERSION"
 
 	local block
 	block=$(devbox_dockerfile_block)
