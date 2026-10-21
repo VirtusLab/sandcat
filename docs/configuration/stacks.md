@@ -49,8 +49,8 @@ docker compose -f .devcontainer/compose-all.yml build agent
 
 Every shell inside the sandbox — including the agent's — picks up the
 packages on `PATH`. Iterating on `devbox.tools.json` is the fast path:
-the stack install layer stays cached and only the delta downloads
-(typically seconds).
+the stack install layer stays cached and only the tools layer rebuilds
+(about a minute, as devbox re-fetches the package definitions it needs).
 
 Installs are build-time only: `devbox add` inside the sandbox is not
 supported, and no Nix download hosts are added to the network allowlist.

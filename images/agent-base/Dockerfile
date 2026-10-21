@@ -48,12 +48,17 @@ USER vscode
 # and "opening lock file /nix/var/nix/db/big-lock: Permission denied".
 # The classic nixos.org installer with --no-daemon reliably yields a
 # single-user install that works under vscode's UID.
+# --no-channel-add: devbox resolves packages through flakes, so the ~500 MB
+# nixpkgs channel would be unused.
 RUN curl -fsSL -L https://nixos.org/nix/install \
-    | sh -s -- --no-daemon --no-modify-profile --yes
+    | sh -s -- --no-daemon --no-modify-profile --no-channel-add --yes
 ENV PATH="/home/vscode/.nix-profile/bin:${PATH}"
 
 # Baseline packages. The devbox.lock written here pins their versions, so
 # installing a project's stacks on top only fetches the stack packages.
+# Garbage collection drops what was only needed to install them (nixpkgs
+# sources, build inputs); the devbox profile is a GC root, so its packages stay.
 COPY --chown=vscode:vscode devbox.json /home/vscode/.local/share/devbox/global/default/devbox.json
 RUN . /home/vscode/.nix-profile/etc/profile.d/nix.sh \
- && devbox global install
+ && devbox global install \
+ && nix-collect-garbage
