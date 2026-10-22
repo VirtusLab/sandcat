@@ -130,7 +130,9 @@ USER vscode
 COPY --chown=vscode:vscode devbox.stack.json /home/vscode/.local/share/devbox/global/default/devbox.json
 RUN --mount=type=cache,target=/home/vscode/.cache/nix,uid=1000,gid=1000 \\
     . /home/vscode/.nix-profile/etc/profile.d/nix.sh \\
- && devbox global install
+ && export NIX_CONFIG="eval-cache = false" \\
+ && devbox global install \\
+ && nix-collect-garbage
 
 # Layer B — merge stack + user tools, install the delta, and bump the
 # Nix priority of tools entries so they win file collisions against stack
@@ -148,27 +150,47 @@ RUN --mount=type=cache,target=/home/vscode/.cache/nix,uid=1000,gid=1000 \\
 #     picks the priority-3 entry, and the sandcat Java block resolves
 #     JAVA_HOME through bin/java to the tools JDK.
 #
+# Skipped when there are no tools and no committed devbox.lock: nothing
+# would change, but devbox would still re-fetch the nixpkgs sources that
+# Layer A's garbage collection removed (~1 min).
+#
 # devbox.loc[k] is the optional-file COPY idiom: picks up a committed
 # devbox.lock without failing when absent.
 COPY --chown=vscode:vscode devbox.stack.json devbox.tools.json /tmp/
-COPY --chown=vscode:vscode devbox.loc[k] /home/vscode/.local/share/devbox/global/default/
+COPY --chown=vscode:vscode devbox.loc[k] /tmp/devbox-user/
 RUN --mount=type=cache,target=/home/vscode/.cache/nix,uid=1000,gid=1000 \\
-    NIX_PROFILE=\$HOME/.local/share/devbox/global/default/.devbox/nix/profile/default \\
- && jq -r '[.. | .storePaths? // empty] | flatten | .[]' \$NIX_PROFILE/manifest.json \\
-    | sort -u > /tmp/paths.before.txt \\
- && jq -s '${merge_jq}' /tmp/devbox.stack.json /tmp/devbox.tools.json \\
-    > /home/vscode/.local/share/devbox/global/default/devbox.json \\
- && . /home/vscode/.nix-profile/etc/profile.d/nix.sh \\
- && devbox global install \\
- && jq -r '[.. | .storePaths? // empty] | flatten | .[]' \$NIX_PROFILE/manifest.json \\
-    | sort -u > /tmp/paths.after.txt \\
- && comm -23 /tmp/paths.after.txt /tmp/paths.before.txt > /tmp/tools-paths.txt \\
- && while IFS= read -r storepath; do \\
-      [ -n "\$storepath" ] || continue; \\
-      nix --extra-experimental-features "nix-command flakes" \\
-          profile add --priority 3 --profile \$NIX_PROFILE "\$storepath"; \\
-    done < /tmp/tools-paths.txt \\
- && rm /tmp/devbox.stack.json /tmp/devbox.tools.json /tmp/paths.before.txt /tmp/paths.after.txt /tmp/tools-paths.txt
+    if [ "\$(jq '(.packages // []) | length' /tmp/devbox.tools.json)" = 0 ] \\
+       && [ ! -f /tmp/devbox-user/devbox.lock ]; then \\
+      echo "No devbox tools and no devbox.lock, skipping."; \\
+    else \\
+      NIX_PROFILE=\$HOME/.local/share/devbox/global/default/.devbox/nix/profile/default \\
+   && { [ ! -f /tmp/devbox-user/devbox.lock ] \\
+        || cp /tmp/devbox-user/devbox.lock /home/vscode/.local/share/devbox/global/default/; } \\
+   && jq -r '[.. | .storePaths? // empty] | flatten | .[]' \$NIX_PROFILE/manifest.json \\
+      | sort -u > /tmp/paths.before.txt \\
+   && jq -s '${merge_jq}' /tmp/devbox.stack.json /tmp/devbox.tools.json \\
+      > /home/vscode/.local/share/devbox/global/default/devbox.json \\
+   && . /home/vscode/.nix-profile/etc/profile.d/nix.sh \\
+   && export NIX_CONFIG="eval-cache = false" \\
+   && devbox global install \\
+   && jq -r '[.. | .storePaths? // empty] | flatten | .[]' \$NIX_PROFILE/manifest.json \\
+      | sort -u > /tmp/paths.after.txt \\
+   && comm -23 /tmp/paths.after.txt /tmp/paths.before.txt > /tmp/tools-paths.txt \\
+   && while IFS= read -r storepath; do \\
+        [ -n "\$storepath" ] || continue; \\
+        nix --extra-experimental-features "nix-command flakes" \\
+            profile add --priority 3 --profile \$NIX_PROFILE "\$storepath"; \\
+      done < /tmp/tools-paths.txt \\
+   && nix-collect-garbage; \\
+    fi \\
+ && rm -rf /tmp/devbox.stack.json /tmp/devbox.tools.json /tmp/devbox-user \\
+    /tmp/paths.before.txt /tmp/paths.after.txt /tmp/tools-paths.txt
+
+# nix-collect-garbage in both layers drops what was only needed to install
+# (nixpkgs sources, build inputs). Profile packages are GC roots and stay.
+# eval-cache is off because the Nix eval cache in the ~/.cache/nix mount
+# outlives the image layers and would point at .drv files collected here,
+# failing the next build with "Cannot build '...-nix-shell-env.drv'".
 
 # BuildKit --mount=type=cache above persists ~/.cache/nix (Nix's HTTP
 # cache for .nar downloads) between builds on the same host. First cold
