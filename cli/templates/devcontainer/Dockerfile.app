@@ -28,25 +28,28 @@ COPY --chown=vscode:vscode sandcat/tmux.conf /home/vscode/.tmux.conf
 
 USER root
 # Snapshot the image-side /home/vscode state that the agent-home volume
-# will mask at runtime (devbox profile with symlinks into /nix/store, the
-# sandcat helper dir with java-home + baseline cacerts, and .bashrc). app-init.sh
-# rsyncs this back into the volume when the snapshot
-# hash changes, so rebuilds that add/remove packages or switch JDKs take
-# effect without `docker compose down -v` (which would wipe auth Claude
-# Code and force the IDE backend to re-upload).
+# will mask at runtime (Nix and devbox profiles with symlinks into
+# /nix/store, the sandcat helper dir with java-home + baseline cacerts,
+# and .bashrc). app-init.sh rsyncs this back into the volume when the
+# snapshot hash changes, so rebuilds that add/remove packages, switch JDKs
+# or pull a new base image take effect without `docker compose down -v`
+# (which would wipe auth Claude Code and force the IDE backend to re-upload).
 #
-# The hash covers merged devbox.json + .bashrc. Any stack or tools change
-# flips at least one of them; unchanged rebuilds
-# leave the hash stable so app-init.sh skips the sync entirely.
+# The hash covers the /nix/store paths both profiles resolve to, plus
+# .bashrc. These change whenever the volume's symlinks would point at
+# store paths missing from the image, e.g. after a base image update
+# that leaves devbox.json unchanged. Unchanged rebuilds leave the hash
+# stable so app-init.sh skips the sync entirely.
 RUN mkdir -p /opt/sandcat/snapshots \
  && cp -a /home/vscode/.local/share/devbox /opt/sandcat/snapshots/devbox \
+ && cp -a /home/vscode/.local/state/nix /opt/sandcat/snapshots/nix-state \
  && if [ -d /home/vscode/.local/share/sandcat ]; then \
       cp -a /home/vscode/.local/share/sandcat /opt/sandcat/snapshots/sandcat; \
     fi \
  && cp /home/vscode/.bashrc /opt/sandcat/snapshots/bashrc \
- && sha256sum \
-      /opt/sandcat/snapshots/devbox/global/default/devbox.json \
-      /opt/sandcat/snapshots/bashrc \
+ && store_paths=$(readlink -e /home/vscode/.nix-profile \
+      /home/vscode/.local/share/devbox/global/default/.devbox/nix/profile/default) \
+ && { echo "$store_paths"; sha256sum /opt/sandcat/snapshots/bashrc; } \
     | sha256sum | cut -d' ' -f1 > /opt/sandcat/snapshots/hash
 
 ENTRYPOINT ["/usr/local/bin/app-init.sh"]

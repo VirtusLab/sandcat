@@ -123,7 +123,7 @@ else
     echo "No $SANDCAT_ENV found — env vars and secret substitution disabled"
 fi
 
-# Refresh image-managed home state (devbox profile, sandcat java-home
+# Refresh image-managed home state (Nix and devbox profiles, sandcat java-home
 # symlink and baseline cacerts, .bashrc) into the agent-home
 # volume when the image snapshot has changed since last start.
 #
@@ -148,6 +148,12 @@ if [ -f "$SNAPSHOT_HASH_FILE" ]; then
         # The whole subtree is image-owned; users never edit here directly.
         rsync -a --delete "$SNAPSHOT_DIR/devbox/" \
             /home/vscode/.local/share/devbox/
+        # Nix's own profile (~/.nix-profile points here). Without it, the
+        # profile in the volume can point at a /nix/store path missing from
+        # a newer image, and nix, devbox shellenv and all packages are lost.
+        mkdir -p /home/vscode/.local/state/nix
+        rsync -a --delete "$SNAPSHOT_DIR/nix-state/" \
+            /home/vscode/.local/state/nix/
         # sandcat: no --delete because app-user-init.sh writes cacerts
         # (with the mitmproxy CA) here at runtime and we don't want to
         # blow that away between the sync and the reimport.
@@ -159,6 +165,7 @@ if [ -f "$SNAPSHOT_HASH_FILE" ]; then
         cp "$SNAPSHOT_DIR/bashrc" /home/vscode/.bashrc
         chown -R vscode:vscode \
             /home/vscode/.local/share/devbox \
+            /home/vscode/.local/state/nix \
             /home/vscode/.bashrc
         if [ -d /home/vscode/.local/share/sandcat ]; then
             chown -R vscode:vscode /home/vscode/.local/share/sandcat
