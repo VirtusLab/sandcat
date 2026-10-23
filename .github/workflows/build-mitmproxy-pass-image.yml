@@ -64,7 +64,7 @@ jobs:
         with:
           images: ghcr.io/virtuslab/sandcat-mitmproxy-pass
           # Tag policy: every published image contains the PINNED mitmproxy
-          # (12.2.3 from images/mitmproxy.env). `latest` simply means the
+          # (12.3.0 from images/mitmproxy.env). `latest` simply means the
           # latest master build of OUR image — so projects that reference
           # ghcr `latest` (including those generated before pinning) get the
           # pinned base too. The <version> tag is published from master
