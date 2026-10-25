@@ -16,7 +16,7 @@ RUN set -eux; \
 
 FROM docker:29-cli
 
-RUN apk add --update --no-cache bash yq ncurses
+RUN apk add --update --no-cache bash jq yq ncurses
 
 WORKDIR /app
 ENTRYPOINT ["/opt/sandcat/bin/sandcat"]
