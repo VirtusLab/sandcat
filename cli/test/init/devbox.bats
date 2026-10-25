@@ -90,6 +90,9 @@ teardown() {
 	run grep 'cp -a /home/vscode/.local/share/devbox /opt/sandcat/snapshots/devbox' \
 		"$DEVCONTAINER_DIR/Dockerfile.app"
 	assert_success
+	run grep 'cp -a /home/vscode/.local/state/nix /opt/sandcat/snapshots/nix-state' \
+		"$DEVCONTAINER_DIR/Dockerfile.app"
+	assert_success
 	run grep 'cp /home/vscode/.bashrc /opt/sandcat/snapshots/bashrc' \
 		"$DEVCONTAINER_DIR/Dockerfile.app"
 	assert_success
@@ -100,6 +103,11 @@ teardown() {
 	run grep '/opt/sandcat/snapshots/hash' \
 		"$DEVCONTAINER_DIR/Dockerfile.app"
 	assert_success
+	# Hashing the profiles' store paths (not devbox.json) re-syncs after a
+	# base image update that leaves devbox.json unchanged.
+	run grep 'store_paths=$(readlink -e /home/vscode/.nix-profile' \
+		"$DEVCONTAINER_DIR/Dockerfile.app"
+	assert_success
 }
 
 @test "app-init.sh syncs the image snapshot into the volume" {
@@ -108,6 +116,8 @@ teardown() {
 	assert_success
 	# --delete on devbox so removed packages don't leave dangling symlinks.
 	run grep -E 'rsync -a --delete .*SNAPSHOT_DIR/devbox/' "$APP_INIT"
+	assert_success
+	run grep -E 'rsync -a --delete .*SNAPSHOT_DIR/nix-state/' "$APP_INIT"
 	assert_success
 	# No --delete on sandcat so app-user-init's runtime cacerts survive.
 	run grep -E 'rsync -a "\$SNAPSHOT_DIR/sandcat/"' "$APP_INIT"
