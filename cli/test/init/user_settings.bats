@@ -114,6 +114,23 @@ teardown() {
 	yq -e '.network[] | select(.host == "*.claude.com")' "$settings"
 }
 
+@test "create_user_settings for codex includes API and ChatGPT login network rules" {
+	stub git \
+		"config --global user.name : echo ''" \
+		"config --global user.email : echo ''"
+
+	create_user_settings codex
+
+	local settings="$HOME/.config/sandcat/settings.json"
+	yq -e '.network[] | select(.host == "api.openai.com" and .action == "allow")' "$settings"
+	yq -e '.network[] | select(.host == "auth.openai.com" and .action == "allow")' "$settings"
+	yq -e '.network[] | select(.host == "chatgpt.com" and .action == "allow")' "$settings"
+
+	# The API key is only ever substituted for the API host, not the login hosts.
+	run yq -o json -I 0 '.secrets.OPENAI_API_KEY.hosts' "$settings"
+	assert_output '["api.openai.com"]'
+}
+
 @test "create_user_settings for cursor includes cursor network rules" {
 	stub git \
 		"config --global user.name : echo ''" \
@@ -220,4 +237,25 @@ EOF
 
 	local settings="$HOME/.config/sandcat/settings.json"
 	yq -e '.cursor.cli.network.useHttp1ForAgent == false' "$settings"
+}
+
+@test "ensure_codex_user_settings_defaults is idempotent and keeps user network rules" {
+	mkdir -p "$HOME/.config/sandcat"
+	cat > "$HOME/.config/sandcat/settings.json" <<'EOF'
+{
+  "network": [
+    {"action": "deny", "host": "chatgpt.com", "method": "DELETE"},
+    {"action": "allow", "host": "github.com"},
+    {"action": "allow", "host": "chatgpt.com"}
+  ]
+}
+EOF
+
+	ensure_codex_user_settings_defaults
+	ensure_codex_user_settings_defaults
+
+	# User rules keep their order ahead of the seeded ones; nothing is duplicated.
+	local settings="$HOME/.config/sandcat/settings.json"
+	run yq -o json -I 0 '.network | map(.action + " " + .host + " " + (.method // ""))' "$settings"
+	assert_output '["deny chatgpt.com DELETE","allow github.com ","allow chatgpt.com ","allow api.openai.com ","allow auth.openai.com "]'
 }

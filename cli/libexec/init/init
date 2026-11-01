@@ -118,7 +118,14 @@ ensure_codex_user_settings_defaults() {
 			| unique
 		) |
 		.network = (.network // []) |
-		.network = (.network + [{"action": "allow", "host": "api.openai.com"}] | unique_by(.host + (.method // "") + .action))
+		.network = (
+			.network + [
+				{"action": "allow", "host": "api.openai.com"},
+				{"action": "allow", "host": "auth.openai.com"},
+				{"action": "allow", "host": "chatgpt.com"}
+			]
+			| unique_by(.host + (.method // "") + .action)
+		)
 	' "$user_settings"
 }
 
