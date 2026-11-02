@@ -1110,6 +1110,23 @@ class TestConfigLoading:
         assert "export A=SANDCAT_PLACEHOLDER_A" in content
         assert "export B=SANDCAT_PLACEHOLDER_B" in content
 
+    def test_empty_value_secret_not_exported(self, addon_cls, tmp_path):
+        settings = {"secrets": {
+            "EMPTY": {"value": "", "hosts": ["h.com"]},
+            "SET": {"value": "v", "hosts": ["h.com"]},
+        }}
+        p = tmp_path / "settings.json"
+        p.write_text(json.dumps(settings))
+        env_path = tmp_path / "sandcat.env"
+        addon = addon_cls()
+        with patch(f"{_COMMON}.SETTINGS_PATHS", [str(p)]), \
+             patch(f"{_COMMON}.SANDCAT_ENV_PATH", str(env_path)):
+            addon.load(MagicMock())
+        content = env_path.read_text()
+        assert "EMPTY" not in content
+        assert "export SET=SANDCAT_PLACEHOLDER_SET" in content
+        assert list(addon.secrets) == ["SET"]
+
     def test_env_vars_written_to_placeholders_env(self, addon_cls, tmp_path):
         settings = {
             "env": {"GIT_USER_NAME": "Alice", "GIT_USER_EMAIL": "alice@example.com"},

@@ -174,8 +174,12 @@ EOF
 	run yq -r '.secrets.GITHUB_TOKEN.hosts | .[0]' "$SCT_HOME_DIR/settings.json"
 	assert_output "github.com"
 
-	# api.openai.com added to network allowlist
+	# api.openai.com and the ChatGPT login hosts added to network allowlist
 	run yq -r '.network | map(.host) | index("api.openai.com")' "$SCT_HOME_DIR/settings.json"
+	refute_output "null"
+	run yq -r '.network | map(.host) | index("auth.openai.com")' "$SCT_HOME_DIR/settings.json"
+	refute_output "null"
+	run yq -r '.network | map(.host) | index("chatgpt.com")' "$SCT_HOME_DIR/settings.json"
 	refute_output "null"
 }
 

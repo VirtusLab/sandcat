@@ -13,10 +13,12 @@ Claude Code supports two authentication methods inside the container:
   entrypoint detects the key and seeds `~/.claude.json` with
   `{"hasCompletedOnboarding": true}` so Claude Code uses it without interactive
   setup.
-- **Subscription (browser login)** — omit `ANTHROPIC_API_KEY` from
-  `settings.json`. On first run Claude Code will display a URL and a code. Open
-  the URL in a browser on your host machine, enter the code, and authenticate
-  there — the container itself cannot open a browser.
+- **Subscription (browser login)** — leave `ANTHROPIC_API_KEY` empty or omit
+  it from `settings.json`. On first run Claude Code will display a URL and a
+  code. Open the URL in a browser on your host machine, enter the code, and
+  authenticate there — the container itself cannot open a browser. The login
+  token is stored in the container; see
+  [Subscription logins](../configuration/secrets.md#subscription-logins).
 
 **Autonomous mode.** The bundled `devcontainer.json` enables
 `claudeCode.allowDangerouslySkipPermissions` and sets

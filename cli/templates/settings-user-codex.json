@@ -14,6 +14,8 @@
     {"action": "allow", "host": "*.github.com"},
     {"action": "allow", "host": "github.com"},
     {"action": "allow", "host": "*.githubusercontent.com"},
-    {"action": "allow", "host": "api.openai.com"}
+    {"action": "allow", "host": "api.openai.com"},
+    {"action": "allow", "host": "auth.openai.com"},
+    {"action": "allow", "host": "chatgpt.com"}
   ]
 }

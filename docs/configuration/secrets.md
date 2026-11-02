@@ -149,7 +149,15 @@ restart` after changing 1Password items.
    the destination host against the secret's allowlist, and either substitutes
    the real value or blocks the request with 403 (leak detection).
 
-Real secrets never leave the mitmproxy container.
+Real secrets never leave the mitmproxy container. A secret with an empty
+`value` counts as not configured: no env var is exported for it.
+
+## Subscription logins
+
+Subscription logins (Claude Code browser login, `codex login --device-auth`)
+store their tokens in the container's agent-home volume. These tokens bypass
+secret substitution: the agent can read them and send them to any allowed host.
+Use an API key secret if that is not acceptable.
 
 ## Disabling
 

@@ -3,8 +3,9 @@
 Sandcat installs [OpenAI's Codex CLI](https://github.com/openai/codex)
 into every codex-agent sandbox and wires `OPENAI_API_KEY` through the
 mitmproxy secret substitution layer. Codex reads its config from
-`~/.codex/config.toml` (per-sandbox, agent-home volume) and picks up
-the API key directly from the environment — no `codex login` required.
+`~/.codex/config.toml` (per-sandbox, agent-home volume). You can
+authenticate with an API key or a ChatGPT subscription — see
+[Authentication](#authentication).
 
 **Setup:**
 
@@ -25,8 +26,9 @@ The rest of `~/.codex/` (config.toml, credentials, history) lives in
 the container's agent-home volume — per-sandbox persistent, per-sandbox
 isolated. Opt out with `SANDCAT_MOUNT_CODEX_CONFIG=false`.
 
-**Auth model:** first iteration supports `OPENAI_API_KEY` only.
-ChatGPT sign-in (`chatgpt.com` / `auth.openai.com`) is not in the
-default allowlist — users who want that flow can add the hosts to
-`.sandcat/settings.local.json` and run `codex login` manually inside
-the container.
+## Authentication
+
+Codex supports API-key and ChatGPT subscription authentication:
+
+- **API key:** Set `secrets.OPENAI_API_KEY.value` in `settings.json`.
+- **ChatGPT subscription:** Run `codex login --device-auth` in the sandbox. Open the URL on your host, enter the one-time code, and verify with `codex login status`. Use device login because the regular browser flow requires a callback the host browser cannot reach. If device-code login isn't available for your account or workspace, enable it in ChatGPT security settings or ask your workspace admin. Leave `secrets.OPENAI_API_KEY.value` empty. The login token is stored in the container; see [Subscription logins](../configuration/secrets.md#subscription-logins).
