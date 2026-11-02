@@ -31,6 +31,4 @@ isolated. Opt out with `SANDCAT_MOUNT_CODEX_CONFIG=false`.
 Codex supports API-key and ChatGPT subscription authentication:
 
 - **API key:** Set `secrets.OPENAI_API_KEY.value` in `settings.json`.
-- **ChatGPT subscription:** Run `codex login --device-auth` in the sandbox. Open the URL on your host, enter the one-time code, and verify with `codex login status`. Use device login because the regular browser flow requires a callback the host browser cannot reach. If device-code login isn’t available for your account or workspace, enable it in ChatGPT security settings or ask your workspace admin.
-
-If subscription login is being ignored, remove the `OPENAI_API_KEY` entry from `~/.config/sandcat/settings.json` and restart the sandbox.
+- **ChatGPT subscription:** Run `codex login --device-auth` in the sandbox. Open the URL on your host, enter the one-time code, and verify with `codex login status`. Use device login because the regular browser flow requires a callback the host browser cannot reach. If device-code login isn't available for your account or workspace, enable it in ChatGPT security settings or ask your workspace admin. Leave `secrets.OPENAI_API_KEY.value` empty. The login token is stored in the container; see [Subscription logins](../configuration/secrets.md#subscription-logins).

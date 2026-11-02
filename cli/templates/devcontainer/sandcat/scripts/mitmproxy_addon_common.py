@@ -542,6 +542,13 @@ class SandcatAddon:
                     print(f"WARNING: {e}", file=sys.stderr)
                     value = ""
             normalized = self._normalize_secret_value(value)
+            # An empty literal value means "not configured" (templates seed
+            # such entries). Exporting a placeholder would make agents think
+            # an API key is set and skip subscription login. Failed op/pass
+            # lookups stay exported, so a broken reference is still visible.
+            if source == "value" and not normalized:
+                ctx.log.info(f"Secret {name!r}: empty value, not exported")
+                continue
             self.secrets[name] = {
                 "value": normalized,
                 "hosts": entry.get("hosts", []),
