@@ -69,15 +69,31 @@ extract_search_domains() {
         "$resolv_conf"
 }
 
-# Write a dnsmasq config that splits DNS:
-#  - queries under any of the given search domains (the Docker compose project
-#    network) are forwarded to Docker's embedded DNS at 127.0.0.11,
-#  - everything else is forwarded to the upstream from dns.conf or defaults.
+# Write a dnsmasq config that splits DNS (#113):
+#  - unqualified single-label names (sibling containers) go to Docker's
+#    embedded DNS at 127.0.0.11 via the empty-domain rule `server=//...`,
+#  - every dotted name — including hosts under the container's search
+#    domains — is forwarded to the upstream from dns.conf or defaults,
+#    which routes through wg0 → mitmproxy for inspection and policy.
+#
+# Search domains are deliberately NOT routed to 127.0.0.11: Docker copies
+# the HOST's search domains into the container, so in corporate setups they
+# are intranet domains that only the custom upstream (dns_servers) can
+# resolve — routing them to Docker's resolver black-holed them via the
+# compose `dns:` exfiltration sink AND broke sibling lookups (libc's search
+# expansion never reached the bare name because `domain-needed` dropped it).
+# With the empty-domain rule, bare names resolve directly and search
+# expansion serves what it is for — short intranet names.
+#
+# Unknown single-label names still cannot leak: Docker's embedded resolver
+# forwards non-container names to the compose-configured `dns:` sink
+# (192.0.2.1), which is unroutable, so they fail without leaving the host.
 #
 # Args:
 #   $1     - path to dns.conf (sidecar from mitmproxy)
 #   $2     - path to dnsmasq config to write
-#   $3..$N - search domains routed to 127.0.0.11 (may be empty)
+#   $3..$N - search domains (unused here; kept for resolv.conf callers'
+#            symmetry and future use)
 write_dnsmasq_conf() {
     local dns_conf="$1"
     local out="$2"
@@ -91,16 +107,9 @@ write_dnsmasq_conf() {
         echo "bind-interfaces"
         echo "log-facility=-"
         echo "cache-size=1000"
-        # Drop dotless and RFC1918-reverse queries instead of forwarding them.
-        # Sibling-container resolution relies on libc expanding bare names via
-        # the search domain into FQDNs; any single-label query that still
-        # reaches dnsmasq has bypassed that path and shouldn't leak upstream.
-        echo "domain-needed"
         echo "bogus-priv"
-        local d
-        for d in "$@"; do
-            printf 'server=/%s/127.0.0.11\n' "$d"
-        done
+        # Empty-domain rule: applies ONLY to unqualified names.
+        echo "server=//127.0.0.11"
         local ns
         while IFS= read -r ns; do
             printf 'server=%s\n' "$ns"
@@ -109,13 +118,14 @@ write_dnsmasq_conf() {
 }
 
 # Write a resolv.conf that routes all queries through the local dnsmasq.
-# Search domains are preserved so that bare hostnames (e.g. another compose
-# service) get expanded by the libc resolver and routed to 127.0.0.11 by
-# dnsmasq's `server=/<search>/127.0.0.11` rules.
+# Search domains are preserved so that short intranet names (e.g. `foo` with
+# a corporate search domain `corp.example`) get expanded by the libc resolver
+# into FQDNs the upstream DNS can answer. Sibling containers do not need the
+# expansion: bare names are matched by dnsmasq's empty-domain rule
+# (`server=//127.0.0.11`) and answered by Docker's embedded resolver (#113).
 #
 # `options ndots:0` from the Docker-supplied resolv.conf is intentionally NOT
-# preserved — it would defeat the search-domain expansion path that lets
-# dnsmasq distinguish sibling-container queries from external ones.
+# preserved — search expansion for intranet short names should run first.
 #
 # Args:
 #   $1     - path to resolv.conf to overwrite
@@ -143,9 +153,10 @@ main() {
         test -f "$WG_JSON"
 
     # ── Snapshot search domains BEFORE we overwrite resolv.conf ────────────────
-    # Docker populates the container's resolv.conf with the compose project's
-    # default network as a search domain. We preserve it so single-label
-    # sibling-container lookups still work after dnsmasq takes over.
+    # Docker copies the host's search domains (and/or the compose network
+    # domain) into the container's resolv.conf. We preserve them so short
+    # intranet names expand to FQDNs the upstream DNS can answer; sibling
+    # containers resolve via the empty-domain dnsmasq rule instead (#113).
     local search_domains=()
     mapfile -t search_domains < <(extract_search_domains /etc/resolv.conf)
 
@@ -249,12 +260,13 @@ main() {
     ip6tables -A OUTPUT -o eth0 -j DROP
 
     # ── Local DNS forwarder ────────────────────────────────────────────────────
-    # Run dnsmasq on 127.0.0.1 so:
-    #  - sibling-container queries (matched via the compose project's search
-    #    domain) go to Docker's embedded resolver at 127.0.0.11 (loopback,
-    #    NAT'd to the daemon — never enters wg0),
-    #  - everything else goes to the upstream from dns.conf (or defaults),
-    #    which routes through wg0 → mitmproxy for inspection and policy.
+    # Run dnsmasq on 127.0.0.1 so (#113):
+    #  - unqualified single-label queries (sibling containers) go to Docker's
+    #    embedded resolver at 127.0.0.11 (loopback, NAT'd to the daemon —
+    #    never enters wg0),
+    #  - every dotted name — including hosts under the container's search
+    #    domains — goes to the upstream from dns.conf (or defaults), which
+    #    routes through wg0 → mitmproxy for inspection and policy.
     #
     # Outbound from dnsmasq stays inside the kill-switch installed above:
     #   - 127.0.0.11 traffic uses the lo interface (ACCEPT-ed),
